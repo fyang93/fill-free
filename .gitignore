@@ -1,0 +1,16 @@
+.venv/
+.direnv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+secrets.toml
+
+.local/*
+!.local/.gitignore
+
+workspace/*
+!workspace/.gitkeep

@@ -1,0 +1,27 @@
+[project]
+name = "notes-agent"
+version = "0.1.0"
+description = "CLI helpers for a local-first notes agent"
+readme = "README.md"
+authors = [
+    { name = "yang", email = "norepfy@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+notes-agent = "notes_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.10.10,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
