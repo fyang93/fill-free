@@ -1,8 +1,7 @@
 import pytest
 
-from notes_agent.frontmatter import (
+from memory_agent.frontmatter import (
     FrontmatterError,
-    extract_secret_keys,
     parse_markdown,
 )
 
@@ -68,16 +67,3 @@ tags: education
 
     with pytest.raises(FrontmatterError, match="tags"):
         parse_markdown(note_path)
-
-
-def test_extract_secret_keys_returns_unique_sorted_keys():
-    body = """
-我的高中是 {{education.high_school.name}}。
-毕业时间 {{education.high_school.end_date}}。
-再次提到 {{education.high_school.name}}。
-"""
-
-    assert extract_secret_keys(body) == [
-        "education.high_school.end_date",
-        "education.high_school.name",
-    ]

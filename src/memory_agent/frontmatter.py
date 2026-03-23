@@ -2,12 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 import yaml
-
-
-SECRET_KEY_PATTERN = re.compile(r"\{\{([a-zA-Z0-9_.-]+)\}\}")
 
 
 class FrontmatterError(ValueError):
@@ -71,7 +67,3 @@ def parse_markdown(note_path: Path) -> ParsedMarkdown:
         ),
         body=body.lstrip("\n"),
     )
-
-
-def extract_secret_keys(text: str) -> list[str]:
-    return sorted({match.group(1) for match in SECRET_KEY_PATTERN.finditer(text)})

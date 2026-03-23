@@ -1,5 +1,5 @@
 {
-  description = "Notes Env";
+  description = "Fill Free dev shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -20,14 +20,11 @@
       {
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [
-            fd
-            just
-            ripgrep
             uv
+            fd
+            ripgrep
+            just
           ];
-          shellHook = ''
-            echo "Hi, this is your notes!"
-          '';
         };
       }
     );

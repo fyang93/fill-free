@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 
-from notes_agent.indexing import build_indexes
-from notes_agent.query import (
+import pytest
+
+from memory_agent.registry import load_note_records
+from memory_agent.indexing import mark_note_used, rebuild_index
+from memory_agent.query import (
     find_titles,
     get_body,
     get_frontmatter,
@@ -14,41 +17,77 @@ from notes_agent.query import (
 from tests.helpers import write_note
 
 
-def test_body_access_increments_usage_but_frontmatter_does_not(tmp_path):
+def test_body_and_frontmatter_are_read_only(tmp_path):
     write_note(tmp_path, "memory/a.md", title="Alpha", tags=["shared"], body="A body\n")
-    build_indexes(tmp_path)
+    load_note_records(tmp_path)
 
     get_frontmatter(tmp_path, "Alpha")
-    assert _read_usage(tmp_path) == {}
-
     get_body(tmp_path, "Alpha")
 
-    assert _read_usage(tmp_path) == {"memory/a.md": 1}
+    assert not (tmp_path / ".local").exists()
 
 
-def test_list_find_and_tag_sort_by_usage_then_title(tmp_path):
+def test_list_find_and_tag_sort_by_title(tmp_path):
+    write_note(
+        tmp_path, "memory/gamma.md", title="Gamma", tags=["shared"], body="G body\n"
+    )
     write_note(
         tmp_path, "memory/alpha.md", title="Alpha", tags=["shared"], body="A body\n"
     )
     write_note(
         tmp_path, "memory/beta.md", title="Beta", tags=["shared"], body="B body\n"
     )
-    write_note(
-        tmp_path, "memory/gamma.md", title="Gamma", tags=["shared"], body="G body\n"
+    load_note_records(tmp_path)
+
+    assert list_titles(tmp_path, limit=20) == ["Alpha", "Beta", "Gamma"]
+    assert find_titles(tmp_path, "a") == ["Alpha", "Beta", "Gamma"]
+    assert tag_titles(tmp_path, "shared") == ["Alpha", "Beta", "Gamma"]
+
+
+def test_mark_note_used_updates_usage_without_changing_static_index(tmp_path):
+    write_note(tmp_path, "memory/a.md", title="Alpha", tags=["shared"], body="A body\n")
+    rebuild_index(tmp_path)
+
+    mark_note_used(tmp_path, "Alpha")
+
+    usage = json.loads((tmp_path / "index" / "usage.json").read_text(encoding="utf-8"))
+    notes_index_lines = (
+        (tmp_path / "index" / "notes.jsonl").read_text(encoding="utf-8").splitlines()
     )
-    build_indexes(tmp_path)
 
-    get_body(tmp_path, "Beta")
-    get_body(tmp_path, "Beta")
-    get_body(tmp_path, "Gamma")
-
-    assert list_titles(tmp_path, limit=20) == ["Beta", "Gamma", "Alpha"]
-    assert find_titles(tmp_path, "a") == ["Beta", "Gamma", "Alpha"]
-    assert tag_titles(tmp_path, "shared") == ["Beta", "Gamma", "Alpha"]
+    assert usage["memory/a.md"]["use_count"] == 1
+    assert len(notes_index_lines) == 1
 
 
-def _read_usage(root):
-    usage_path = root / ".local" / "usage.json"
-    if not usage_path.exists():
-        return {}
-    return json.loads(usage_path.read_text(encoding="utf-8"))
+def test_rebuild_index_prunes_usage_for_deleted_notes(tmp_path):
+    note_path = write_note(
+        tmp_path,
+        "memory/a.md",
+        title="Alpha",
+        tags=["shared"],
+        body="A body\n",
+    )
+    rebuild_index(tmp_path)
+    mark_note_used(tmp_path, "Alpha")
+
+    note_path.unlink()
+    rebuild_index(tmp_path)
+
+    usage = json.loads((tmp_path / "index" / "usage.json").read_text(encoding="utf-8"))
+
+    assert usage == {}
+
+
+def test_mark_note_used_rejects_deleted_note_when_index_is_stale(tmp_path):
+    note_path = write_note(
+        tmp_path,
+        "memory/a.md",
+        title="Alpha",
+        tags=["shared"],
+        body="A body\n",
+    )
+    rebuild_index(tmp_path)
+    note_path.unlink()
+
+    with pytest.raises(FileNotFoundError):
+        mark_note_used(tmp_path, "Alpha")

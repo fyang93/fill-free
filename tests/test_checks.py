@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from notes_agent.checks import CheckError, run_checks
-from notes_agent.indexing import build_indexes
-from notes_agent.secrets import add_secret_keys
+from memory_agent.checks import CheckError, run_checks
 
 from tests.helpers import write_note
 
@@ -15,38 +13,26 @@ def test_run_checks_passes_for_valid_repo(tmp_path):
         "memory/profile/high-school.md",
         title="高中经历",
         tags=["education"],
-        body="{{education.high_school.name}}\n",
-    )
-    build_indexes(tmp_path)
-    add_secret_keys(tmp_path)
-    (tmp_path / "secrets.toml").write_text(
-        """
-[education.high_school]
-name = "杭州第二中学"
-""".strip()
-        + "\n",
-        encoding="utf-8",
+        body="我的高中是杭州第二中学。\n",
     )
 
     run_checks(tmp_path)
 
 
-def test_run_checks_rejects_invalid_tag_and_missing_secret(tmp_path):
+def test_run_checks_rejects_invalid_tag(tmp_path):
     write_note(
         tmp_path,
         "memory/profile/high-school.md",
         title="高中经历",
         tags=["bad tag"],
-        body="{{education.high_school.name}}\n",
+        body="正文\n",
     )
-    build_indexes(tmp_path)
-    add_secret_keys(tmp_path)
 
     with pytest.raises(CheckError, match="bad tag"):
         run_checks(tmp_path)
 
 
-def test_run_checks_requires_index_files(tmp_path):
+def test_run_checks_passes_without_persistent_index_files(tmp_path):
     write_note(
         tmp_path,
         "memory/profile/high-school.md",
@@ -55,5 +41,16 @@ def test_run_checks_requires_index_files(tmp_path):
         body="正文\n",
     )
 
-    with pytest.raises(CheckError, match="index"):
-        run_checks(tmp_path)
+    run_checks(tmp_path)
+
+
+def test_run_checks_ignores_placeholder_like_text(tmp_path):
+    write_note(
+        tmp_path,
+        "memory/profile/high-school.md",
+        title="高中经历",
+        tags=["education"],
+        body="正文里保留 {{temporary.template}} 也不会触发额外校验。\n",
+    )
+
+    run_checks(tmp_path)
