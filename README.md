@@ -2,14 +2,35 @@
 
 [中文说明](README.zh-CN.md)
 
-Fill Free is a local-first personal memory repo: save reusable facts and supporting files once, then use them again for forms, applications, and document prep.
+Fill Free is a local-first repo for AI-managed personal memory. You tell AI what to remember, update, organize, or archive, and the repo stores reusable notes and linked files for later form filling, applications, and document prep.
 
-## What To Use It For
+## How You Use It
 
-- keep reusable personal info in `memory/`
-- keep related files in `assets/`
-- use `workspace/` as a temporary drop zone for files you want AI to sort or prepare
-- retrieve existing notes quickly with `just` commands
+You usually do not write notes in `memory/` by hand.
+
+- tell AI to remember or update reusable personal facts
+- put files in `workspace/` and ask AI to organize them
+- let AI move long-term files into `assets/` and link them from notes
+- ask AI to retrieve existing information when you need it again
+
+## Typical Requests
+
+```text
+Please remember that my birthday is 2000-01-01.
+Update my profile: my current phone number is 13800000000.
+I put my diploma in workspace/. Please organize it into memory.
+These two files are my ID card front and back. Store them and link them in my profile.
+Please organize the materials I need for this visa application.
+```
+
+By default, AI organizes files using filenames and your instructions. It does not read document contents unless you explicitly ask it to.
+
+## What The Repo Stores
+
+- `memory/`: committed AI-safe Markdown notes managed by the agent
+- `assets/`: long-term stored files and attachments
+- `workspace/`: temporary drop zone for files and intermediate outputs
+- `index/`: generated local indexes used for retrieval
 
 ## Setup
 
@@ -27,39 +48,9 @@ Install dependencies:
 uv sync
 ```
 
-## Project Layout
+## Commands
 
-- `memory/`: committed AI-safe Markdown notes
-- `assets/`: stored documents and attachments
-- `workspace/`: temporary working area
-- `index/`: generated local indexes
-
-## Basic Workflow
-
-1. Put reusable facts into a note under `memory/`.
-2. Put related files into `workspace/` first if they still need sorting.
-3. Move long-term files into `assets/` and link them from notes.
-4. Run `just index` after adding, renaming, moving, or retagging notes.
-5. Run `just check` to validate notes.
-
-## Note Format
-
-Notes live under `memory/` and use frontmatter like this:
-
-```md
----
-title: "Profile"
-date: "2026-03-23"
-tags: ["profile"]
-aliases: ["personal info"]
----
-
-My birthday is 1993-09-06.
-```
-
-Required fields: `title`, `date`, `tags`.
-
-## Common Commands
+The CLI is mainly for retrieval and maintenance behind the skill:
 
 ```bash
 just list
@@ -72,16 +63,11 @@ just index
 just check
 ```
 
-Use these in a simple order:
-
-1. `just find QUERY` or `just tag TAG`
-2. `just list`
-3. `just frontmatter NOTE` or `just body NOTE`
-4. `just search PATTERN` if you need raw body text search
+In normal use, ask AI first. These commands are most useful when you want to inspect stored notes, rebuild indexes, or validate the repo.
 
 ## Sensitive Data
 
-Do not casually store highly sensitive values like passwords, API keys, private keys, recovery codes, credit card numbers, or CVV. Ordinary personal details can be stored when you explicitly want them remembered.
+Normal personal facts can be stored when you explicitly ask. For highly sensitive values such as passwords, API keys, private keys, recovery codes, credit card numbers, or CVV, AI should warn before storing them.
 
 ## Verify
 
