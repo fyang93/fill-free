@@ -15,3 +15,13 @@ workspace/*
 
 index/*
 !index/.gitkeep
+
+memory/**
+!memory/**/
+!memory/.gitkeep
+!memory/**/.gitkeep
+
+assets/**
+!assets/**/
+!assets/.gitkeep
+!assets/**/.gitkeep

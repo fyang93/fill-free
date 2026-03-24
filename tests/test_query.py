@@ -71,6 +71,24 @@ def test_frontmatter_and_body_return_requested_sections(tmp_path):
     assert "我的高中是" in body
 
 
+def test_frontmatter_and_body_accept_unique_aliases(tmp_path):
+    write_note(
+        tmp_path,
+        "memory/profile/high-school.md",
+        title="高中经历",
+        tags=["education"],
+        aliases=["高中"],
+        body="我的高中是 {{education.high_school.name}}。\n",
+    )
+    load_note_records(tmp_path)
+
+    frontmatter = get_frontmatter(tmp_path, "高中")
+    body = get_body(tmp_path, "高中")
+
+    assert 'aliases: ["高中"]' in frontmatter
+    assert "我的高中是" in body
+
+
 def test_frontmatter_rejects_existing_paths_outside_indexed_notes(tmp_path):
     write_note(
         tmp_path,
@@ -85,6 +103,29 @@ def test_frontmatter_rejects_existing_paths_outside_indexed_notes(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         get_frontmatter(tmp_path, "outside.md")
+
+
+def test_frontmatter_rejects_ambiguous_aliases(tmp_path):
+    write_note(
+        tmp_path,
+        "memory/profile/high-school.md",
+        title="高中经历",
+        tags=["education"],
+        aliases=["学校"],
+        body="正文\n",
+    )
+    write_note(
+        tmp_path,
+        "memory/profile/college.md",
+        title="大学经历",
+        tags=["education"],
+        aliases=["学校"],
+        body="正文\n",
+    )
+    load_note_records(tmp_path)
+
+    with pytest.raises(ValueError, match="Multiple notes match alias"):
+        get_frontmatter(tmp_path, "学校")
 
 
 def test_list_titles_prefers_hot_notes_from_usage_data(tmp_path):

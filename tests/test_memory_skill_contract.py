@@ -38,8 +38,12 @@ def test_skill_documents_retrieval_and_sensitive_warning_markers():
         "## retrieval order",
         "just find query",
         "just tag tag",
+        "just list",
         "just body note",
         "just search pattern",
+        "does not prove there is no related markdown",
+        "only match indexed path, title, tag, and alias data",
+        "if `just list` still does not surface a strong candidate, continue to `just search`",
         "## sensitive data rules",
         "warn only for highly sensitive operational or financial values",
         "value may enter ai context",
@@ -47,6 +51,18 @@ def test_skill_documents_retrieval_and_sensitive_warning_markers():
         "if the user explicitly insists, proceed carefully",
     ]:
         assert marker in content.lower()
+
+
+def test_skill_documents_required_date_and_alias_follow_up_rules():
+    content = SKILL_PATH.read_text(encoding="utf-8").lower()
+
+    for marker in [
+        "keep `date` required and formatted as `yyyy-mm-dd`",
+        "prefer the returned title or path as `note`",
+        "unique aliases also resolve",
+        "canonical refs are less ambiguous",
+    ]:
+        assert marker in content
 
 
 def test_skill_documents_link_only_file_organization_defaults():

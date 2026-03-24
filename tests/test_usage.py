@@ -59,6 +59,24 @@ def test_mark_note_used_updates_usage_without_changing_static_index(tmp_path):
     assert len(notes_index_lines) == 1
 
 
+def test_mark_note_used_accepts_unique_aliases(tmp_path):
+    write_note(
+        tmp_path,
+        "memory/a.md",
+        title="Alpha",
+        tags=["shared"],
+        aliases=["A-note"],
+        body="A body\n",
+    )
+    rebuild_index(tmp_path)
+
+    mark_note_used(tmp_path, "A-note")
+
+    usage = json.loads((tmp_path / "index" / "usage.json").read_text(encoding="utf-8"))
+
+    assert usage["memory/a.md"]["use_count"] == 1
+
+
 def test_rebuild_index_prunes_usage_for_deleted_notes(tmp_path):
     note_path = write_note(
         tmp_path,

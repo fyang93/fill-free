@@ -51,6 +51,24 @@ date: "2026-03-23"
         parse_markdown(note_path)
 
 
+def test_parse_markdown_rejects_missing_date(tmp_path):
+    note_path = tmp_path / "note.md"
+    note_path.write_text(
+        """---
+title: "缺少日期"
+tags:
+  - education
+---
+
+正文
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FrontmatterError, match="date is required"):
+        parse_markdown(note_path)
+
+
 def test_parse_markdown_rejects_non_list_tags(tmp_path):
     note_path = tmp_path / "note.md"
     note_path.write_text(

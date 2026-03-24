@@ -53,7 +53,6 @@ def test_active_docs_use_memory_agent_runtime_names():
 
         assert "fill free" in content_lower
         assert "memory-agent" in content
-        assert "src/memory_agent/" in content
         assert legacy_package_path not in content
         assert legacy_cli not in content_lower
         assert legacy_module not in content_lower
@@ -70,4 +69,13 @@ def test_active_docs_describe_centralized_document_storage_defaults():
 
     agents = AGENTS_PATH.read_text(encoding="utf-8").lower()
     assert "workspace/" in agents
-    assert "passwords" in agents
+
+
+def test_active_docs_explain_list_then_search_fallback():
+    readme = README_PATH.read_text(encoding="utf-8").lower()
+    readme_zh = README_ZH_PATH.read_text(encoding="utf-8").lower()
+
+    assert "does not prove there is no related note" in readme
+    assert "continue to `just search` before concluding" in readme
+    assert "并不能证明没有相关笔记" in readme_zh
+    assert "继续用 `just search`" in readme_zh

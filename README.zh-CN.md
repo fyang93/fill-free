@@ -65,6 +65,8 @@ just check
 
 日常使用时优先直接对 AI 提需求；这些命令更适合在你想查看现有笔记、重建索引或校验仓库时使用。
 
+`just find` 或 `just tag` 没命中，并不能证明没有相关笔记。可以先用 `just list` 浏览候选项，如果还没有结果，再继续用 `just search`。
+
 ## 敏感信息
 
 普通个人信息在你明确要求时可以直接记录。对密码、API key、private key、recovery code、银行卡号、CVV 这类高度敏感的信息，AI 应先提醒风险，再决定是否继续处理。

@@ -148,6 +148,17 @@ def resolve_note_record(root: Path, note_ref: str) -> NoteRecord:
         return title_matches[0]
     if len(title_matches) > 1:
         raise ValueError(f"Multiple notes match title: {note_ref}")
+
+    alias_matches = [
+        note
+        for note in notes
+        if note_ref in note.aliases and (root / note.path).exists()
+    ]
+    if len(alias_matches) == 1:
+        return alias_matches[0]
+    if len(alias_matches) > 1:
+        raise ValueError(f"Multiple notes match alias: {note_ref}")
+
     raise FileNotFoundError(note_ref)
 
 

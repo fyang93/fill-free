@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-Fill Free is a local-first repo for AI-managed personal memory. You tell AI what to remember, update, organize, or archive, and the repo stores reusable notes and linked files for later form filling, applications, and document prep.
+Fill Free is a local-first repo for AI-managed personal memory. You use `memory-agent` to tell AI what to remember, update, organize, or archive, and the repo stores reusable notes and linked files for later form filling, applications, and document prep.
 
 ## How You Use It
 
@@ -27,7 +27,7 @@ By default, AI organizes files using filenames and your instructions. It does no
 
 ## What The Repo Stores
 
-- `memory/`: committed AI-safe Markdown notes managed by the agent
+- `memory/`: committed AI-safe Markdown notes managed by `memory-agent`
 - `assets/`: long-term stored files and attachments
 - `workspace/`: temporary drop zone for files and intermediate outputs
 - `index/`: generated local indexes used for retrieval
@@ -64,6 +64,8 @@ just check
 ```
 
 In normal use, ask AI first. These commands are most useful when you want to inspect stored notes, rebuild indexes, or validate the repo.
+
+A miss from `just find` or `just tag` does not prove there is no related note. Use `just list` to browse likely matches, then continue to `just search` before concluding that the repo does not have what you need.
 
 ## Sensitive Data
 

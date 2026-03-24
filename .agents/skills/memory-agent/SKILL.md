@@ -7,125 +7,115 @@ description: Use when working inside this repository to store or retrieve durabl
 
 ## Overview
 
-This repository stores AI-safe markdown in `memory/`, generated indexes in `index/`, temporary working files in `workspace/`, and organized files under `assets/`. A major use case is keeping reusable personal information and linked materials ready so later workflows can fill forms or prepare application packets more easily.
+This repository stores AI-safe markdown in `memory/`, generated indexes in `index/`, temporary working files in `workspace/`, and organized files under `assets/`. A major use case is keeping reusable personal information and linked materials ready for later form-filling or application workflows.
 
-Use the CLI instead of ad-hoc file scanning so retrieval stays cheap and predictable. This skill owns retrieval, durable user memory workflows, the decision of how to turn temporary workspace files into linked long-term memory records, and the responsibility to keep note indexes in sync after note changes.
+Use the CLI for retrieval instead of ad-hoc scanning so lookups stay cheap and predictable. This skill decides what should become memory, which note to update, how `workspace/` files should be organized, and when indexes need rebuilding.
 
-## Capability Boundaries
+## Boundaries And Commands
 
-- The CLI provides retrieval, index maintenance, usage tracking, and validation commands: `just list`, `just find`, `just tag`, `just frontmatter`, `just body`, `just search`, `just index`, `just use`, `just check`.
-- This skill decides when user input should become memory, which existing note should be updated, and how `workspace/` files should be organized and linked.
-- This skill should keep an eye on later fill-free workflows: repeated form fields, supporting documents, and reusable application facts are all good fits for durable memory.
-- Note creation, note editing, file moves, and asset linking are workflow behaviors carried out by the agent; they are not first-class CLI subcommands today.
-- `fd` and `rg` are support tools for index rebuilds and body search, not schema validators.
+- The CLI provides retrieval, index maintenance, usage tracking, and validation: `just list`, `just find`, `just tag`, `just frontmatter`, `just body`, `just search`, `just index`, `just use`, `just check`.
+- This skill decides whether to store a fact, update an existing note, create a new note, move or copy workspace files, and add links between notes and files.
+- Repeated form fields, supporting documents, and reusable application facts are strong memory candidates.
+- `fd` and `rg` are support tools for index sync and raw body search, not schema validators.
 
 ## Retrieval Order
 
-Always search from cheapest to most expensive with indexed retrieval first:
+Search from cheapest to most expensive:
 
 1. `just find QUERY`
 2. `just tag TAG`
-3. `just list` (or `just list 10` / `just list 100`) if earlier commands miss
+3. `just list` (or `just list 10` / `just list 100`)
 4. `just frontmatter NOTE`
 5. `just body NOTE`
 6. `just search PATTERN` only as the final fallback
 
-`just list`, `just find`, and `just tag` should prefer `index/` when it exists. They may silently sync the index when current note paths or file timestamps no longer match `index/state.json`, using incremental updates when possible and falling back to a full rebuild when needed. `just search` remains the raw body-search fallback.
+Rules:
 
-## Memory Capture Rules
+- `just list`, `just find`, and `just tag` prefer `index/` and may sync it automatically when `index/state.json` is stale.
+- A miss from `just find` or `just tag` does not prove there is no related markdown; those commands only match indexed path, title, tag, and alias data.
+- If `just list` still does not surface a strong candidate, continue to `just search` before concluding that no related markdown exists.
+- Read frontmatter or body only after identifying a plausible note.
+- When a step identifies a note, prefer the returned title or path as `NOTE`; unique aliases also resolve, but canonical refs are less ambiguous.
 
-- Record durable user facts and explicit remember/save requests.
-- Treat reusable form-filling facts and supporting document organization as first-class memory candidates.
-- When users place temporary documents in `workspace/` and ask AI to organize, archive, or turn them into memory, move the files into a centralized document path by default, add note links plus any user-supplied metadata, and only copy instead when the user explicitly asks to keep the working copy.
-- Do not OCR, parse, summarize, or extract facts from document contents by default. Only process the file contents when the user explicitly asks for that.
-- For file-organization requests, use the filename plus the user's instructions as the source of truth.
-- Record items when the user explicitly asks you to remember, save, record, store, or update something for later retrieval.
+## What To Capture
+
+- Record durable user facts and explicit remember, save, record, store, or update requests.
+- Treat reusable form-filling facts and supporting document organization as first-class memory.
 - Do not treat ordinary conversation as memory.
-- Do not treat preferences, habits, moods, or speculation as memory unless the user explicitly asks to store them.
-- Do not interrupt users for every personal detail. Only warn when the value is highly sensitive, such as a password, API key, private key, recovery code, credit card number, or CVV.
-- If a user provides a highly sensitive value, warn briefly that sharing it with AI is risky and that this repository no longer has a separate local secret-storage path.
-- If the user still explicitly insists after that warning, proceed with the minimum necessary handling and do not repeat the raw value unless the task truly requires it.
+- Do not store preferences, habits, moods, or speculation unless the user explicitly asks.
+- Do not interrupt users for every personal detail. Only warn when the value is highly sensitive.
 - If the information is clear and unambiguous, update the note without asking for confirmation.
 - If the information is ambiguous, inferred, or likely to be misinterpreted, ask a short confirmation before writing.
 
-## Trigger Examples
-
-- Store directly in markdown: "My legal name is Amy and my birthday is 1996-01-22."
-- Store directly: "My government ID number is 330102..."
-- Warn first, then proceed only if the user insists: "My card CVV is ..."
-- Store from workspace files: "I put my diploma in `workspace/`; help organize it into memory."
-- Produce into workspace: "整理一下这些资料，结果先输出到 `workspace/`。"
-- Link-only storage: "These two files are my ID card front and back. Store them and link them in my profile."
-- Prepare reusable application materials: "整理一下我这次签证申请要用的资料和信息。"
-- Store directly: "Help me remember this song: Qing Tian."
-- Do not store by default: "Nice weather today."
-- Ask before storing: "I might be more of a frontend engineer."
-
-## Frontmatter Convention
-
-- Use a frontmatter block wrapped by `---` at the top of every note.
-- In practice, keep frontmatter limited to these fields: `title`, `date`, `tags`, `aliases`, `summary`.
-- Keep field names in lowercase English.
-- Keep `title`, `date`, and `summary` as single-line scalar values.
-- Keep `date` in `YYYY-MM-DD` when present.
-- Keep `tags` and `aliases` on one line as array literals such as `tags: ["profile", "education"]`.
-- Keep `tags` in English `kebab-case`.
-- Avoid multiline YAML values, nested objects, block scalars, anchors, or custom YAML features.
-- Keep one field per line, then leave one blank line before the body.
-- This convention exists so repo-local indexing can parse notes consistently and rebuild `index/notes.jsonl`, `index/tags.json`, and `index/state.json` from markdown.
-- `rg` alone cannot guarantee arbitrary YAML is query-safe; hard guarantees require stricter validation in code.
-
-## Writing Memory
-
-1. Search for the most relevant existing note first.
-2. Update that note if its title, aliases, tags, or existing topic clearly match the memory item.
-3. If multiple notes seem possible, prefer the note whose title or aliases most directly name the subject.
-4. If no note is a good fit, create a new topic-focused note under `memory/`.
-5. Prefer English note paths and filenames such as `memory/profile.md`, `memory/education.md`, or `memory/work.md`, while titles and body text may still be Chinese.
-6. Write frontmatter that follows repository conventions and the frontmatter convention above.
-7. Keep committed markdown AI-safe.
-8. Use Chinese for note title and body by default unless the content itself is best kept in another language.
-9. Use English `kebab-case` tags.
-10. When creating, renaming, moving, or deleting notes under `memory/`, or when changing indexed frontmatter fields such as `title`, `tags`, or `aliases`, run `just index` so `index/` stays in sync.
-11. When a note was actually used to complete a concrete downstream task, run `just use NOTE` so hot-note ordering stays meaningful.
-12. Do not call `just use NOTE` for ordinary searches, inspections, or exploratory lookups.
-13. Body-only edits usually do not require a manual `just index`, though metadata commands may still refresh the index opportunistically when timestamps move ahead of the indexed snapshot.
-14. Preserve the frontmatter convention so indexing stays reliable.
-15. Run `just check` before claiming the repository state is valid.
-
 ## Sensitive Data Rules
 
-This repository no longer uses a separate local-secret workflow. By default, memory is written directly into notes or linked through files.
+This repository no longer has a separate local-secret workflow.
 
-- Do not warn for every personal field; normal profile facts can be handled directly when the user asks.
-- Warn only for highly sensitive operational or financial values, such as passwords, API keys, private keys, recovery codes, credit card numbers, or CVV.
-- In that warning, briefly explain that the value may enter AI context and that the repository has no separate local-only secret storage path.
+- Handle ordinary personal profile fields directly when the user asks.
+- Warn only for highly sensitive operational or financial values such as passwords, API keys, private keys, recovery codes, credit card numbers, or CVV.
+- In that warning, briefly say the value may enter AI context and there is no separate local-only secret storage path here.
 - If the user does not insist, do not store the value.
-- If the user explicitly insists, proceed carefully and store only what is necessary for the requested task.
-- Avoid repeating the raw value back to the user unless the task truly requires it.
+- If the user explicitly insists, proceed carefully, do the minimum necessary handling, and avoid repeating the raw value unless required.
 
-## Workspace and External File Skills
+## Note Format
 
-For files placed in `workspace/`:
+- Every note starts with `---` frontmatter.
+- Keep frontmatter limited to `title`, `date`, `tags`, `aliases`, `summary`.
+- Use lowercase English field names.
+- Keep `date` required and formatted as `YYYY-MM-DD`.
+- Keep `title`, `date`, and `summary` as single-line scalars.
+- Keep `tags` and `aliases` on one line as array literals, such as `tags: ["profile", "education"]`.
+- Keep `tags` in English `kebab-case`.
+- Avoid multiline YAML values, nested objects, block scalars, anchors, and custom YAML features.
+- Leave one blank line between frontmatter and body.
 
-- treat `workspace/` as a temporary working area for both user-provided materials and AI-produced intermediate outputs
-- unless the user explicitly asks otherwise, do not inspect the file contents; organize by filename and user instructions only
-- move organized files into sensible English subpaths under `assets/`, such as `assets/imgs/`, `assets/docs/`, or other topic-based folders, so files stay centralized instead of being scattered next to note files
-- copy instead of move only when the user explicitly asks to keep the original file in `workspace/`
-- prefer English path names for both note files and stored documents
-- add markdown links from the relevant note, for example `[身份证正面照片](../assets/imgs/id-card-front.jpg)` in `memory/profile.md`
-- when the user wants temporary outputs, drafts, or sorted working files, write them under `workspace/` unless they explicitly ask for a long-term destination
+## Writing And Updating Memory
+
+1. Search for the best existing note first.
+2. Update that note when its title, aliases, tags, or topic clearly match.
+3. If multiple notes might fit, prefer the one whose title or aliases most directly name the subject.
+4. If no note fits, create a new topic-focused note under `memory/`.
+
+Writing defaults:
+
+- Prefer English note paths and filenames such as `memory/profile.md` or `memory/education.md`.
+- Use Chinese for note title and body by default unless another language is clearly better for the content.
+- Keep tags in English `kebab-case`.
+- Keep committed markdown AI-safe.
+- Preserve the frontmatter convention so indexing stays reliable.
+
+Command timing:
+
+- Run `just index` after creating, renaming, moving, or deleting notes in `memory/`, or after changing indexed frontmatter fields such as `title`, `tags`, or `aliases`.
+- Body-only edits usually do not need a manual `just index`, though metadata commands may refresh indexes opportunistically.
+- Run `just use NOTE` only when a note was actually used in a concrete downstream task, not for ordinary lookup.
+- Run `just check` before claiming the repository state is valid.
+
+## Workspace And Files
+
+For files in `workspace/`:
+
+- Treat `workspace/` as a temporary area for user-provided materials and AI-produced outputs.
+- Do not OCR, parse, summarize, or extract facts from document contents by default.
+- Unless the user explicitly asks otherwise, do not inspect the file contents; organize by filename and user instructions only.
+- Use the filename plus the user's instructions as the source of truth.
+- When the user asks to organize, archive, or turn those files into memory, move organized files into sensible English subpaths under `assets/` by default, such as `assets/imgs/` or `assets/docs/`, instead of being scattered next to note files.
+- Copy instead of move only when the user explicitly asks to keep the original in `workspace/`.
+- Prefer English path names for both note files and stored documents.
+- Add markdown links from the relevant note, for example `[身份证正面照片](../assets/imgs/id-card-front.jpg)`.
+- When the user wants temporary drafts or working outputs, write them back to `workspace/` unless they ask for a long-term destination.
 
 For PDF, spreadsheet, or other document-filling skills:
 
-- use this repository for memory organization, centralized file linking, and retrieval
-- let the external skill handle file parsing and writing
-- stop and ask the user when required information is missing
+- Use this repository for memory organization, centralized file linking, and retrieval.
+- Let the external skill handle file parsing and file writing.
+- Stop and ask only when required information is missing.
 
-## Writing Rules
+## Trigger Examples
 
-- `body` defaults to Chinese
-- `title` defaults to Chinese
-- `tags` stay in English `kebab-case`
-- `paths` prefer English names
-- keep committed markdown AI-safe at all times
+- Store directly: "My legal name is Amy and my birthday is 1996-01-22."
+- Store directly: "Help me remember this song: Qing Tian."
+- Warn first: "My card CVV is ..."
+- Organize from workspace: "I put my diploma in `workspace/`; help organize it into memory."
+- Do not store by default: "Nice weather today."
+- Ask before storing: "I might be more of a frontend engineer."

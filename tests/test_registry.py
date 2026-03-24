@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 import memory_agent.registry as registry_module
-from memory_agent.registry import load_note_records, load_tag_map
+import pytest
+from memory_agent.registry import load_note_records, load_tag_map, resolve_note_record
 from memory_agent.indexing import rebuild_index
 
 from tests.helpers import write_note
@@ -140,3 +141,40 @@ def test_rebuild_index_reparses_only_changed_notes_when_state_exists(
     ]
     assert [line["title"] for line in note_lines] == ["Alpha", "Beta 2"]
     assert first_path.relative_to(tmp_path).as_posix() == note_lines[0]["path"]
+
+
+def test_resolve_note_record_accepts_unique_alias(tmp_path):
+    write_note(
+        tmp_path,
+        "memory/profile/high-school.md",
+        title="高中经历",
+        tags=["education"],
+        aliases=["高中"],
+        body="正文\n",
+    )
+
+    note = resolve_note_record(tmp_path, "高中")
+
+    assert note.path == "memory/profile/high-school.md"
+
+
+def test_resolve_note_record_rejects_ambiguous_alias(tmp_path):
+    write_note(
+        tmp_path,
+        "memory/profile/high-school.md",
+        title="高中经历",
+        tags=["education"],
+        aliases=["学校"],
+        body="正文\n",
+    )
+    write_note(
+        tmp_path,
+        "memory/profile/college.md",
+        title="大学经历",
+        tags=["education"],
+        aliases=["学校"],
+        body="正文\n",
+    )
+
+    with pytest.raises(ValueError, match="Multiple notes match alias"):
+        resolve_note_record(tmp_path, "学校")
