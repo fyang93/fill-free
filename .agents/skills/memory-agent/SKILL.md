@@ -13,7 +13,10 @@ Use the CLI for retrieval instead of ad-hoc scanning so lookups stay cheap and p
 
 ## Boundaries And Commands
 
-- The CLI provides retrieval, index maintenance, usage tracking, and validation: `just list`, `just find`, `just tag`, `just frontmatter`, `just body`, `just search`, `just index`, `just use`, `just check`.
+- The CLI provides retrieval, index maintenance, usage tracking, and validation through a small orthogonal command set: `just list`, `just find`, `just frontmatter`, `just body`, `just search`, `just index`, `just use`, `just check`.
+- Prefer flags over extra wrapper recipes: use `--paths`, `--top`, `--files`, `--max-count`, `--context`, and `--summary` on those base commands.
+- `just find` accepts one or more space-separated query terms, for example `just find bank account` or `just find 银行 bank account 三井 住友`.
+- Prefer `just find --top 3 --paths QUERY` for retrieval when only a few likely candidates are needed; shorter output saves token budget.
 - This skill decides whether to store a fact, update an existing note, create a new note, move or copy workspace files, and add links between notes and files.
 - Repeated form fields, supporting documents, and reusable application facts are strong memory candidates.
 - `fd` and `rg` are support tools for index sync and raw body search, not schema validators.
@@ -22,19 +25,32 @@ Use the CLI for retrieval instead of ad-hoc scanning so lookups stay cheap and p
 
 Search from cheapest to most expensive:
 
-1. `just find QUERY`
-2. `just tag TAG`
-3. `just list` (or `just list 10` / `just list 100`)
-4. `just frontmatter NOTE`
-5. `just body NOTE`
-6. `just search PATTERN` only as the final fallback
+1. `just find --top 3 --paths QUERY`
+   - Use this default when you only need the most likely few candidates and want the lowest-token output.
+2. `just find --top 3 QUERY`
+   - Use this when titles are easier for the current task than paths.
+3. `just find QUERY`
+   - Multi-term queries are broad metadata lookups over indexed path, title, tag, and alias fields. They are space-joined and matched term-by-term, so `just find 银行 bank account 三井 住友` is valid.
+4. `just list --paths 10` (or `just list --paths 100`)
+5. `just list` (or `just list 10` / `just list 100`)
+6. `just frontmatter --summary NOTE`
+7. `just frontmatter NOTE`
+8. `just body NOTE`
+9. `just search --files PATTERN`
+10. `just search --context 2 --max-count 1 PATTERN`
+11. `just search PATTERN` only as the final fallback
 
 Rules:
 
-- `just list`, `just find`, and `just tag` prefer `index/` and may sync it automatically when `index/state.json` is stale.
-- A miss from `just find` or `just tag` does not prove there is no related markdown; those commands only match indexed path, title, tag, and alias data.
+- `just list` and `just find` prefer `index/` and may sync it automatically when `index/state.json` is stale.
+- A miss from `just find` does not prove there is no related markdown; it only matches indexed path, title, tag, and alias data, plus indexed `summary` text.
+- `just find` does not search note bodies. Prefer keeping a concise one-line `summary` in frontmatter so body lookups are needed less often. If likely terms may only appear inside markdown content, continue to `just search --files`, then `just search --context 2 --max-count 1`, before `just search`.
 - If `just list` still does not surface a strong candidate, continue to `just search` before concluding that no related markdown exists.
+- `tag` remains available in the underlying CLI for occasional maintenance or manual browsing, but it is not part of the preferred low-token just workflow.
 - Read frontmatter or body only after identifying a plausible note.
+- Prefer `just frontmatter --summary NOTE` over full frontmatter when you only need title, tags, aliases, and summary.
+- Prefer path-only outputs for downstream agent steps because they are shorter and avoid title-resolution ambiguity.
+- If `just find --top ...`, `just find --top ... --paths`, or `just find` returns one obvious hit, stop retrieval there unless the task requires specific fields.
 - When a step identifies a note, prefer the returned title or path as `NOTE`; unique aliases also resolve, but canonical refs are less ambiguous.
 
 ## What To Capture
@@ -64,8 +80,14 @@ This repository no longer has a separate local-secret workflow.
 - Use lowercase English field names.
 - Keep `date` required and formatted as `YYYY-MM-DD`.
 - Keep `title`, `date`, and `summary` as single-line scalars.
+- Use `summary` as a short retrieval hint for the body, so agents can decide whether to read the note without opening the body.
+- Treat full `body` and full `frontmatter` as higher-cost reads. Reach for them only after cheaper metadata narrowing has already identified a likely note.
+- Prefer snippet reads over full body reads: `just search --context 2 --max-count 1 PATTERN` is usually enough to inspect local body context without pulling an entire note into context.
 - Keep `tags` and `aliases` on one line as array literals, such as `tags: ["profile", "education"]`.
 - Keep `tags` in English `kebab-case`.
+- Keep tags sparse: at most 3 tags per note.
+- Prefer one topic-focused note per durable subject, for example `profile` for identity/profile data and `banking` for bank-account data, instead of one catch-all note.
+- Prefer semantic scope over fixed length thresholds. Do not split notes just because they are long; split them when they start covering multiple stable retrieval domains.
 - Avoid multiline YAML values, nested objects, block scalars, anchors, and custom YAML features.
 - Leave one blank line between frontmatter and body.
 
@@ -75,10 +97,12 @@ This repository no longer has a separate local-secret workflow.
 2. Update that note when its title, aliases, tags, or topic clearly match.
 3. If multiple notes might fit, prefer the one whose title or aliases most directly name the subject.
 4. If no note fits, create a new topic-focused note under `memory/`.
+5. If the new information belongs to a different durable topic, create a sibling note instead of broadening the current note.
+6. If a note's summary can no longer honestly describe the whole note as one topic, split by topic and keep links between sibling notes.
 
 Writing defaults:
 
-- Prefer English note paths and filenames such as `memory/profile.md` or `memory/education.md`.
+- Prefer English note paths and filenames such as `memory/profile.md`, `memory/banking.md`, or `memory/education.md`.
 - Use Chinese for note title and body by default unless another language is clearly better for the content.
 - Keep tags in English `kebab-case`.
 - Keep committed markdown AI-safe.
@@ -90,6 +114,7 @@ Command timing:
 - Body-only edits usually do not need a manual `just index`, though metadata commands may refresh indexes opportunistically.
 - Run `just use NOTE` only when a note was actually used in a concrete downstream task, not for ordinary lookup.
 - Run `just check` before claiming the repository state is valid.
+- Treat `just check` topic-sprawl output as advisory warnings, not hard failures. Use those warnings to decide when to split notes before they become catch-all storage.
 
 ## File Protection Rules
 

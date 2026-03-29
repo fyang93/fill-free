@@ -34,6 +34,7 @@ def test_load_note_records_returns_runtime_note_records_and_tags(tmp_path):
     assert [note.title for note in notes] == ["高中经历", "项目A"]
     assert notes[0].path == "memory/profile/high-school.md"
     assert notes[0].aliases == ["高中"]
+    assert notes[0].summary == "不应进入明文索引"
     assert tags == {
         "education": ["memory/profile/high-school.md"],
         "profile": ["memory/profile/high-school.md"],
@@ -89,7 +90,14 @@ def test_load_note_records_reads_usage_from_index(tmp_path):
 
 
 def test_rebuild_index_writes_state_and_keeps_notes_jsonl_query_focused(tmp_path):
-    write_note(tmp_path, "memory/a.md", title="Alpha", tags=["shared"], body="A\n")
+    write_note(
+        tmp_path,
+        "memory/a.md",
+        title="Alpha",
+        tags=["shared"],
+        summary="Alpha note summary",
+        body="A\n",
+    )
 
     rebuild_index(tmp_path)
 
@@ -103,6 +111,7 @@ def test_rebuild_index_writes_state_and_keeps_notes_jsonl_query_focused(tmp_path
     assert "mtime_ns" in state["snapshot"]["memory/a.md"]
     assert "mtime_ns" not in note_line
     assert "size" not in note_line
+    assert note_line["summary"] == "Alpha note summary"
 
 
 def test_rebuild_index_reparses_only_changed_notes_when_state_exists(

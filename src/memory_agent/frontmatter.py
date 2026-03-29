@@ -67,3 +67,19 @@ def parse_markdown(note_path: Path) -> ParsedMarkdown:
         ),
         body=body.lstrip("\n"),
     )
+
+
+def render_metadata_summary(metadata: NoteMetadata) -> str:
+    lines = [
+        f'title: "{metadata.title}"',
+        f"tags: {_yaml_list(metadata.tags)}",
+    ]
+    if metadata.aliases:
+        lines.append(f"aliases: {_yaml_list(metadata.aliases)}")
+    if metadata.summary is not None:
+        lines.append(f'summary: "{metadata.summary}"')
+    return "\n".join(lines) + "\n"
+
+
+def _yaml_list(values: list[str]) -> str:
+    return "[" + ", ".join(f'\"{value}\"' for value in values) + "]"

@@ -4,37 +4,33 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
-# List note titles by hotness, then title. Usage: `just list`, `just list 10`, `just list all`.
-list count="20":
-    uv run memory-agent list "{{count}}"
+# List notes. Usage: `just list`, `just list 10`, `just list --paths 10`, `just list all`.
+list *args:
+    uv run memory-agent list {{args}}
 
-# Find notes by title, alias, tag, or path fragment. Usage: `just find profile`.
-find query:
-    uv run memory-agent find "{{query}}"
+# Find notes by metadata. Usage: `just find profile`, `just find --top 3 bank account`, `just find --paths --top 1 bank account`.
+find +args:
+    uv run memory-agent find {{args}}
 
-# List notes with a tag. Usage: `just tag profile`.
-tag value:
-    uv run memory-agent tag "{{value}}"
-
-# Print one note's frontmatter by path or unique title. Usage: `just frontmatter memory/profile.md`.
-frontmatter note:
-    uv run memory-agent frontmatter "{{note}}"
+# Print one note's frontmatter by path or unique title. Usage: `just frontmatter --summary memory/profile.md`, `just frontmatter memory/profile.md`.
+frontmatter +args:
+    uv run memory-agent frontmatter {{args}}
 
 # Print one note's body by path or unique title. Usage: `just body 个人资料`.
-body note:
-    uv run memory-agent body "{{note}}"
+body +note:
+    uv run memory-agent body {{note}}
 
-# Run raw body search with ripgrep. Usage: `just search 身份证`.
-search pattern:
-    uv run memory-agent search "{{pattern}}"
+# Search note bodies. Usage: `just search --files passport`, `just search --context 2 --max-count 1 passport`, `just search passport`.
+search +args:
+    uv run memory-agent search {{args}}
 
 # Rebuild note indexes after path or indexed-frontmatter changes. Usage: `just index`.
 index:
     uv run memory-agent index
 
 # Record a real note use so hot notes sort first. Usage: `just use memory/profile.md`.
-use note:
-    uv run memory-agent use "{{note}}"
+use +note:
+    uv run memory-agent use {{note}}
 
 # Validate notes and tags. Usage: `just check`.
 check:

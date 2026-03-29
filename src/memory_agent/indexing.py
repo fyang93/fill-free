@@ -146,6 +146,7 @@ def _sync_index_incrementally(root: Path) -> IndexSyncResult | None:
             date=note.date,
             tags=note.tags,
             aliases=note.aliases,
+            summary=note.summary,
         )
         for note in indexed_records
         if note.path not in changed_paths and note.path not in deleted_paths
@@ -232,6 +233,7 @@ def _note_payload(note: NoteRecord) -> dict[str, object]:
         "date": note.date,
         "tags": note.tags,
         "aliases": note.aliases,
+        "summary": note.summary,
     }
 
 

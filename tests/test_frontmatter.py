@@ -3,6 +3,7 @@ import pytest
 from memory_agent.frontmatter import (
     FrontmatterError,
     parse_markdown,
+    render_metadata_summary,
 )
 
 
@@ -85,3 +86,29 @@ tags: education
 
     with pytest.raises(FrontmatterError, match="tags"):
         parse_markdown(note_path)
+
+
+def test_render_metadata_summary_returns_compact_fields(tmp_path):
+    note_path = tmp_path / "note.md"
+    note_path.write_text(
+        """---
+title: "高中经历"
+date: "2026-03-23"
+tags: ["education", "profile"]
+aliases: ["高中"]
+summary: "记录高中教育经历"
+---
+
+正文
+""",
+        encoding="utf-8",
+    )
+
+    note = parse_markdown(note_path)
+
+    assert render_metadata_summary(note.metadata) == (
+        'title: "高中经历"\n'
+        'tags: ["education", "profile"]\n'
+        'aliases: ["高中"]\n'
+        'summary: "记录高中教育经历"\n'
+    )

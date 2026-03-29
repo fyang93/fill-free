@@ -54,18 +54,24 @@ CLI 主要用于给 skill 提供检索和维护能力：
 
 ```bash
 just list
-just find profile
-just tag profile
+just list --paths 10
+just find --top 3 profile
+just find --paths --top 1 bank account
+just frontmatter --summary memory/profile.md
 just frontmatter memory/profile.md
 just body memory/profile.md
 just search passport
+just search --files passport
+just search --context 2 --max-count 1 passport
 just index
 just check
 ```
 
 日常使用时优先直接对 AI 提需求；这些命令更适合在你想查看现有笔记、重建索引或校验仓库时使用。
 
-`just find` 或 `just tag` 没命中，并不能证明没有相关笔记。可以先用 `just list` 浏览候选项，如果还没有结果，再继续用 `just search`。
+`just find` 没命中，并不能证明没有相关笔记。`just find` 只查索引里的元数据，包括 frontmatter 里的 `summary`，但现在支持多个空格分隔的词，比如 `just find bank account`。如果只是想先拿到最可能的几个候选，优先用 `just find --top 3 ...`；如果是给 agent 后续继续处理，优先加 `--paths`，因为 path 更短、歧义更少、更省 token。建议把 `summary` 写成简短的一行正文概述，这样 agent 往往不用再打开正文。需要看元数据时，优先用 `just frontmatter --summary NOTE`，它只返回 `title`、`tags`、`aliases` 和 `summary`，比完整 frontmatter 更省。可以先用 `just list` 浏览候选项，如果还没有结果，再继续用 `just search`。如果你只想知道哪些笔记正文里提到了某个词，优先用 `just search --files ...`，不要直接打开正文；如果只需要看关键词附近的一小段上下文，优先用 `just search --context 2 --max-count 1 ...`。
+
+为了减少检索噪音，建议每个 markdown 尽量只负责一类稳定主题，并把 tag 控制在较少数量。默认建议每条笔记不超过 3 个 tag，例如把 `memory/profile.md` 和 `memory/banking.md` 分开，而不是做成一个大而全的文件。相比固定长度上限，更应该按语义边界拆分：当一条笔记开始覆盖多个稳定检索主题时，就应该考虑拆成 sibling notes。`body` 和完整 `frontmatter` 都属于更高成本的命令，只有在 `find`、`list`、`frontmatter --summary` 或 `search --files` 已经缩小范围后再使用。`just check` 可能会输出关于 topic sprawl 的提醒性 warning，用来帮助你决定是否拆分笔记。
 
 ## 敏感信息
 

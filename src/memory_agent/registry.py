@@ -22,6 +22,7 @@ class NoteRecord:
     date: str
     tags: list[str]
     aliases: list[str]
+    summary: str | None = None
     use_count: int = 0
     last_used_at: str | None = None
 
@@ -109,6 +110,7 @@ def build_note_record(root: Path, note_path: Path) -> NoteRecord:
         date=parsed.metadata.date,
         tags=parsed.metadata.tags,
         aliases=parsed.metadata.aliases,
+        summary=parsed.metadata.summary,
     )
 
 
@@ -129,6 +131,7 @@ def load_note_records(root: Path) -> list[NoteRecord]:
                 date=note.date,
                 tags=note.tags,
                 aliases=note.aliases,
+                summary=note.summary,
                 use_count=_coerce_int(usage_entry.get("use_count", 0)),
                 last_used_at=_coerce_optional_str(usage_entry.get("last_used_at")),
             )
@@ -205,6 +208,7 @@ def load_indexed_note_records(root: Path) -> list[NoteRecord] | None:
                     date=_coerce_required_str(data["date"]),
                     tags=_coerce_str_list(data.get("tags", [])),
                     aliases=_coerce_str_list(data.get("aliases", [])),
+                    summary=_coerce_optional_str(data.get("summary")),
                     use_count=_coerce_int(usage_entry.get("use_count", 0)),
                     last_used_at=_coerce_optional_str(usage_entry.get("last_used_at")),
                 )

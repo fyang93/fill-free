@@ -37,12 +37,11 @@ def test_skill_documents_retrieval_and_sensitive_warning_markers():
     for marker in [
         "## retrieval order",
         "just find query",
-        "just tag tag",
         "just list",
         "just body note",
         "just search pattern",
         "does not prove there is no related markdown",
-        "only match indexed path, title, tag, and alias data",
+        "only matches indexed path, title, tag, and alias data",
         "if `just list` still does not surface a strong candidate, continue to `just search`",
         "## sensitive data rules",
         "warn only for highly sensitive operational or financial values",
