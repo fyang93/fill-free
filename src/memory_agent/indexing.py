@@ -16,7 +16,6 @@ from memory_agent.registry import (
     notes_index_path,
     resolve_note_record,
     state_index_path,
-    tags_index_path,
     usage_index_path,
 )
 
@@ -42,10 +41,8 @@ def _rebuild_index_full(root: Path) -> IndexSyncResult:
     notes = build_note_records(root)
     state = _build_state_payload(_current_note_snapshot(root))
     usage = _prune_usage(load_usage_map(root), {note.path for note in notes})
-    tags = _build_tag_index(notes)
 
     _write_jsonl(notes_index_path(root), (_note_payload(note) for note in notes))
-    _write_json(tags_index_path(root), tags)
     _write_json(state_index_path(root), state)
     _write_json(usage_index_path(root), usage)
     return IndexSyncResult(
@@ -101,26 +98,12 @@ def load_usage_map(root: Path) -> dict[str, dict[str, object]]:
     return usage
 
 
-def _build_tag_index(notes: list[NoteRecord]) -> dict[str, list[str]]:
-    tags: dict[str, list[str]] = {}
-    for note in notes:
-        for tag in note.tags:
-            tags.setdefault(tag, []).append(note.path)
-    for paths in tags.values():
-        paths.sort()
-    return dict(sorted(tags.items()))
-
-
 def _sync_index_incrementally(root: Path) -> IndexSyncResult | None:
     current_snapshot = _current_note_snapshot(root)
     indexed_snapshot = _indexed_note_snapshot(root)
     indexed_records = load_indexed_note_records(root)
 
-    if (
-        indexed_records is None
-        or not tags_index_path(root).exists()
-        or not indexed_snapshot
-    ):
+    if indexed_records is None or not indexed_snapshot:
         return None
 
     if current_snapshot == indexed_snapshot:
@@ -162,10 +145,8 @@ def _sync_index_incrementally(root: Path) -> IndexSyncResult | None:
 
     notes = sorted(note_map.values(), key=lambda item: item.path)
     usage = _prune_usage(load_usage_map(root), set(note_map))
-    tags = _build_tag_index(notes)
 
     _write_jsonl(notes_index_path(root), (_note_payload(note) for note in notes))
-    _write_json(tags_index_path(root), tags)
     _write_json(state_index_path(root), _build_state_payload(current_snapshot))
     _write_json(usage_index_path(root), usage)
     return IndexSyncResult(
@@ -178,11 +159,7 @@ def _sync_index_incrementally(root: Path) -> IndexSyncResult | None:
 
 
 def _index_matches_notes(root: Path) -> bool:
-    if (
-        not notes_index_path(root).exists()
-        or not tags_index_path(root).exists()
-        or not state_index_path(root).exists()
-    ):
+    if not notes_index_path(root).exists() or not state_index_path(root).exists():
         return False
     return _current_note_snapshot(root) == _indexed_note_snapshot(root)
 

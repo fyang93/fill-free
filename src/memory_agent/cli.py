@@ -20,8 +20,6 @@ from memory_agent.query import (
     list_paths,
     list_titles,
     search_bodies,
-    tag_paths,
-    tag_titles,
 )
 
 
@@ -37,10 +35,6 @@ def build_parser() -> argparse.ArgumentParser:
     find_parser.add_argument("query", nargs="+")
     find_parser.add_argument("--top", type=int, default=None)
     find_parser.add_argument("--paths", action="store_true")
-
-    tag_parser = subparsers.add_parser("tag")
-    tag_parser.add_argument("tag")
-    tag_parser.add_argument("--paths", action="store_true")
 
     frontmatter_parser = subparsers.add_parser("frontmatter")
     frontmatter_parser.add_argument("note")
@@ -88,10 +82,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.paths:
                     return _print_lines(find_paths(root, " ".join(args.query), limit=args.top))
                 return _print_lines(find_titles(root, " ".join(args.query), limit=args.top))
-            case "tag":
-                if args.paths:
-                    return _print_lines(tag_paths(root, args.tag))
-                return _print_lines(tag_titles(root, args.tag))
             case "frontmatter":
                 if args.summary:
                     sys.stdout.write(get_frontmatter_summary(root, args.note))

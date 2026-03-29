@@ -7,7 +7,6 @@ from memory_agent.frontmatter import parse_markdown, render_metadata_summary
 from memory_agent.registry import (
     NoteRecord,
     load_note_records,
-    load_tag_map,
     resolve_note_record,
 )
 from memory_agent.indexing import ensure_index_is_current
@@ -53,28 +52,6 @@ def find_paths(root: Path, query: str, limit: int | None = None) -> list[str]:
     if limit is None:
         return paths
     return paths[:limit]
-
-
-def tag_titles(root: Path, tag: str) -> list[str]:
-    ensure_index_is_current(root)
-    notes_by_path = {note.path: note for note in load_note_records(root)}
-    matching_notes = [
-        notes_by_path[path]
-        for path in load_tag_map(root).get(tag, [])
-        if path in notes_by_path
-    ]
-    return _sorted_titles(matching_notes)
-
-
-def tag_paths(root: Path, tag: str) -> list[str]:
-    ensure_index_is_current(root)
-    notes_by_path = {note.path: note for note in load_note_records(root)}
-    matching_notes = [
-        notes_by_path[path]
-        for path in load_tag_map(root).get(tag, [])
-        if path in notes_by_path
-    ]
-    return _sorted_paths(matching_notes)
 
 
 def get_frontmatter(root: Path, note_ref: str) -> str:

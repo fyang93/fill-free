@@ -10,7 +10,6 @@ from memory_agent.frontmatter import parse_markdown
 
 INDEX_DIR_NAME = "index"
 NOTES_INDEX_FILE = "notes.jsonl"
-TAGS_INDEX_FILE = "tags.json"
 STATE_INDEX_FILE = "state.json"
 USAGE_INDEX_FILE = "usage.json"
 
@@ -33,10 +32,6 @@ def index_dir(root: Path) -> Path:
 
 def notes_index_path(root: Path) -> Path:
     return index_dir(root) / NOTES_INDEX_FILE
-
-
-def tags_index_path(root: Path) -> Path:
-    return index_dir(root) / TAGS_INDEX_FILE
 
 
 def state_index_path(root: Path) -> Path:
@@ -139,20 +134,6 @@ def load_note_records(root: Path) -> list[NoteRecord]:
     return notes
 
 
-def load_tag_map(root: Path) -> dict[str, list[str]]:
-    indexed_tags = _load_indexed_tag_map(root)
-    if indexed_tags is not None:
-        return indexed_tags
-
-    tags: dict[str, list[str]] = {}
-    for note in load_note_records(root):
-        for tag in note.tags:
-            tags.setdefault(tag, []).append(note.path)
-    for paths in tags.values():
-        paths.sort()
-    return dict(sorted(tags.items()))
-
-
 def resolve_note_record(root: Path, note_ref: str) -> NoteRecord:
     notes = load_note_records(root)
     candidate = root / note_ref
@@ -218,29 +199,6 @@ def load_indexed_note_records(root: Path) -> list[NoteRecord] | None:
 
     records.sort(key=lambda item: item.path)
     return records
-
-
-def _load_indexed_tag_map(root: Path) -> dict[str, list[str]] | None:
-    path = tags_index_path(root)
-    if not path.exists():
-        return None
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(data, dict):
-        return None
-
-    tags: dict[str, list[str]] = {}
-    for tag, paths in data.items():
-        if not isinstance(tag, str) or not isinstance(paths, list):
-            return None
-        if not all(isinstance(path_item, str) for path_item in paths):
-            return None
-        tags[tag] = sorted(paths)
-    return dict(sorted(tags.items()))
 
 
 def _load_usage_map(root: Path) -> dict[str, dict[str, object]]:

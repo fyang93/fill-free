@@ -4,13 +4,13 @@ import json
 
 import memory_agent.registry as registry_module
 import pytest
-from memory_agent.registry import load_note_records, load_tag_map, resolve_note_record
+from memory_agent.registry import load_note_records, resolve_note_record
 from memory_agent.indexing import rebuild_index
 
 from tests.helpers import write_note
 
 
-def test_load_note_records_returns_runtime_note_records_and_tags(tmp_path):
+def test_load_note_records_returns_runtime_note_records(tmp_path):
     write_note(
         tmp_path,
         "memory/profile/high-school.md",
@@ -29,17 +29,11 @@ def test_load_note_records_returns_runtime_note_records_and_tags(tmp_path):
     )
 
     notes = load_note_records(tmp_path)
-    tags = load_tag_map(tmp_path)
 
     assert [note.title for note in notes] == ["高中经历", "项目A"]
     assert notes[0].path == "memory/profile/high-school.md"
     assert notes[0].aliases == ["高中"]
     assert notes[0].summary == "不应进入明文索引"
-    assert tags == {
-        "education": ["memory/profile/high-school.md"],
-        "profile": ["memory/profile/high-school.md"],
-        "work": ["memory/work/project-a.md"],
-    }
 
 
 def test_load_note_records_reflects_note_removal(tmp_path):
@@ -54,10 +48,8 @@ def test_load_note_records_reflects_note_removal(tmp_path):
     load_note_records(tmp_path)
     note_path.unlink()
     notes = load_note_records(tmp_path)
-    tags = load_tag_map(tmp_path)
 
     assert notes == []
-    assert tags == {}
 
 
 def test_load_note_records_reads_usage_from_index(tmp_path):

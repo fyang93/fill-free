@@ -13,8 +13,6 @@ from memory_agent.query import (
     list_paths,
     list_titles,
     search_bodies,
-    tag_paths,
-    tag_titles,
 )
 
 from tests.helpers import write_note
@@ -110,15 +108,6 @@ def test_find_titles_supports_top_limit(tmp_path):
 
     assert find_titles(tmp_path, "bank account", limit=1) == ["Alpha"]
     assert find_paths(tmp_path, "bank account", limit=1) == ["memory/a.md"]
-
-
-def test_tag_titles_uses_runtime_tag_lookup(tmp_path):
-    write_note(tmp_path, "memory/a.md", title="Alpha", tags=["shared"], body="A\n")
-    write_note(tmp_path, "memory/b.md", title="Beta", tags=["shared"], body="B\n")
-    load_note_records(tmp_path)
-
-    assert tag_titles(tmp_path, "shared") == ["Alpha", "Beta"]
-    assert tag_paths(tmp_path, "shared") == ["memory/a.md", "memory/b.md"]
 
 
 def test_frontmatter_and_body_return_requested_sections(tmp_path):
@@ -223,16 +212,6 @@ def test_find_titles_refreshes_stale_index_after_frontmatter_change(tmp_path):
     )
 
     assert find_titles(tmp_path, "Beta") == ["Beta"]
-
-
-def test_tag_titles_refresh_stale_index_after_note_deletion(tmp_path):
-    note_path = write_note(
-        tmp_path, "memory/a.md", title="Alpha", tags=["shared"], body="A\n"
-    )
-    rebuild_index(tmp_path)
-    note_path.unlink()
-
-    assert tag_titles(tmp_path, "shared") == []
 
 
 def test_search_bodies_supports_files_only_max_count_and_context(tmp_path):

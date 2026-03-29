@@ -11,7 +11,6 @@ from memory_agent.query import (
     get_body,
     get_frontmatter,
     list_titles,
-    tag_titles,
 )
 
 from tests.helpers import write_note
@@ -27,7 +26,7 @@ def test_body_and_frontmatter_are_read_only(tmp_path):
     assert not (tmp_path / ".local").exists()
 
 
-def test_list_find_and_tag_sort_by_title(tmp_path):
+def test_list_and_find_sort_by_title(tmp_path):
     write_note(
         tmp_path, "memory/gamma.md", title="Gamma", tags=["shared"], body="G body\n"
     )
@@ -41,7 +40,6 @@ def test_list_find_and_tag_sort_by_title(tmp_path):
 
     assert list_titles(tmp_path, limit=20) == ["Alpha", "Beta", "Gamma"]
     assert find_titles(tmp_path, "a") == ["Alpha", "Beta", "Gamma"]
-    assert tag_titles(tmp_path, "shared") == ["Alpha", "Beta", "Gamma"]
 
 
 def test_mark_note_used_updates_usage_without_changing_static_index(tmp_path):
