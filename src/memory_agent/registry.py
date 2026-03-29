@@ -55,6 +55,7 @@ def discover_note_paths(root: Path) -> list[Path]:
         result = subprocess.run(
             [
                 "fd",
+                "--no-ignore",
                 "--extension",
                 "md",
                 ".",
@@ -66,7 +67,26 @@ def discover_note_paths(root: Path) -> list[Path]:
         )
         lines = [line for line in result.stdout.splitlines() if line]
         return sorted(Path(line) for line in lines)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except FileNotFoundError:
+        try:
+            result = subprocess.run(
+                [
+                    "find",
+                    str(memory_dir),
+                    "-name",
+                    "*.md",
+                    "-type",
+                    "f",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            lines = [line for line in result.stdout.splitlines() if line]
+            return sorted(Path(line) for line in lines)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return sorted(memory_dir.rglob("*.md"))
+    except subprocess.CalledProcessError:
         return sorted(memory_dir.rglob("*.md"))
 
 

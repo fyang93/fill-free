@@ -91,6 +91,12 @@ Command timing:
 - Run `just use NOTE` only when a note was actually used in a concrete downstream task, not for ordinary lookup.
 - Run `just check` before claiming the repository state is valid.
 
+## File Protection Rules
+
+- NEVER delete files under `assets/` or `memory/` unless the user explicitly requests deletion.
+- If you determine deletion is necessary, always ask for user confirmation first.
+- These folders contain organized long-term storage and user materials.
+
 ## Workspace And Files
 
 For files in `workspace/`:
