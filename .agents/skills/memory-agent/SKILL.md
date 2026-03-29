@@ -33,12 +33,11 @@ Search from cheapest to most expensive:
    - Multi-term queries are broad metadata lookups over indexed path, title, tag, and alias fields. They are space-joined and matched term-by-term, so `just find 银行 bank account 三井 住友` is valid.
 4. `just list --paths 10` (or `just list --paths 100`)
 5. `just list` (or `just list 10` / `just list 100`)
-6. `just frontmatter --summary NOTE`
-7. `just frontmatter NOTE`
-8. `just body NOTE`
-9. `just search --files PATTERN`
-10. `just search --context 2 --max-count 1 PATTERN`
-11. `just search PATTERN` only as the final fallback
+6. `just frontmatter NOTE`
+7. `just body NOTE`
+8. `just search --files PATTERN`
+9. `just search --context 2 --max-count 1 PATTERN`
+10. `just search PATTERN` only as the final fallback
 
 Rules:
 
@@ -48,7 +47,7 @@ Rules:
 - If `just list` still does not surface a strong candidate, continue to `just search` before concluding that no related markdown exists.
 - `tag` remains available in the underlying CLI for occasional maintenance or manual browsing, but it is not part of the preferred low-token just workflow.
 - Read frontmatter or body only after identifying a plausible note.
-- Prefer `just frontmatter --summary NOTE` over full frontmatter when you only need title, tags, aliases, and summary.
+- In the preferred just workflow, `just frontmatter NOTE` is the compact metadata read and returns only title, tags, aliases, and summary.
 - Prefer path-only outputs for downstream agent steps because they are shorter and avoid title-resolution ambiguity.
 - If `just find --top ...`, `just find --top ... --paths`, or `just find` returns one obvious hit, stop retrieval there unless the task requires specific fields.
 - When a step identifies a note, prefer the returned title or path as `NOTE`; unique aliases also resolve, but canonical refs are less ambiguous.
@@ -81,7 +80,7 @@ This repository no longer has a separate local-secret workflow.
 - Keep `date` required and formatted as `YYYY-MM-DD`.
 - Keep `title`, `date`, and `summary` as single-line scalars.
 - Use `summary` as a short retrieval hint for the body, so agents can decide whether to read the note without opening the body.
-- Treat full `body` and full `frontmatter` as higher-cost reads. Reach for them only after cheaper metadata narrowing has already identified a likely note.
+- Treat `body` as a higher-cost read. Reach for it only after cheaper metadata narrowing has already identified a likely note.
 - Prefer snippet reads over full body reads: `just search --context 2 --max-count 1 PATTERN` is usually enough to inspect local body context without pulling an entire note into context.
 - Keep `tags` and `aliases` on one line as array literals, such as `tags: ["profile", "education"]`.
 - Keep `tags` in English `kebab-case`.

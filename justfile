@@ -12,9 +12,9 @@ list *args:
 find +args:
     uv run memory-agent find {{args}}
 
-# Print one note's frontmatter by path or unique title. Usage: `just frontmatter --summary memory/profile.md`, `just frontmatter memory/profile.md`.
-frontmatter +args:
-    uv run memory-agent frontmatter {{args}}
+# Print compact note metadata by path or unique title. Usage: `just frontmatter memory/profile.md`.
+frontmatter +note:
+    uv run memory-agent frontmatter --summary {{note}}
 
 # Print one note's body by path or unique title. Usage: `just body 个人资料`.
 body +note:

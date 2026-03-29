@@ -33,17 +33,12 @@ def test_find_frontmatter_and_body_commands_work_via_just(tmp_path):
     )
     find_result = _run(["just", "find", "高中"], cwd=tmp_path)
     frontmatter_result = _run(["just", "frontmatter", "高中经历"], cwd=tmp_path)
-    frontmatter_summary_result = _run(
-        ["just", "frontmatter", "--summary", "高中经历"], cwd=tmp_path
-    )
     body_result = _run(["just", "body", "高中经历"], cwd=tmp_path)
 
     assert find_result.stdout.splitlines() == ["高中经历"]
     assert 'title: "高中经历"' in frontmatter_result.stdout
-    assert 'date: "2026-03-23"' in frontmatter_result.stdout
-    assert 'title: "高中经历"' in frontmatter_summary_result.stdout
-    assert 'date: "2026-03-23"' not in frontmatter_summary_result.stdout
-    assert 'summary: "记录高中教育经历"' in frontmatter_summary_result.stdout
+    assert 'date: "2026-03-23"' not in frontmatter_result.stdout
+    assert 'summary: "记录高中教育经历"' in frontmatter_result.stdout
     assert "我的高中是" in body_result.stdout
 
 

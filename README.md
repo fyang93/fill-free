@@ -57,7 +57,6 @@ just list
 just list --paths 10
 just find --top 3 profile
 just find --paths --top 1 bank account
-just frontmatter --summary memory/profile.md
 just frontmatter memory/profile.md
 just body memory/profile.md
 just search passport
@@ -69,9 +68,9 @@ just check
 
 In normal use, ask AI first. These commands are most useful when you want to inspect stored notes, rebuild indexes, or validate the repo.
 
-A miss from `just find` does not prove there is no related note. `just find` only searches indexed metadata, including frontmatter `summary`, and accepts multiple space-separated terms such as `just find bank account`. Prefer `just find --top 3 ...` when you only need the best few candidates, and prefer `--paths` for downstream agent use because paths are shorter and less ambiguous than titles. Keep `summary` concise and body-descriptive so agents can avoid opening note bodies unnecessarily. When you need note metadata, prefer `just frontmatter --summary NOTE` before full `just frontmatter NOTE`; it returns only `title`, `tags`, `aliases`, and `summary`. Use `just list` to browse likely matches, then continue to `just search` before concluding that the repo does not have what you need. If you only need to know which notes mention something in the body, use `just search --files ...` before reading any body text. If you need a small body snippet, prefer `just search --context 2 --max-count 1 ...` before opening the full note body.
+A miss from `just find` does not prove there is no related note. `just find` only searches indexed metadata, including frontmatter `summary`, and accepts multiple space-separated terms such as `just find bank account`. Prefer `just find --top 3 ...` when you only need the best few candidates, and prefer `--paths` for downstream agent use because paths are shorter and less ambiguous than titles. Keep `summary` concise and body-descriptive so agents can avoid opening note bodies unnecessarily. `just frontmatter NOTE` now returns the compact metadata view with `title`, `tags`, `aliases`, and `summary`, which is the preferred low-token metadata read. Use `just list` to browse likely matches, then continue to `just search` before concluding that the repo does not have what you need. If you only need to know which notes mention something in the body, use `just search --files ...` before reading any body text. If you need a small body snippet, prefer `just search --context 2 --max-count 1 ...` before opening the full note body.
 
-For lower-noise retrieval, keep each markdown note topic-focused and keep tags sparse. A good default is at most 3 tags per note, with separate notes such as `memory/profile.md` and `memory/banking.md` instead of a single catch-all file. Prefer semantic scope over fixed length limits: split notes when they start covering multiple stable retrieval domains, not just because they became longer. `body` and full `frontmatter` are intentionally higher-cost commands; use them only after `find`, `list`, `frontmatter --summary`, or `search --files` has already narrowed the target note. `just check` may emit advisory topic-sprawl warnings to help you decide when to split a note.
+For lower-noise retrieval, keep each markdown note topic-focused and keep tags sparse. A good default is at most 3 tags per note, with separate notes such as `memory/profile.md` and `memory/banking.md` instead of a single catch-all file. Prefer semantic scope over fixed length limits: split notes when they start covering multiple stable retrieval domains, not just because they became longer. `body` is intentionally a higher-cost command; use it only after `find`, `list`, `frontmatter`, or `search --files` has already narrowed the target note. `just check` may emit advisory topic-sprawl warnings to help you decide when to split a note.
 
 ## Sensitive Data
 
