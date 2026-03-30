@@ -51,46 +51,37 @@ bun install
 
 ## OpenCode + Telegram Bot
 
-This repo is now wired for project-level OpenCode usage via Bun and includes a minimal Telegram entrypoint.
+Quick start:
 
-1. Copy `config.toml.example` to `config.toml` and fill in your values
-2. Start both OpenCode serve and the Telegram bot:
+1. Copy `config.toml.example` to `config.toml`
+2. Fill in your Telegram bot config
+3. Start the bot:
 
 ```bash
 just serve-bot
 ```
 
-If an OpenCode server is already running on `127.0.0.1:4096`, `just serve-bot` will reuse it and only start the Telegram bot.
+If OpenCode is already running on `127.0.0.1:4096`, the command reuses it.
 
-Recommended: always use `just serve-bot` and do not rely on the bot to auto-start OpenCode.
+Useful config:
 
-Notes:
-
-- `opencode-ai` is installed as a project dev dependency in `package.json`
-- project config lives in `opencode.json`
-- project instructions live in `AGENTS.md`
-- `telegram.persona_style` in `config.toml` can be used to tune the bot's reply tone
+- `telegram.persona_style`: tune the bot's reply tone
 
 ## Telegram Bot
 
-Supported commands:
+Commands:
 
 - `/help`
 - `/new`
 - `/model`
 - `/reminders`
 
-Notes:
+Usage:
 
-- `/model` fetches the available model list from OpenCode dynamically
-- no default model or model allowlist is required in `config.toml`
-
-Behavior:
-
-- normal text messages are forwarded to OpenCode in this repo
-- uploaded files are saved into `tmp/telegram/<date>/`
-- uploaded files with captions are automatically processed in the current repo workflow
-- the bot expects structured replies with `message` and `files`, and sends any returned local files back to Telegram
+- send normal text to chat with the repo
+- upload files to save them under `tmp/telegram/<date>/`
+- add a caption to process uploaded files immediately
+- ask for an existing repo file or image and the bot can send it back
 
 ## Commands
 

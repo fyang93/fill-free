@@ -51,46 +51,37 @@ bun install
 
 ## OpenCode + Telegram Bot
 
-这个仓库现在已经通过 Bun 接好了项目级 OpenCode，并包含一个精简版 Telegram 入口。
+快速开始：
 
-1. 先把 `config.toml.example` 复制成 `config.toml`，再填写你自己的配置
-2. 一起启动 OpenCode serve 和 Telegram bot：
+1. 先把 `config.toml.example` 复制成 `config.toml`
+2. 填好你的 Telegram bot 配置
+3. 启动：
 
 ```bash
 just serve-bot
 ```
 
-如果 `127.0.0.1:4096` 上已经有正在运行的 OpenCode server，`just serve-bot` 会直接复用它，只启动 Telegram bot。
+如果 `127.0.0.1:4096` 上已经有正在运行的 OpenCode server，会直接复用。
 
-推荐统一使用 `just serve-bot` 启动，不再依赖 bot 自动拉起 OpenCode。
+常用配置：
 
-说明：
-
-- `opencode-ai` 已作为项目级开发依赖写入 `package.json`
-- 项目配置在 `opencode.json`
-- 项目规则在 `AGENTS.md`
-- 可以通过 `config.toml` 里的 `telegram.persona_style` 调整 bot 的回复风格
+- `telegram.persona_style`：调整 bot 的回复风格
 
 ## Telegram Bot
 
-支持的命令：
+支持命令：
 
 - `/help`
 - `/new`
 - `/model`
 - `/reminders`
 
-说明：
+使用方式：
 
-- `/model` 会动态从 OpenCode 拉取当前可用模型列表
-- `config.toml` 不需要再配置默认模型或模型白名单
-
-行为说明：
-
-- 普通文本消息会在当前仓库里交给 OpenCode 处理
-- 上传文件会自动保存到 `tmp/telegram/<date>/`
-- 带说明文字的上传文件会自动按当前仓库工作流继续处理
-- bot 现在期望 OpenCode 返回结构化结果 `message` 和 `files`，并会把返回的本地文件直接发回 Telegram
+- 直接发普通文本和 bot 对话
+- 上传文件后会保存到 `tmp/telegram/<date>/`
+- 给上传文件带上 caption，可以立刻继续处理
+- 如果你索要仓库里已有的图片或文件，bot 可以直接回传给你
 
 ## 命令
 
