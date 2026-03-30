@@ -51,7 +51,7 @@ def test_active_docs_use_memory_agent_runtime_names():
         content = path.read_text(encoding="utf-8")
         content_lower = content.lower()
 
-        assert "fill free" in content_lower
+        assert "the defect bot" in content_lower
         assert "memory-agent" in content
         assert legacy_package_path not in content
         assert legacy_cli not in content_lower
@@ -68,7 +68,7 @@ def test_active_docs_describe_centralized_document_storage_defaults():
         assert "just expand" not in content
 
     agents = AGENTS_PATH.read_text(encoding="utf-8").lower()
-    assert "workspace/" in agents
+    assert "tmp/" in agents
 
 
 def test_active_docs_explain_list_then_search_fallback():

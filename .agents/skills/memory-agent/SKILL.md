@@ -1,15 +1,15 @@
 ---
 name: memory-agent
-description: Use when working inside this repository to store or retrieve durable user memory, organize user-provided files from `workspace/` into centralized repository storage and link them from notes, produce working files into `workspace/` when requested, update record-worthy user facts, and handle requests to remember, save, record, store, sort, archive, or update information for later retrieval. This repository is also used to keep reusable personal info and supporting materials ready for later form-filling workflows. Use this whenever the user provides durable facts that should be remembered or asks AI to turn temporary local files into repo memory, but do not treat ordinary chat as memory.
+description: Use when working inside this repository to store or retrieve durable user memory, organize user-provided files from `tmp/` into centralized repository storage and link them from notes, produce working files into `tmp/` when requested, update record-worthy user facts, and handle requests to remember, save, record, store, sort, archive, or update information for later retrieval. This repository is also used to keep reusable personal info and supporting materials ready for later form-filling workflows. Use this whenever the user provides durable facts that should be remembered or asks AI to turn temporary local files into repo memory, but do not treat ordinary chat as memory.
 ---
 
 # Memory Agent
 
 ## Overview
 
-This repository stores AI-safe markdown in `memory/`, generated indexes in `index/`, temporary working files in `workspace/`, and organized files under `assets/`. A major use case is keeping reusable personal information and linked materials ready for later form-filling or application workflows.
+This repository stores AI-safe markdown in `memory/`, generated indexes in `index/`, temporary working files in `tmp/`, and organized files under `assets/`. A major use case is keeping reusable personal information and linked materials ready for later form-filling or application workflows.
 
-Use the CLI for retrieval instead of ad-hoc scanning so lookups stay cheap and predictable. This skill decides what should become memory, which note to update, how `workspace/` files should be organized, and when indexes need rebuilding.
+Use the CLI for retrieval instead of ad-hoc scanning so lookups stay cheap and predictable. This skill decides what should become memory, which note to update, how `tmp/` files should be organized, and when indexes need rebuilding.
 
 ## Boundaries And Commands
 
@@ -17,7 +17,7 @@ Use the CLI for retrieval instead of ad-hoc scanning so lookups stay cheap and p
 - Prefer flags over extra wrapper recipes: use `--paths`, `--top`, `--files`, `--max-count`, `--context`, and `--summary` on those base commands.
 - `just find` accepts one or more space-separated query terms, for example `just find bank account` or `just find 银行 bank account 三井 住友`.
 - Prefer `just find --top 3 --paths QUERY` for retrieval when only a few likely candidates are needed; shorter output saves token budget.
-- This skill decides whether to store a fact, update an existing note, create a new note, move or copy workspace files, and add links between notes and files.
+- This skill decides whether to store a fact, update an existing note, create a new note, move or copy tmp files, and add links between notes and files.
 - Repeated form fields, supporting documents, and reusable application facts are strong memory candidates.
 - `fd` and `rg` are support tools for index sync and raw body search, not schema validators.
 
@@ -121,19 +121,19 @@ Command timing:
 - If you determine deletion is necessary, always ask for user confirmation first.
 - These folders contain organized long-term storage and user materials.
 
-## Workspace And Files
+## Temporary Files
 
-For files in `workspace/`:
+For files in `tmp/`:
 
-- Treat `workspace/` as a temporary area for user-provided materials and AI-produced outputs.
+- Treat `tmp/` as a temporary area for user-provided materials and AI-produced outputs.
 - Do not OCR, parse, summarize, or extract facts from document contents by default.
 - Unless the user explicitly asks otherwise, do not inspect the file contents; organize by filename and user instructions only.
 - Use the filename plus the user's instructions as the source of truth.
 - When the user asks to organize, archive, or turn those files into memory, move organized files into sensible English subpaths under `assets/` by default, such as `assets/imgs/` or `assets/docs/`, instead of being scattered next to note files.
-- Copy instead of move only when the user explicitly asks to keep the original in `workspace/`.
+- Copy instead of move only when the user explicitly asks to keep the original in `tmp/`.
 - Prefer English path names for both note files and stored documents.
 - Add markdown links from the relevant note, for example `[身份证正面照片](../assets/imgs/id-card-front.jpg)`.
-- When the user wants temporary drafts or working outputs, write them back to `workspace/` unless they ask for a long-term destination.
+- When the user wants temporary drafts or working outputs, write them back to `tmp/` unless they ask for a long-term destination.
 
 For PDF, spreadsheet, or other document-filling skills:
 
@@ -146,6 +146,6 @@ For PDF, spreadsheet, or other document-filling skills:
 - Store directly: "My legal name is Amy and my birthday is 1996-01-22."
 - Store directly: "Help me remember this song: Qing Tian."
 - Warn first: "My card CVV is ..."
-- Organize from workspace: "I put my diploma in `workspace/`; help organize it into memory."
+- Organize from tmp: "I put my diploma in `tmp/`; help organize it into memory."
 - Do not store by default: "Nice weather today."
 - Ask before storing: "I might be more of a frontend engineer."

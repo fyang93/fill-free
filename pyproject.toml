@@ -1,7 +1,7 @@
 [project]
-name = "memory-agent"
+name = "the-defect-bot"
 version = "0.1.0"
-description = "🤖 Store once, fill anywhere — AI-powered personal info that completes forms for you"
+description = "A local-first personal memory repo with a Telegram bot interface powered by OpenCode. It's not perfect, but free."
 readme = "README.md"
 authors = [
     { name = "yang", email = "norepfy@gmail.com" }

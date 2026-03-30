@@ -1,9 +1,7 @@
 # Agent Instructions
 
-This repository uses `memory-agent` as the primary workflow for durable memory, file organization, and repo-local retrieval.
+This repository uses `memory-agent` as the primary workflow for retrieval, memory updates, and file organization.
 
-- Trigger `memory-agent` when the user asks to remember, save, store, update, archive, organize, or retrieve stored information.
-- Trigger `memory-agent` when the user provides reusable personal facts in a clear memory-capture context.
-- Trigger `memory-agent` when the user asks to organize files from `workspace/`.
-- Do not treat ordinary chat as memory.
+- Default to checking repository memory first before answering requests that may relate to stored personal information, documents, photos, named entities, prior uploads, notes, or assets.
+- Any repository-memory retrieval must go through the `memory-agent` skill rather than ad-hoc answering.
 - Once triggered, follow `memory-agent` for detailed behavior.

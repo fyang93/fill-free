@@ -1,5 +1,5 @@
 {
-  description = "Fill Free dev shell";
+  description = "The Defect Bot dev shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -24,6 +24,7 @@
             fd
             ripgrep
             just
+            bun
           ];
         };
       }

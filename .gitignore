@@ -6,12 +6,15 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+node_modules/
+config.toml
+logs/
 
 .local/*
 !.local/.gitignore
 
-workspace/*
-!workspace/.gitkeep
+tmp/*
+!tmp/.gitkeep
 
 index/*
 !index/.gitkeep

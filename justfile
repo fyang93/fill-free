@@ -1,5 +1,9 @@
 set shell := ["bash", "-cu"]
 
+opencode_host := "127.0.0.1"
+opencode_port := "4096"
+opencode_addr := opencode_host + ":" + opencode_port
+
 # Show available recipes.
 default:
     @just --list
@@ -35,3 +39,17 @@ use +note:
 # Validate notes and tags. Usage: `just check`.
 check:
     uv run memory-agent check
+
+# Start OpenCode serve and the Telegram bot together. Usage: `just serve-bot`.
+serve-bot:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'kill 0' EXIT INT TERM
+    if ss -ltn | rg -q '{{opencode_addr}}'; then
+      echo 'opencode serve already running on {{opencode_addr}}, starting bot only'
+      bun run telegram:bot &
+    else
+      bunx opencode serve --hostname {{opencode_host}} --port {{opencode_port}} &
+      bun run telegram:bot &
+    fi
+    wait
