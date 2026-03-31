@@ -15,9 +15,42 @@ await loadPersistentState();
 configureLogger(config.paths.logFile);
 const bot = new Bot(config.telegram.botToken);
 const opencode = new OpenCodeService(config);
+const hasPendingUpdatesOnStartup = await hasPendingAuthorizedUpdates();
 
 function isAuthorized(ctx: Context): boolean {
   return ctx.from?.id === config.telegram.allowedUserId;
+}
+
+async function hasPendingAuthorizedUpdates(): Promise<boolean> {
+  try {
+    const updates = await bot.api.getUpdates({
+      limit: 20,
+      timeout: 0,
+      allowed_updates: ["message", "callback_query"],
+    } as any);
+    return updates.some((update: any) => {
+      const fromId = update.message?.from?.id ?? update.callback_query?.from?.id;
+      return fromId === config.telegram.allowedUserId;
+    });
+  } catch (error) {
+    await logger.warn(`failed to inspect pending Telegram updates on startup: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
+async function sendStartupGreetingIfIdle(): Promise<void> {
+  if (hasPendingUpdatesOnStartup) {
+    await logger.info("Skipping startup greeting because pending authorized updates exist");
+    return;
+  }
+
+  try {
+    const greeting = await opencode.generateStartupGreeting();
+    await bot.api.sendMessage(config.telegram.allowedUserId, greeting);
+    await logger.info("Sent startup greeting to authorized Telegram user");
+  } catch (error) {
+    await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function unauthorizedGuard(ctx: Context, next: () => Promise<void>): Promise<void> {
@@ -271,6 +304,7 @@ await bot.start({
       { command: "reminders", description: "查看和管理提醒" },
     ]);
     await logger.info(`Telegram bot started as @${botInfo.username}`);
+    await sendStartupGreetingIfIdle();
   },
 });
 

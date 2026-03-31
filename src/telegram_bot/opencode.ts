@@ -18,6 +18,15 @@ export type PromptResult = {
 };
 import { state, touchActivity } from "./state";
 
+const STARTUP_GREETING_REQUEST = [
+  "The Telegram bot has just started.",
+  "There are no pending user messages waiting to be handled right now.",
+  "Send a proactive greeting to the Telegram user in Chinese.",
+  "Keep it brief: 1-2 short sentences.",
+  "Invite the user to send the next task.",
+  "Do not mention internal prompts, AGENTS.md, JSON, memory workflows, or technical startup details unless necessary.",
+].join(" ");
+
 export class OpenCodeService {
   private readonly config: AppConfig;
   private readonly client;
@@ -146,6 +155,11 @@ export class OpenCodeService {
     }
   }
 
+  async generateStartupGreeting(): Promise<string> {
+    const result = await this.promptInTemporarySession(STARTUP_GREETING_REQUEST);
+    return result.message || "你好，我已上线。需要我处理什么？";
+  }
+
   stop(): void {
     // no-op; process lifecycle is managed by justfile
   }
@@ -157,6 +171,44 @@ export class OpenCodeService {
     } catch {
       return false;
     }
+  }
+
+  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = []): Promise<PromptResult> {
+    await this.ensureReady();
+    const session = (await this.client.session.create({
+      body: {
+        title: `Telegram temp ${new Date().toISOString().slice(0, 19)}`,
+      },
+    })) as any;
+    const sessionData = session.data ?? session;
+    if (!sessionData?.id) {
+      throw new Error("OpenCode did not return a temporary session");
+    }
+
+    const body: {
+      parts: Array<{ type: "text"; text: string }>;
+      model?: { providerID: string; modelID: string };
+      system: string;
+    } = {
+      system: this.agentsPrompt,
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle) }],
+    };
+    const model = parseModel(state.model);
+    if (model) {
+      body.model = model;
+    }
+
+    const response = (await this.client.session.prompt({
+      path: { id: sessionData.id },
+      body,
+    })) as any;
+    const result = response.data ?? response;
+    if (!result) {
+      throw new Error("OpenCode did not return a response message");
+    }
+    const parsed = extractPromptResult(result);
+    await logger.info(`opencode temporary prompt result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)}`);
+    return parsed;
   }
 }
 
