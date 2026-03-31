@@ -28,6 +28,13 @@ function asStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function asNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => asNumber(item, NaN))
+    .filter((item) => Number.isFinite(item) && item > 0);
+}
+
 function asLanguage(value: unknown): "zh" | "en" {
   const normalized = asString(value, "zh").trim().toLowerCase();
   return normalized === "en" ? "en" : "zh";
@@ -46,10 +53,12 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   const uploadSubdir = asString(paths.upload_subdir, "telegram");
   const logFile = path.resolve(repoRoot, asString(paths.log_file, "logs/telegram-bot.log"));
 
+  const allowedUserIds = asNumberArray(telegram.allowed_user_ids);
+
   const config: AppConfig = {
     telegram: {
       botToken: asString(telegram.bot_token),
-      allowedUserId: asNumber(telegram.allowed_user_id, 0),
+      allowedUserIds,
       pollingTimeoutSec: asNumber(telegram.polling_timeout_sec, 20),
       pollingIntervalMs: asNumber(telegram.polling_interval_ms, 300),
       maxFileSizeMb: asNumber(telegram.max_file_size_mb, 20),
@@ -73,8 +82,8 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   if (!config.telegram.botToken) {
     throw new Error(`Missing telegram.bot_token in ${configPath}`);
   }
-  if (!config.telegram.allowedUserId) {
-    throw new Error(`Missing telegram.allowed_user_id in ${configPath}`);
+  if (config.telegram.allowedUserIds.length === 0) {
+    throw new Error(`Missing telegram.allowed_user_ids in ${configPath}`);
   }
 
   return config;

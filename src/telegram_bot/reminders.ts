@@ -96,7 +96,9 @@ export async function deliverDueReminders(config: AppConfig, bot: Bot<Context>):
     if (reminder.status !== "pending") continue;
     const ts = Date.parse(reminder.scheduledAt);
     if (!Number.isFinite(ts) || ts > now) continue;
-    await sendMessageFormatted(bot, config.telegram.allowedUserId, t(config, "reminder_delivery", { text: reminder.text }));
+    for (const userId of config.telegram.allowedUserIds) {
+      await sendMessageFormatted(bot, userId, t(config, "reminder_delivery", { text: reminder.text }));
+    }
     reminder.status = "sent";
     reminder.sentAt = new Date().toISOString();
     sent += 1;

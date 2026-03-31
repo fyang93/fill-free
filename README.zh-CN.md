@@ -63,6 +63,7 @@ just serve
 
 常用配置：
 
+- `telegram.allowed_user_ids`：允许访问 bot 的 Telegram 用户 ID 列表
 - `telegram.language`：同时控制界面文案和对话回复语言（`zh` 或 `en`）
 - `telegram.waiting_message`：任务处理中先显示的等待文案
 - `telegram.waiting_message_candidates`：可选的等待文案列表；非空时按配置的轮换间隔随机替换

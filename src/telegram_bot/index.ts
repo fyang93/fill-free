@@ -49,14 +49,17 @@ let activeTask: ActiveTask | null = null;
 let nextTaskId = 1;
 
 function isAuthorized(ctx: Context): boolean {
-  return ctx.from?.id === config.telegram.allowedUserId;
+  const userId = ctx.from?.id;
+  return typeof userId === "number" && config.telegram.allowedUserIds.includes(userId);
 }
 
 async function sendStartupGreeting(): Promise<void> {
   try {
     const greeting = await opencode.generateStartupGreeting();
-    await sendMessageFormatted(bot, config.telegram.allowedUserId, greeting);
-    await logger.info("Sent startup greeting to authorized Telegram user");
+    for (const userId of config.telegram.allowedUserIds) {
+      await sendMessageFormatted(bot, userId, greeting);
+    }
+    await logger.info(`Sent startup greeting to ${config.telegram.allowedUserIds.length} authorized Telegram user(s)`);
   } catch (error) {
     await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
   }
