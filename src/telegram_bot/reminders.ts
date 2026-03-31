@@ -4,6 +4,7 @@ import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
 import { t, uiLocaleTag } from "./i18n";
+import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
 
 export type Reminder = {
   id: string;
@@ -95,7 +96,7 @@ export async function deliverDueReminders(config: AppConfig, bot: Bot<Context>):
     if (reminder.status !== "pending") continue;
     const ts = Date.parse(reminder.scheduledAt);
     if (!Number.isFinite(ts) || ts > now) continue;
-    await bot.api.sendMessage(config.telegram.allowedUserId, t(config, "reminder_delivery", { text: reminder.text }));
+    await sendMessageFormatted(bot, config.telegram.allowedUserId, t(config, "reminder_delivery", { text: reminder.text }));
     reminder.status = "sent";
     reminder.sentAt = new Date().toISOString();
     sent += 1;
@@ -125,10 +126,10 @@ function buildListKeyboard(config: AppConfig, reminders: Reminder[], page: numbe
 export async function showReminderList(config: AppConfig, ctx: Context, page = 0): Promise<void> {
   const reminders = await listPendingReminders(config);
   if (reminders.length === 0) {
-    await ctx.reply(t(config, "reminder_none"));
+    await replyFormatted(ctx, t(config, "reminder_none"));
     return;
   }
-  await ctx.reply(t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, page) });
+  await replyFormatted(ctx, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, page) });
 }
 
 function buildDetailKeyboard(config: AppConfig, reminderId: string): InlineKeyboard {
@@ -150,7 +151,7 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
 
   if (action === "page") {
     const reminders = await listPendingReminders(config);
-    await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, Number(value || 0)) });
+    await editMessageTextFormatted(ctx, ctx.chat.id, messageId, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, Number(value || 0)) });
     await ctx.answerCallbackQuery();
     return true;
   }
@@ -161,7 +162,7 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
       await ctx.answerCallbackQuery({ text: t(config, "reminder_missing"), show_alert: true });
       return true;
     }
-    await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_detail", {
+    await editMessageTextFormatted(ctx, ctx.chat.id, messageId, t(config, "reminder_detail", {
       time: new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }),
       text: reminder.text,
     }), { reply_markup: buildDetailKeyboard(config, reminder.id) });
@@ -175,7 +176,7 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
       await ctx.answerCallbackQuery({ text: t(config, "reminder_missing"), show_alert: true });
       return true;
     }
-    await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_delete_confirm", {
+    await editMessageTextFormatted(ctx, ctx.chat.id, messageId, t(config, "reminder_delete_confirm", {
       time: new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }),
       text: reminder.text,
     }), { reply_markup: buildDeleteConfirmKeyboard(config, reminder.id) });
@@ -187,9 +188,9 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
     await deleteReminder(config, value);
     const reminders = await listPendingReminders(config);
     if (reminders.length === 0) {
-      await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_none"));
+      await editMessageTextFormatted(ctx, ctx.chat.id, messageId, t(config, "reminder_none"));
     } else {
-      await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, 0) });
+      await editMessageTextFormatted(ctx, ctx.chat.id, messageId, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, 0) });
     }
     await ctx.answerCallbackQuery({ text: t(config, "reminder_deleted") });
     return true;

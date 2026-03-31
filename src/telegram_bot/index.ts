@@ -6,6 +6,7 @@ import { OpenCodeService } from "./opencode";
 import { clearRecentUploads, currentModel, getRecentUploads, loadPersistentState, persistState, rememberUploads, state, touchActivity } from "./state";
 import { createReminder, handleReminderCallback, showReminderList, startReminderLoop } from "./reminders";
 import { t, uiLocaleTag } from "./i18n";
+import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
 import type { PromptAttachment, UploadedFile } from "./types";
 
 const MODEL_LIST_LIMIT = 30;
@@ -39,7 +40,7 @@ function isAuthorized(ctx: Context): boolean {
 async function sendStartupGreeting(): Promise<void> {
   try {
     const greeting = await opencode.generateStartupGreeting();
-    await bot.api.sendMessage(config.telegram.allowedUserId, greeting);
+    await sendMessageFormatted(bot, config.telegram.allowedUserId, greeting);
     await logger.info("Sent startup greeting to authorized Telegram user");
   } catch (error) {
     await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
@@ -242,7 +243,7 @@ async function runPromptTask(
     }
 
     stopWaitingMessageRotation(task);
-    await ctx.api.editMessageText(chatId, waiting.message_id, answer.message || t(config, "generic_done"));
+    await editMessageTextFormatted(ctx, chatId, waiting.message_id, answer.message || t(config, "generic_done"));
 
     if (answer.attachments.length > 0) {
       const sentAttachments = await sendPromptAttachments(ctx, answer.attachments);
@@ -339,7 +340,7 @@ async function handleIncomingText(ctx: Context): Promise<void> {
     if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
       const created = await createReminder(config, reminder.text, reminder.scheduledAt);
       const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-      await ctx.reply(reminder.needsConfirmation && reminder.confirmationText
+      await replyFormatted(ctx, reminder.needsConfirmation && reminder.confirmationText
         ? reminder.confirmationText
         : t(config, "reminder_created", { time: displayTime, text: created.text }));
       return;
