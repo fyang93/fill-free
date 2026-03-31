@@ -293,6 +293,60 @@ async function runPromptTask(
   }
 }
 
+async function runReminderTask<T>(
+  ctx: Context,
+  work: () => Promise<T>,
+  onSuccess: (result: T, chatId: number, waitingMessageId: number) => Promise<void>,
+  description: string,
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const sourceMessageId = ctx.message?.message_id;
+  if (!chatId || !sourceMessageId) return;
+
+  await logger.info(`received reminder message ${sourceMessageId}: ${description}`);
+  await interruptActiveTask(`new incoming reminder message ${sourceMessageId}`);
+  await setReactionSafe(ctx, "🤔");
+  const initialWaitingMessage = config.telegram.waitingMessage;
+  const waiting = await ctx.reply(renderWaitingText(WAITING_MESSAGE_PLACEHOLDER, initialWaitingMessage));
+  const task: ActiveTask = {
+    id: nextTaskId++,
+    chatId,
+    sourceMessageId,
+    waitingMessageId: waiting.message_id,
+    cancelled: false,
+  };
+  activeTask = task;
+  startWaitingMessageRotation(task, WAITING_MESSAGE_PLACEHOLDER, initialWaitingMessage);
+
+  try {
+    const result = await work();
+    if (task.cancelled || activeTask?.id !== task.id) {
+      await logger.warn(`discarding stale reminder result for task ${task.id}`);
+      return;
+    }
+
+    stopWaitingMessageRotation(task);
+    await logger.info(`reminder task ${task.id} completed: ${description}`);
+    await onSuccess(result, chatId, waiting.message_id);
+    await setReactionSafe(ctx, "👍");
+  } catch (error) {
+    if (task.cancelled || activeTask?.id !== task.id) {
+      await logger.warn(`ignored reminder failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    stopWaitingMessageRotation(task);
+    const message = error instanceof Error ? error.message : String(error);
+    await logger.error(`reminder handling failed: ${message}`);
+    await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(config, "task_failed", { error: message }));
+    await setReactionSafe(ctx, "👎");
+  } finally {
+    stopWaitingMessageRotation(task);
+    if (activeTask?.id === task.id) {
+      activeTask = null;
+    }
+  }
+}
+
 bot.use(unauthorizedGuard);
 
 bot.command("help", async (ctx) => {
@@ -356,45 +410,63 @@ async function handleIncomingText(ctx: Context): Promise<void> {
       return;
     }
 
-    const reminder = await opencode.parseReminderFollowup(pendingReminder.originalRequest, text, pendingReminder.referenceTimeIso);
-    if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
-      await clearPendingReminderConfirmation();
-      const created = await createReminder(config, reminder.text, reminder.scheduledAt);
-      const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-      await replyFormatted(ctx, t(config, "reminder_created", { time: displayTime, text: created.text }));
-      return;
-    }
-    if (reminder.needsConfirmation && reminder.confirmationText) {
-      await setPendingReminderConfirmation({
-        originalRequest: pendingReminder.originalRequest,
-        referenceTimeIso: pendingReminder.referenceTimeIso,
-        createdAt: new Date().toISOString(),
-      });
-      await replyFormatted(ctx, reminder.confirmationText);
-      return;
-    }
-    await clearPendingReminderConfirmation();
+    await runReminderTask(
+      ctx,
+      () => opencode.parseReminderFollowup(pendingReminder.originalRequest, text, pendingReminder.referenceTimeIso),
+      async (reminder, chatId, waitingMessageId) => {
+        await logger.info(`reminder follow-up parse result: ${JSON.stringify(reminder)}`);
+        if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
+          await clearPendingReminderConfirmation();
+          const created = await createReminder(config, reminder.text, reminder.scheduledAt);
+          const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", { time: displayTime, text: created.text }));
+          return;
+        }
+        if (reminder.needsConfirmation && reminder.confirmationText) {
+          await setPendingReminderConfirmation({
+            originalRequest: pendingReminder.originalRequest,
+            referenceTimeIso: pendingReminder.referenceTimeIso,
+            createdAt: new Date().toISOString(),
+          });
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, reminder.confirmationText);
+          return;
+        }
+        await clearPendingReminderConfirmation();
+        await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "generic_done"));
+      },
+      `follow-up ${JSON.stringify(text)}`,
+    );
+    return;
   }
 
   if (shouldAttemptReminderParse(text)) {
     const referenceTimeIso = messageReferenceTime(ctx);
-    const reminder = await opencode.parseReminderRequest(text, referenceTimeIso);
-    if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
-      await clearPendingReminderConfirmation();
-      const created = await createReminder(config, reminder.text, reminder.scheduledAt);
-      const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-      await replyFormatted(ctx, t(config, "reminder_created", { time: displayTime, text: created.text }));
-      return;
-    }
-    if (reminder.needsConfirmation && reminder.confirmationText) {
-      await setPendingReminderConfirmation({
-        originalRequest: text,
-        referenceTimeIso,
-        createdAt: new Date().toISOString(),
-      });
-      await replyFormatted(ctx, reminder.confirmationText);
-      return;
-    }
+    await runReminderTask(
+      ctx,
+      () => opencode.parseReminderRequest(text, referenceTimeIso),
+      async (reminder, chatId, waitingMessageId) => {
+        await logger.info(`reminder parse result: ${JSON.stringify(reminder)}`);
+        if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
+          await clearPendingReminderConfirmation();
+          const created = await createReminder(config, reminder.text, reminder.scheduledAt);
+          const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", { time: displayTime, text: created.text }));
+          return;
+        }
+        if (reminder.needsConfirmation && reminder.confirmationText) {
+          await setPendingReminderConfirmation({
+            originalRequest: text,
+            referenceTimeIso,
+            createdAt: new Date().toISOString(),
+          });
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, reminder.confirmationText);
+          return;
+        }
+        await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "generic_done"));
+      },
+      `initial ${JSON.stringify(text)}`,
+    );
+    return;
   }
 
   const recentUploads = getRecentUploads();
