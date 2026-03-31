@@ -45,31 +45,51 @@ configureLogger(config.paths.logFile);
 const bot = new Bot(config.telegram.botToken);
 const opencode = new OpenCodeService(config);
 let botUsername: string | null = null;
+let botUserId: number | null = null;
 let activeTask: ActiveTask | null = null;
 let nextTaskId = 1;
 
+type AccessLevel = "admin" | "allowed" | "none";
+
+function accessLevelForUserId(userId: number | undefined): AccessLevel {
+  if (typeof userId !== "number") return "none";
+  if (config.telegram.adminUserId === userId) return "admin";
+  if (config.telegram.allowedUserIds.includes(userId)) return "allowed";
+  return "none";
+}
+
+function isAdminUserId(userId: number | undefined): boolean {
+  return accessLevelForUserId(userId) === "admin";
+}
+
 function isAuthorized(ctx: Context): boolean {
-  const userId = ctx.from?.id;
-  return typeof userId === "number" && config.telegram.allowedUserIds.includes(userId);
+  return accessLevelForUserId(ctx.from?.id) !== "none";
 }
 
 async function sendStartupGreeting(): Promise<void> {
   try {
     const greeting = await opencode.generateStartupGreeting();
-    for (const userId of config.telegram.allowedUserIds) {
+    const recipients = Array.from(new Set([
+      ...config.telegram.allowedUserIds,
+      ...(config.telegram.adminUserId ? [config.telegram.adminUserId] : []),
+    ]));
+    for (const userId of recipients) {
       await sendMessageFormatted(bot, userId, greeting);
     }
-    await logger.info(`Sent startup greeting to ${config.telegram.allowedUserIds.length} authorized Telegram user(s)`);
+    await logger.info(`Sent startup greeting to ${recipients.length} authorized Telegram user(s)`);
   } catch (error) {
     await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 async function unauthorizedGuard(ctx: Context, next: () => Promise<void>): Promise<void> {
-  if (!isAuthorized(ctx)) {
-    await logger.warn(`Unauthorized Telegram access from user=${ctx.from?.id ?? "unknown"}`);
+  const userId = ctx.from?.id;
+  const accessLevel = accessLevelForUserId(userId);
+  if (accessLevel === "none") {
+    await logger.warn(`Telegram access denied level=none user=${userId ?? "unknown"}`);
     return;
   }
+  await logger.info(`Telegram access granted level=${accessLevel} user=${userId ?? "unknown"}`);
   touchActivity();
   await next();
 }
@@ -134,10 +154,18 @@ function entityMentionsBot(text: string | undefined, entities: Array<{ type?: st
   });
 }
 
+function isReplyingToBot(message: Context["message"]): boolean {
+  if (!message || botUserId == null) return false;
+  const repliedMessage = "reply_to_message" in message ? message.reply_to_message : undefined;
+  return repliedMessage?.from?.id === botUserId;
+}
+
 function isAddressedToBot(ctx: Context): boolean {
   if (!requiresDirectMention(ctx)) return true;
   const message = ctx.message;
   if (!message) return false;
+
+  if (isReplyingToBot(message)) return true;
 
   const text = "text" in message ? message.text : undefined;
   const textEntities = "entities" in message ? (message.entities as Array<{ type?: string; offset?: number; length?: number }> | undefined) : undefined;
@@ -295,7 +323,7 @@ async function runPromptTask(
   startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
 
   try {
-    const answer = await opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime);
+    const answer = await opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, isAdminUserId(ctx.from?.id));
     if (task.cancelled || activeTask?.id !== task.id) {
       await logger.warn(`discarding stale prompt result for task ${task.id}`);
       return;
@@ -624,6 +652,7 @@ await bot.start({
       { command: "reminders", description: t(config, "command_reminders") },
     ]);
     botUsername = botInfo.username || null;
+    botUserId = botInfo.id;
     await logger.info(`Telegram bot started as @${botInfo.username}`);
     await sendStartupGreeting();
   },
