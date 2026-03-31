@@ -1,7 +1,8 @@
 # Agent Instructions
 
-This repository uses `memory-agent` as the primary workflow for retrieval, memory updates, and file organization.
+This repository prefers a minimal-tool workflow.
 
-- Default to checking repository memory first before answering requests that may relate to stored personal information, documents, photos, named entities, prior uploads, notes, or assets.
-- Any repository-memory retrieval must go through the `memory-agent` skill rather than ad-hoc answering.
-- Once triggered, follow `memory-agent` for detailed behavior.
+- For read-only retrieval, prefer direct `fd`/`rg` and note body search first.
+- Use the `memory-agent` skill for any request that would change repository memory or long-term files: remember, save, update, organize, merge, link, move from `tmp/` to `assets/`, or reshape existing notes.
+- For simple read-only questions about existing notes or assets, direct retrieval is fine; use `memory-agent` when note routing, merging, or persistence decisions are needed.
+- Do not claim that notes or files were saved, moved, merged, linked, or persisted unless the repository was actually updated.

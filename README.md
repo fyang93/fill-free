@@ -27,17 +27,16 @@ By default, AI organizes files using filenames and your instructions. It does no
 
 ## What The Repo Stores
 
-- `memory/`: committed AI-safe Markdown notes managed by `memory-agent`
+- `memory/`: committed AI-safe Markdown notes
 - `assets/`: long-term stored files and attachments
 - `tmp/`: temporary drop zone for files and intermediate outputs
-- `index/`: generated local indexes used for retrieval
+- `index/`: Telegram bot runtime state
 
 ## Setup
 
 Requirements:
 
-- Python `3.11+`
-- `uv`
+- `bun`
 - `just`
 - `fd`
 - `ripgrep`
@@ -45,7 +44,6 @@ Requirements:
 Install dependencies:
 
 ```bash
-uv sync
 bun install
 ```
 
@@ -88,35 +86,25 @@ Usage:
 
 ## Commands
 
-The CLI is mainly for retrieval and maintenance behind the skill:
+The top-level `justfile` is intentionally minimal:
 
 ```bash
-just list
-just list --paths 10
-just find --top 3 profile
-just find --paths --top 1 bank account
-just frontmatter memory/profile.md
-just body memory/profile.md
-just search passport
-just search --files passport
-just search --context 2 --max-count 1 passport
-just index
-just check
+just serve
 ```
 
-In normal use, ask AI first. These commands are most useful when you want to inspect stored notes, rebuild indexes, or validate the repo.
+For retrieval, prefer standard shell tools directly:
 
-A miss from `just find` does not prove there is no related note. `just find` only searches indexed metadata, including frontmatter `summary`, and accepts multiple space-separated terms such as `just find bank account`. Prefer `just find --top 3 ...` when you only need the best few candidates, and prefer `--paths` for downstream agent use because paths are shorter and less ambiguous than titles. Keep `summary` concise and body-descriptive so agents can avoid opening note bodies unnecessarily. `just frontmatter NOTE` now returns the compact metadata view with `title`, `tags`, `aliases`, and `summary`, which is the preferred low-token metadata read. Use `just list` to browse likely matches, then continue to `just search` before concluding that the repo does not have what you need. If you only need to know which notes mention something in the body, use `just search --files ...` before reading any body text. If you need a small body snippet, prefer `just search --context 2 --max-count 1 ...` before opening the full note body.
+```bash
+fd . memory
+rg -n "樱桃|郭旸" memory
+rg -n -C 2 "三井住友|SMBC" memory
+```
 
-For lower-noise retrieval, keep each markdown note topic-focused and keep tags sparse. A good default is at most 3 tags per note, with separate notes such as `memory/profile.md` and `memory/banking.md` instead of a single catch-all file. Prefer semantic scope over fixed length limits: split notes when they start covering multiple stable retrieval domains, not just because they became longer. `body` is intentionally a higher-cost command; use it only after `find`, `list`, `frontmatter`, or `search --files` has already narrowed the target note. `just check` may emit advisory topic-sprawl warnings to help you decide when to split a note.
+In normal use, ask AI first. The repo now follows a minimal-tool philosophy similar to pi itself: keep the default surface area small, and rely on `fd`, `rg`, and direct file reads for most retrieval work. Frontmatter is still useful as lightweight structure, aliases, and summaries, but concrete answers should usually come from body search rather than a separate metadata index.
+
+For lower-noise retrieval, keep each markdown note topic-focused and keep tags sparse. A good default is at most 3 tags per note, with separate notes such as `memory/profile.md` and `memory/banking.md` instead of a single catch-all file. Prefer semantic scope over fixed length limits: split notes when they start covering multiple stable retrieval domains, not just because they became longer.
 
 ## Sensitive Data
 
 Normal personal facts can be stored when you explicitly ask. For highly sensitive values such as passwords, API keys, private keys, recovery codes, credit card numbers, or CVV, AI should warn before storing them.
 
-## Verify
-
-```bash
-just check
-uv run pytest
-```

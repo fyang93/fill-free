@@ -286,9 +286,12 @@ function loadAgentsPrompt(repoRoot: string): string {
 }
 
 function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string): string {
-  const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the memory-agent workflow for this repository.";
+  const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the repository note workflow.";
   const common = [
     "Work inside the repository context and strictly follow AGENTS.md.",
+    "If the request touches memory, notes, prior uploads, named entities, assets, or long-term storage, you must follow the repository note workflow in AGENTS.md instead of answering from general impression.",
+    "Before creating a new note, search for the best existing related note and update or merge into it when the subject already exists.",
+    "If you claim something was saved, updated, moved, linked, or persisted, make the corresponding repository changes first in this run. Do not merely describe intended actions.",
     telegramMessageTime ? `Telegram message time: ${telegramMessageTime}` : "",
     `If you can return normal text, prefer ${replyLanguage} in a concise helpful style.`,
     "If you need the Telegram bot to send repository files back, reply with JSON only: {\"message\": string, \"files\": string[] }.",
@@ -315,6 +318,8 @@ function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: 
   return [
     "The user uploaded files through Telegram. The files have already been saved under tmp/ in this repository.",
     "These files are the most recent uploads in the current conversation. Unless the user clearly switches to another target, treat them as the files being referred to now.",
+    "If the user wants them organized, archived, remembered, or linked, persist the actual files under assets/ with sensible English names and subdirectories, then link those real asset paths from the relevant note.",
+    "Do not leave long-term files only in tmp/, and do not create markdown placeholder files under assets/ as a substitute for the real uploaded file.",
     "Saved files:",
     fileBlock,
     "",
