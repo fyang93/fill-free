@@ -109,5 +109,5 @@ For lower-noise retrieval, keep each markdown note topic-focused and keep tags s
 
 ## Sensitive Data
 
-Normal personal facts can be stored when you explicitly ask. For highly sensitive values such as passwords, API keys, private keys, recovery codes, credit card numbers, or CVV, AI should warn before storing them.
+Normal personal facts can be stored when you explicitly ask. Passwords can also be stored when you explicitly ask. For highly sensitive values such as API keys, private keys, recovery codes, credit card numbers, or CVV, AI should warn before storing them.
 

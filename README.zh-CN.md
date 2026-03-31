@@ -109,5 +109,5 @@ rg -n -C 2 "三井住友|SMBC" memory
 
 ## 敏感信息
 
-普通个人信息在你明确要求时可以直接记录。对密码、API key、private key、recovery code、银行卡号、CVV 这类高度敏感的信息，AI 应先提醒风险，再决定是否继续处理。
+普通个人信息在你明确要求时可以直接记录。密码也可以在你明确要求时直接保存。对 API key、private key、recovery code、银行卡号、CVV 这类高度敏感的信息，AI 应先提醒风险，再决定是否继续处理。
 

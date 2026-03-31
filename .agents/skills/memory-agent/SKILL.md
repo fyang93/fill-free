@@ -28,7 +28,8 @@ Use this skill when the user asks to remember, save, update, organize, merge, li
 ## Sensitive Data
 
 - There is no separate local-secret workflow in this repository; persisted data may enter AI context.
-- Never persist passwords, API keys, private keys, recovery codes, seed phrases, session tokens, 2FA backup codes, or CVV.
+- Passwords may be persisted when the user clearly and explicitly asks to save them.
+- Never persist API keys, private keys, recovery codes, seed phrases, session tokens, 2FA backup codes, or CVV.
 - For other highly sensitive values such as ID numbers, passport numbers, residence card numbers, bank card numbers, full addresses, or phone numbers, warn briefly first and ask for confirmation before storing unless the user has already clearly and explicitly asked to persist them.
 - If the user insists on storing sensitive values that are not in the never-store list, do the minimum necessary and avoid repeating the raw value unless required.
 
