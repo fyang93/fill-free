@@ -66,6 +66,8 @@ If OpenCode is already running on `127.0.0.1:4096`, the command reuses it.
 Useful config:
 
 - `telegram.language`: controls both UI text and conversation reply language (`zh` or `en`)
+- `telegram.waiting_message`: initial in-progress message shown while a task is running
+- `telegram.wairing_message_candidates`: optional list of replacement waiting messages rotated every 5 seconds
 - `telegram.persona_style`: tune the bot's reply tone
 
 ## Telegram Bot

@@ -11,6 +11,8 @@ import type { PromptAttachment, UploadedFile } from "./types";
 const MODEL_LIST_LIMIT = 30;
 const MODEL_CALLBACK_PREFIX = "model:set:";
 const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule)/i;
+const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
+const WAITING_MESSAGE_ROTATION_MS = 5000;
 
 type ActiveTask = {
   id: number;
@@ -18,6 +20,7 @@ type ActiveTask = {
   sourceMessageId: number;
   waitingMessageId: number;
   cancelled: boolean;
+  waitingMessageRotation?: NodeJS.Timeout;
 };
 
 const config = loadConfig();
@@ -139,6 +142,7 @@ async function interruptActiveTask(reason: string): Promise<void> {
   const running = activeTask;
   if (!running || running.cancelled) return;
   running.cancelled = true;
+  stopWaitingMessageRotation(running);
   activeTask = null;
   await logger.warn(`interrupting active task ${running.id}: ${reason}`);
   await opencode.abortCurrentSession();
@@ -150,21 +154,55 @@ async function interruptActiveTask(reason: string): Promise<void> {
   }
 }
 
+function renderWaitingText(template: string, waitingMessage: string): string {
+  return template.includes(WAITING_MESSAGE_PLACEHOLDER)
+    ? template.replaceAll(WAITING_MESSAGE_PLACEHOLDER, waitingMessage)
+    : waitingMessage;
+}
+
+function chooseNextWaitingMessage(current: string, candidates: string[]): string {
+  const filtered = candidates.filter((candidate) => candidate !== current);
+  const pool = filtered.length > 0 ? filtered : candidates;
+  return pool[Math.floor(Math.random() * pool.length)] || current;
+}
+
+function startWaitingMessageRotation(task: ActiveTask, waitingTemplate: string, initialWaitingMessage: string): void {
+  const candidates = config.telegram.waitingMessageCandidates;
+  if (candidates.length === 0) return;
+
+  let currentWaitingMessage = initialWaitingMessage;
+  task.waitingMessageRotation = setInterval(() => {
+    if (task.cancelled || activeTask?.id !== task.id) return;
+    const nextWaitingMessage = chooseNextWaitingMessage(currentWaitingMessage, candidates);
+    if (!nextWaitingMessage || nextWaitingMessage === currentWaitingMessage) return;
+    currentWaitingMessage = nextWaitingMessage;
+    void bot.api.editMessageText(task.chatId, task.waitingMessageId, renderWaitingText(waitingTemplate, currentWaitingMessage)).catch(() => {
+      // ignore transient edit failures during waiting-message rotation
+    });
+  }, WAITING_MESSAGE_ROTATION_MS);
+}
+
+function stopWaitingMessageRotation(task: ActiveTask | null): void {
+  if (!task?.waitingMessageRotation) return;
+  clearInterval(task.waitingMessageRotation);
+  task.waitingMessageRotation = undefined;
+}
+
 function startPromptTask(
   ctx: Context,
-  waitingText: string,
+  waitingTemplate: string,
   promptText: string,
   uploadedFiles: UploadedFile[] = [],
   attachments: PromptAttachment[] = [],
 ): void {
-  void runPromptTask(ctx, waitingText, promptText, uploadedFiles, attachments).catch(async (error) => {
+  void runPromptTask(ctx, waitingTemplate, promptText, uploadedFiles, attachments).catch(async (error) => {
     await logger.error(`background prompt task crashed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
   });
 }
 
 async function runPromptTask(
   ctx: Context,
-  waitingText: string,
+  waitingTemplate: string,
   promptText: string,
   uploadedFiles: UploadedFile[] = [],
   attachments: PromptAttachment[] = [],
@@ -175,7 +213,8 @@ async function runPromptTask(
 
   await interruptActiveTask(`new incoming message ${sourceMessageId}`);
   await setReactionSafe(ctx, "🤔");
-  const waiting = await ctx.reply(waitingText);
+  const initialWaitingMessage = config.telegram.waitingMessage;
+  const waiting = await ctx.reply(renderWaitingText(waitingTemplate, initialWaitingMessage));
   const task: ActiveTask = {
     id: nextTaskId++,
     chatId,
@@ -184,6 +223,7 @@ async function runPromptTask(
     cancelled: false,
   };
   activeTask = task;
+  startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
 
   try {
     const answer = await opencode.prompt(promptText, uploadedFiles, attachments);
@@ -192,6 +232,7 @@ async function runPromptTask(
       return;
     }
 
+    stopWaitingMessageRotation(task);
     await ctx.api.editMessageText(chatId, waiting.message_id, answer.message || t(config, "generic_done"));
 
     if (answer.attachments.length > 0) {
@@ -216,11 +257,13 @@ async function runPromptTask(
       await logger.warn(`ignored prompt failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
+    stopWaitingMessageRotation(task);
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`prompt handling failed: ${message}`);
     await ctx.api.editMessageText(chatId, waiting.message_id, t(config, "task_failed", { error: message }));
     await setReactionSafe(ctx, "👎");
   } finally {
+    stopWaitingMessageRotation(task);
     if (activeTask?.id === task.id) {
       activeTask = null;
     }
@@ -296,7 +339,7 @@ async function handleIncomingText(ctx: Context): Promise<void> {
   const recentUploads = getRecentUploads();
   const attachments = await buildRecentAttachments(recentUploads);
   await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
-  startPromptTask(ctx, config.telegram.waitingMessage, text, recentUploads, attachments);
+  startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, recentUploads, attachments);
 }
 
 async function handleIncomingFile(ctx: Context): Promise<void> {
@@ -315,10 +358,10 @@ async function handleIncomingFile(ctx: Context): Promise<void> {
     }
 
     const attachment = await uploadedFileToAttachment(uploaded);
-    const waitingText = t(config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: config.telegram.waitingMessage });
+    const waitingTemplate = t(config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: WAITING_MESSAGE_PLACEHOLDER });
 
     await logger.info(`received ${uploaded.source} message ${ctx.message?.message_id} with caption and scheduled prompt task`);
-    startPromptTask(ctx, waitingText, caption, [uploaded], [attachment]);
+    startPromptTask(ctx, waitingTemplate, caption, [uploaded], [attachment]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`file handling failed: ${message}`);

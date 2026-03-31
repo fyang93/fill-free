@@ -8,6 +8,7 @@ export type AppConfig = {
     personaStyle: string;
     language: "zh" | "en";
     waitingMessage: string;
+    waitingMessageCandidates: string[];
   };
   paths: {
     repoRoot: string;
