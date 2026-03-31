@@ -58,7 +58,7 @@ bun install
 3. 启动：
 
 ```bash
-just serve-bot
+just serve
 ```
 
 如果 `127.0.0.1:4096` 上已经有正在运行的 OpenCode server，会直接复用。

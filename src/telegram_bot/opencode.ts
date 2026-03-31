@@ -35,7 +35,7 @@ export class OpenCodeService {
 
   async ensureReady(): Promise<void> {
     if (await this.isHealthy()) return;
-    throw new Error(`OpenCode is unreachable at ${this.config.opencode.baseUrl}. Please start it with just serve-bot.`);
+    throw new Error(`OpenCode is unreachable at ${this.config.opencode.baseUrl}. Please start it with just serve.`);
   }
 
   async newSession(): Promise<string> {

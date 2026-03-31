@@ -58,7 +58,7 @@ Quick start:
 3. Start the bot:
 
 ```bash
-just serve-bot
+just serve
 ```
 
 If OpenCode is already running on `127.0.0.1:4096`, the command reuses it.
