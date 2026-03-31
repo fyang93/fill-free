@@ -5,6 +5,8 @@ polling_timeout_sec = 20
 polling_interval_ms = 300
 max_file_size_mb = 200
 persona_style = "Speak with a concise, slightly mechanical, Defect-like tone inspired by Slay the Spire. Keep replies clear, calm, and useful; do not roleplay excessively or reduce factual accuracy."
+ui_language = "zh"
+waiting_message = "机宝启动中..."
 
 [paths]
 repo_root = "."

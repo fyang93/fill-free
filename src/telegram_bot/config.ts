@@ -20,6 +20,11 @@ function asNumber(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function asUiLanguage(value: unknown): "zh" | "en" {
+  const normalized = asString(value, "zh").trim().toLowerCase();
+  return normalized === "en" ? "en" : "zh";
+}
+
 export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml")): AppConfig {
   const raw = readFileSync(configPath, "utf8");
   const parsed = asRecord(parse(raw));
@@ -41,6 +46,8 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       pollingIntervalMs: asNumber(telegram.polling_interval_ms, 300),
       maxFileSizeMb: asNumber(telegram.max_file_size_mb, 20),
       personaStyle: asString(telegram.persona_style),
+      uiLanguage: asUiLanguage(telegram.ui_language),
+      waitingMessage: asString(telegram.waiting_message, "机宝启动中..."),
     },
     paths: {
       repoRoot,

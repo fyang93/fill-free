@@ -6,6 +6,8 @@ export type AppConfig = {
     pollingIntervalMs: number;
     maxFileSizeMb: number;
     personaStyle: string;
+    uiLanguage: "zh" | "en";
+    waitingMessage: string;
   };
   paths: {
     repoRoot: string;
@@ -25,6 +27,13 @@ export type UploadedFile = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
+  source: "document" | "photo" | "voice" | "audio";
+};
+
+export type PromptAttachment = {
+  mimeType: string;
+  filename?: string;
+  url: string;
 };
 
 export type SessionState = {

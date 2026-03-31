@@ -1,14 +1,24 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import { loadConfig } from "./config";
-import { saveTelegramFile, sendLocalFiles } from "./files";
+import { saveTelegramFile, sendLocalFiles, sendPromptAttachments, uploadedFileToAttachment } from "./files";
 import { configureLogger, logger } from "./logger";
 import { OpenCodeService } from "./opencode";
 import { clearRecentUploads, currentModel, getRecentUploads, loadPersistentState, persistState, rememberUploads, state, touchActivity } from "./state";
 import { createReminder, handleReminderCallback, showReminderList, startReminderLoop } from "./reminders";
+import { t, uiLocaleTag } from "./i18n";
+import type { PromptAttachment, UploadedFile } from "./types";
 
 const MODEL_LIST_LIMIT = 30;
 const MODEL_CALLBACK_PREFIX = "model:set:";
 const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule)/i;
+
+type ActiveTask = {
+  id: number;
+  chatId: number;
+  sourceMessageId: number;
+  waitingMessageId: number;
+  cancelled: boolean;
+};
 
 const config = loadConfig();
 await loadPersistentState();
@@ -16,6 +26,8 @@ configureLogger(config.paths.logFile);
 const bot = new Bot(config.telegram.botToken);
 const opencode = new OpenCodeService(config);
 const hasPendingUpdatesOnStartup = await hasPendingAuthorizedUpdates();
+let activeTask: ActiveTask | null = null;
+let nextTaskId = 1;
 
 function isAuthorized(ctx: Context): boolean {
   return ctx.from?.id === config.telegram.allowedUserId;
@@ -62,12 +74,16 @@ async function unauthorizedGuard(ctx: Context, next: () => Promise<void>): Promi
   await next();
 }
 
-async function setMessageReactionSafe(ctx: Context, emoji: string): Promise<void> {
+async function setReactionSafe(ctx: Context, emoji: string): Promise<void> {
   const messageId = ctx.message?.message_id;
   const chatId = ctx.chat?.id;
   if (!messageId || !chatId) return;
+  await setReactionByMessageSafe(chatId, messageId, emoji);
+}
+
+async function setReactionByMessageSafe(chatId: number, messageId: number, emoji: string): Promise<void> {
   try {
-    await (ctx.api as any).setMessageReaction(chatId, messageId, [{ type: "emoji", emoji }], false);
+    await (bot.api as any).setMessageReaction(chatId, messageId, [{ type: "emoji", emoji }], false);
   } catch {
     // ignore reaction failures
   }
@@ -100,25 +116,115 @@ function shouldAttemptReminderParse(text: string): boolean {
 }
 
 function helpText(): string {
-  return [
-    "The Defect Bot Telegram 入口已就绪。",
-    "",
-    "你可以直接用自然语言让我：",
-    "- 查询已保存的信息",
-    "- 记录或更新个人信息",
-    "- 整理上传到 tmp/ 的文件",
-    "- 按 memory-agent 工作流处理资料",
-    "",
-    "上传文件后会自动保存到 tmp/telegram/日期/ 下。",
-    "如果文件带说明文字，我会继续自动处理。",
-    "",
-    "可用命令：",
-    "/help - 查看帮助",
-    "/new - 新建会话",
-    "/model - 查看当前模型和可选模型",
-    "/model <provider/model> - 切换模型",
-    "/reminders - 查看提醒列表",
-  ].join("\n");
+  return t(config, "help_text");
+}
+
+function messageReferenceTime(ctx: Context): string {
+  const unixSeconds = ctx.message?.date;
+  if (typeof unixSeconds === "number") {
+    return new Date(unixSeconds * 1000).toISOString();
+  }
+  return new Date().toISOString();
+}
+
+async function buildRecentAttachments(files: UploadedFile[]): Promise<PromptAttachment[]> {
+  return Promise.all(
+    files
+      .filter((file) => file.source !== "voice" && file.source !== "audio")
+      .map((file) => uploadedFileToAttachment(file)),
+  );
+}
+
+async function interruptActiveTask(reason: string): Promise<void> {
+  const running = activeTask;
+  if (!running || running.cancelled) return;
+  running.cancelled = true;
+  activeTask = null;
+  await logger.warn(`interrupting active task ${running.id}: ${reason}`);
+  await opencode.abortCurrentSession();
+  await setReactionByMessageSafe(running.chatId, running.sourceMessageId, "👎");
+  try {
+    await bot.api.editMessageText(running.chatId, running.waitingMessageId, t(config, "task_interrupted"));
+  } catch {
+    // ignore message edit failures
+  }
+}
+
+function startPromptTask(
+  ctx: Context,
+  waitingText: string,
+  promptText: string,
+  uploadedFiles: UploadedFile[] = [],
+  attachments: PromptAttachment[] = [],
+): void {
+  void runPromptTask(ctx, waitingText, promptText, uploadedFiles, attachments).catch(async (error) => {
+    await logger.error(`background prompt task crashed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+  });
+}
+
+async function runPromptTask(
+  ctx: Context,
+  waitingText: string,
+  promptText: string,
+  uploadedFiles: UploadedFile[] = [],
+  attachments: PromptAttachment[] = [],
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const sourceMessageId = ctx.message?.message_id;
+  if (!chatId || !sourceMessageId) return;
+
+  await interruptActiveTask(`new incoming message ${sourceMessageId}`);
+  await setReactionSafe(ctx, "🤔");
+  const waiting = await ctx.reply(waitingText);
+  const task: ActiveTask = {
+    id: nextTaskId++,
+    chatId,
+    sourceMessageId,
+    waitingMessageId: waiting.message_id,
+    cancelled: false,
+  };
+  activeTask = task;
+
+  try {
+    const answer = await opencode.prompt(promptText, uploadedFiles, attachments);
+    if (task.cancelled || activeTask?.id !== task.id) {
+      await logger.warn(`discarding stale prompt result for task ${task.id}`);
+      return;
+    }
+
+    await ctx.api.editMessageText(chatId, waiting.message_id, answer.message || t(config, "generic_done"));
+
+    if (answer.attachments.length > 0) {
+      const sentAttachments = await sendPromptAttachments(ctx, answer.attachments);
+      if (sentAttachments > 0) {
+        await logger.info(`sent ${sentAttachments} direct attachments back to telegram`);
+      }
+    }
+
+    if (answer.files.length > 0) {
+      const sentFiles = await sendLocalFiles(ctx, config, answer.files);
+      if (sentFiles.length > 0) {
+        await logger.info(`sent files back to telegram: ${sentFiles.join(", ")}`);
+      } else {
+        await logger.warn(`file send failed for candidates: ${answer.files.join(", ")}`);
+        await ctx.reply(t(config, "send_failed"));
+      }
+    }
+    await setReactionSafe(ctx, "👍");
+  } catch (error) {
+    if (task.cancelled || activeTask?.id !== task.id) {
+      await logger.warn(`ignored prompt failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    await logger.error(`prompt handling failed: ${message}`);
+    await ctx.api.editMessageText(chatId, waiting.message_id, t(config, "task_failed", { error: message }));
+    await setReactionSafe(ctx, "👎");
+  } finally {
+    if (activeTask?.id === task.id) {
+      activeTask = null;
+    }
+  }
 }
 
 bot.use(unauthorizedGuard);
@@ -128,9 +234,10 @@ bot.command("help", async (ctx) => {
 });
 
 bot.command("new", async (ctx) => {
+  await interruptActiveTask("/new command");
   const sessionId = await opencode.newSession();
   clearRecentUploads();
-  await ctx.reply(`已创建新会话：${sessionId}`);
+  await ctx.reply(t(config, "new_session", { sessionId }));
 });
 
 bot.command("reminders", async (ctx) => {
@@ -145,11 +252,11 @@ bot.command("model", async (ctx) => {
     try {
       const { defaults, models } = await opencode.listModels();
       const activeModel = resolveDisplayedModel(defaults);
-      await ctx.reply("请选择模型：", {
+      await ctx.reply(t(config, "choose_model"), {
         reply_markup: buildModelKeyboard(models, activeModel),
       });
     } catch (error) {
-      await ctx.reply(`获取模型列表失败：${error instanceof Error ? error.message : String(error)}`);
+      await ctx.reply(t(config, "fetch_models_failed", { error: error instanceof Error ? error.message : String(error) }));
     }
     return;
   }
@@ -158,24 +265,17 @@ bot.command("model", async (ctx) => {
   try {
     const { models } = await opencode.listModels();
     if (!models.includes(nextModel)) {
-      await ctx.reply(`OpenCode 当前没有这个模型：${nextModel}`);
+      await ctx.reply(t(config, "model_not_found", { model: nextModel }));
       return;
     }
+    await interruptActiveTask(`/model switch to ${nextModel}`);
     state.model = nextModel;
     await persistState();
-    await ctx.reply(`已切换模型到：${nextModel}`);
+    await ctx.reply(t(config, "model_switched", { model: nextModel }));
   } catch (error) {
-    await ctx.reply(`切换模型失败：${error instanceof Error ? error.message : String(error)}`);
+    await ctx.reply(t(config, "model_switch_failed", { error: error instanceof Error ? error.message : String(error) }));
   }
 });
-
-function messageReferenceTime(ctx: Context): string {
-  const unixSeconds = ctx.message?.date;
-  if (typeof unixSeconds === "number") {
-    return new Date(unixSeconds * 1000).toISOString();
-  }
-  return new Date().toISOString();
-}
 
 async function handleIncomingText(ctx: Context): Promise<void> {
   const text = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() || "" : "";
@@ -185,41 +285,23 @@ async function handleIncomingText(ctx: Context): Promise<void> {
     const reminder = await opencode.parseReminderRequest(text, messageReferenceTime(ctx));
     if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
       const created = await createReminder(config, reminder.text, reminder.scheduledAt);
-      const displayTime = new Date(created.scheduledAt).toLocaleString("zh-CN", { hour12: false });
+      const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
       await ctx.reply(reminder.needsConfirmation && reminder.confirmationText
         ? reminder.confirmationText
-        : `好的，我会在 ${displayTime} 提醒你：${created.text}`);
+        : t(config, "reminder_created", { time: displayTime, text: created.text }));
       return;
     }
   }
 
   const recentUploads = getRecentUploads();
-  await setMessageReactionSafe(ctx, "🤔");
-  const waiting = await ctx.reply("机宝启动中...");
-  try {
-    const answer = await opencode.prompt(text, recentUploads);
-    await ctx.api.editMessageText(ctx.chat!.id, waiting.message_id, answer.message || "已处理。");
-    if (answer.files.length > 0) {
-      const sentFiles = await sendLocalFiles(ctx, config, answer.files);
-      if (sentFiles.length > 0) {
-        await logger.info(`sent files back to telegram: ${sentFiles.join(", ")}`);
-      } else {
-        await logger.warn(`file send failed for candidates: ${answer.files.join(", ")}`);
-        await ctx.reply("我找到了相关文件，但这次发送失败了。");
-      }
-    }
-    await setMessageReactionSafe(ctx, "👍");
-  } catch (error) {
-    await logger.error(`text handling failed: ${error instanceof Error ? error.message : String(error)}`);
-    await ctx.api.editMessageText(ctx.chat!.id, waiting.message_id, `处理失败：${error instanceof Error ? error.message : String(error)}`);
-    await setMessageReactionSafe(ctx, "👎");
-  }
+  const attachments = await buildRecentAttachments(recentUploads);
+  await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
+  startPromptTask(ctx, config.telegram.waitingMessage, text, recentUploads, attachments);
 }
 
 async function handleIncomingFile(ctx: Context): Promise<void> {
   const caption = ctx.message && "caption" in ctx.message ? ctx.message.caption?.trim() || "" : "";
   try {
-    await setMessageReactionSafe(ctx, "🤔");
     const uploaded = await saveTelegramFile(ctx, config);
     if (!uploaded) return;
 
@@ -227,33 +309,21 @@ async function handleIncomingFile(ctx: Context): Promise<void> {
     rememberUploads([uploaded]);
 
     if (!caption) {
-      await ctx.reply([
-        "文件已保存。",
-        `path: ${uploaded.savedPath}`,
-        "你可以继续直接告诉我怎么处理这个文件。",
-      ].join("\n"));
-      await setMessageReactionSafe(ctx, "👍");
+      await setReactionSafe(ctx, "👍");
+      await ctx.reply(t(config, "file_saved", { path: uploaded.savedPath, waiting_message: config.telegram.waitingMessage }));
       return;
     }
 
-    const waiting = await ctx.reply(`文件已保存到 ${uploaded.savedPath}，机宝启动中...`);
-    const answer = await opencode.prompt(caption, [uploaded]);
-    await ctx.api.editMessageText(ctx.chat!.id, waiting.message_id, answer.message || "已处理。");
-    if (answer.files.length > 0) {
-      const sentFiles = await sendLocalFiles(ctx, config, answer.files);
-      if (sentFiles.length > 0) {
-        await logger.info(`sent files back to telegram: ${sentFiles.join(", ")}`);
-      } else {
-        await logger.warn(`file send failed for candidates: ${answer.files.join(", ")}`);
-        await ctx.reply("我找到了相关文件，但这次发送失败了。");
-      }
-    }
-    await setMessageReactionSafe(ctx, "👍");
+    const attachment = await uploadedFileToAttachment(uploaded);
+    const waitingText = t(config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: config.telegram.waitingMessage });
+
+    await logger.info(`received ${uploaded.source} message ${ctx.message?.message_id} with caption and scheduled prompt task`);
+    startPromptTask(ctx, waitingText, caption, [uploaded], [attachment]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`file handling failed: ${message}`);
-    await ctx.reply(`文件处理失败：${message}`);
-    await setMessageReactionSafe(ctx, "👎");
+    await ctx.reply(t(config, "file_processing_failed", { error: message }));
+    await setReactionSafe(ctx, "👎");
   }
 }
 
@@ -272,14 +342,15 @@ bot.on("callback_query:data", async (ctx) => {
   try {
     const { models } = await opencode.listModels();
     if (!models.includes(model)) {
-      await ctx.answerCallbackQuery({ text: "模型已不可用", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t(config, "model_unavailable"), show_alert: true });
       return;
     }
+    await interruptActiveTask(`model callback switch to ${model}`);
     state.model = model;
     await persistState();
-    await ctx.answerCallbackQuery({ text: `已切换到 ${compactModelLabel(model)}` });
+    await ctx.answerCallbackQuery({ text: t(config, "callback_model_switched", { model: compactModelLabel(model) }) });
     if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-      await ctx.api.editMessageText(ctx.chat.id, ctx.callbackQuery.message.message_id, "请选择模型：", {
+      await ctx.api.editMessageText(ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model"), {
         reply_markup: buildModelKeyboard(models, state.model || model),
       });
     }
@@ -291,6 +362,8 @@ bot.on("callback_query:data", async (ctx) => {
 bot.on("message:text", handleIncomingText);
 bot.on("message:document", handleIncomingFile);
 bot.on("message:photo", handleIncomingFile);
+bot.on("message:voice", handleIncomingFile);
+bot.on("message:audio", handleIncomingFile);
 
 await logger.info("Telegram bot starting");
 const reminderLoop = await startReminderLoop(config, bot);
@@ -298,10 +371,10 @@ await bot.start({
   drop_pending_updates: false,
   onStart: async (botInfo) => {
     await bot.api.setMyCommands([
-      { command: "help", description: "查看帮助和使用说明" },
-      { command: "new", description: "新建会话" },
-      { command: "model", description: "查看或切换模型" },
-      { command: "reminders", description: "查看和管理提醒" },
+      { command: "help", description: t(config, "command_help") },
+      { command: "new", description: t(config, "command_new") },
+      { command: "model", description: t(config, "command_model") },
+      { command: "reminders", description: t(config, "command_reminders") },
     ]);
     await logger.info(`Telegram bot started as @${botInfo.username}`);
     await sendStartupGreetingIfIdle();

@@ -3,6 +3,7 @@ import path from "node:path";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
+import { t, uiLocaleTag } from "./i18n";
 
 export type Reminder = {
   id: string;
@@ -94,7 +95,7 @@ export async function deliverDueReminders(config: AppConfig, bot: Bot<Context>):
     if (reminder.status !== "pending") continue;
     const ts = Date.parse(reminder.scheduledAt);
     if (!Number.isFinite(ts) || ts > now) continue;
-    await bot.api.sendMessage(config.telegram.allowedUserId, `⏰ 提醒\n${reminder.text}`);
+    await bot.api.sendMessage(config.telegram.allowedUserId, t(config, "reminder_delivery", { text: reminder.text }));
     reminder.status = "sent";
     reminder.sentAt = new Date().toISOString();
     sent += 1;
@@ -104,19 +105,19 @@ export async function deliverDueReminders(config: AppConfig, bot: Bot<Context>):
   return sent;
 }
 
-function formatReminder(reminder: Reminder): string {
-  return `${new Date(reminder.scheduledAt).toLocaleString("zh-CN", { hour12: false }).slice(0, 16)} ${reminder.text}`;
+function formatReminder(config: AppConfig, reminder: Reminder): string {
+  return `${new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }).slice(0, 16)} ${reminder.text}`;
 }
 
-function buildListKeyboard(reminders: Reminder[], page: number): InlineKeyboard {
+function buildListKeyboard(config: AppConfig, reminders: Reminder[], page: number): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const totalPages = Math.max(1, Math.ceil(reminders.length / PAGE_SIZE));
   const start = page * PAGE_SIZE;
   const pageItems = reminders.slice(start, start + PAGE_SIZE);
-  pageItems.forEach((item) => keyboard.text(formatReminder(item).slice(0, 60), `${REMINDER_CALLBACK_PREFIX}view:${item.id}`).row());
+  pageItems.forEach((item) => keyboard.text(formatReminder(config, item).slice(0, 60), `${REMINDER_CALLBACK_PREFIX}view:${item.id}`).row());
   if (totalPages > 1) {
-    if (page > 0) keyboard.text("⬅ 上一页", `${REMINDER_CALLBACK_PREFIX}page:${page - 1}`);
-    if (page < totalPages - 1) keyboard.text("下一页 ➡", `${REMINDER_CALLBACK_PREFIX}page:${page + 1}`);
+    if (page > 0) keyboard.text(t(config, "reminder_prev"), `${REMINDER_CALLBACK_PREFIX}page:${page - 1}`);
+    if (page < totalPages - 1) keyboard.text(t(config, "reminder_next"), `${REMINDER_CALLBACK_PREFIX}page:${page + 1}`);
   }
   return keyboard;
 }
@@ -124,18 +125,18 @@ function buildListKeyboard(reminders: Reminder[], page: number): InlineKeyboard 
 export async function showReminderList(config: AppConfig, ctx: Context, page = 0): Promise<void> {
   const reminders = await listPendingReminders(config);
   if (reminders.length === 0) {
-    await ctx.reply("当前没有待提醒事项。");
+    await ctx.reply(t(config, "reminder_none"));
     return;
   }
-  await ctx.reply(`待提醒事项（${reminders.length}）`, { reply_markup: buildListKeyboard(reminders, page) });
+  await ctx.reply(t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, page) });
 }
 
-function buildDetailKeyboard(reminderId: string): InlineKeyboard {
-  return new InlineKeyboard().text("删除", `${REMINDER_CALLBACK_PREFIX}delete:${reminderId}`).row().text("返回列表", `${REMINDER_CALLBACK_PREFIX}page:0`);
+function buildDetailKeyboard(config: AppConfig, reminderId: string): InlineKeyboard {
+  return new InlineKeyboard().text(t(config, "reminder_delete"), `${REMINDER_CALLBACK_PREFIX}delete:${reminderId}`).row().text(t(config, "reminder_back"), `${REMINDER_CALLBACK_PREFIX}page:0`);
 }
 
-function buildDeleteConfirmKeyboard(reminderId: string): InlineKeyboard {
-  return new InlineKeyboard().text("确认删除", `${REMINDER_CALLBACK_PREFIX}confirm-delete:${reminderId}`).text("取消", `${REMINDER_CALLBACK_PREFIX}view:${reminderId}`);
+function buildDeleteConfirmKeyboard(config: AppConfig, reminderId: string): InlineKeyboard {
+  return new InlineKeyboard().text(t(config, "reminder_confirm_delete"), `${REMINDER_CALLBACK_PREFIX}confirm-delete:${reminderId}`).text(t(config, "reminder_cancel"), `${REMINDER_CALLBACK_PREFIX}view:${reminderId}`);
 }
 
 export async function handleReminderCallback(config: AppConfig, ctx: Context): Promise<boolean> {
@@ -149,7 +150,7 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
 
   if (action === "page") {
     const reminders = await listPendingReminders(config);
-    await ctx.api.editMessageText(ctx.chat.id, messageId, `待提醒事项（${reminders.length}）`, { reply_markup: buildListKeyboard(reminders, Number(value || 0)) });
+    await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, Number(value || 0)) });
     await ctx.answerCallbackQuery();
     return true;
   }
@@ -157,10 +158,13 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
   if (action === "view") {
     const reminder = await getReminder(config, value);
     if (!reminder || reminder.status !== "pending") {
-      await ctx.answerCallbackQuery({ text: "提醒不存在或已处理", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t(config, "reminder_missing"), show_alert: true });
       return true;
     }
-    await ctx.api.editMessageText(ctx.chat.id, messageId, `⏰ 提醒详情\n时间：${new Date(reminder.scheduledAt).toLocaleString("zh-CN", { hour12: false })}\n内容：${reminder.text}`, { reply_markup: buildDetailKeyboard(reminder.id) });
+    await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_detail", {
+      time: new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }),
+      text: reminder.text,
+    }), { reply_markup: buildDetailKeyboard(config, reminder.id) });
     await ctx.answerCallbackQuery();
     return true;
   }
@@ -168,10 +172,13 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
   if (action === "delete") {
     const reminder = await getReminder(config, value);
     if (!reminder || reminder.status !== "pending") {
-      await ctx.answerCallbackQuery({ text: "提醒不存在或已处理", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t(config, "reminder_missing"), show_alert: true });
       return true;
     }
-    await ctx.api.editMessageText(ctx.chat.id, messageId, `确认删除这个提醒？\n时间：${new Date(reminder.scheduledAt).toLocaleString("zh-CN", { hour12: false })}\n内容：${reminder.text}`, { reply_markup: buildDeleteConfirmKeyboard(reminder.id) });
+    await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_delete_confirm", {
+      time: new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }),
+      text: reminder.text,
+    }), { reply_markup: buildDeleteConfirmKeyboard(config, reminder.id) });
     await ctx.answerCallbackQuery();
     return true;
   }
@@ -180,11 +187,11 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
     await deleteReminder(config, value);
     const reminders = await listPendingReminders(config);
     if (reminders.length === 0) {
-      await ctx.api.editMessageText(ctx.chat.id, messageId, "当前没有待提醒事项。");
+      await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_none"));
     } else {
-      await ctx.api.editMessageText(ctx.chat.id, messageId, `待提醒事项（${reminders.length}）`, { reply_markup: buildListKeyboard(reminders, 0) });
+      await ctx.api.editMessageText(ctx.chat.id, messageId, t(config, "reminder_list_title", { count: reminders.length }), { reply_markup: buildListKeyboard(config, reminders, 0) });
     }
-    await ctx.answerCallbackQuery({ text: "已删除提醒" });
+    await ctx.answerCallbackQuery({ text: t(config, "reminder_deleted") });
     return true;
   }
 

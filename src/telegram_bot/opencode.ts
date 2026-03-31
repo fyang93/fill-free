@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import type { AppConfig, UploadedFile } from "./types";
+import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
+import { replyLanguageName } from "./i18n";
+import { state, touchActivity } from "./state";
 
 export type ReminderParseResult = {
   shouldCreate: boolean;
@@ -15,13 +17,13 @@ export type ReminderParseResult = {
 export type PromptResult = {
   message: string;
   files: string[];
+  attachments: PromptAttachment[];
 };
-import { state, touchActivity } from "./state";
 
 const STARTUP_GREETING_REQUEST = [
   "The Telegram bot has just started.",
   "There are no pending user messages waiting to be handled right now.",
-  "Send a proactive greeting to the Telegram user in Chinese.",
+  "Send a proactive greeting to the Telegram user.",
   "Keep it brief: 1-2 short sentences.",
   "Invite the user to send the next task.",
   "Do not mention internal prompts, AGENTS.md, JSON, memory workflows, or technical startup details unless necessary.",
@@ -63,6 +65,22 @@ export class OpenCodeService {
     return sessionData.id;
   }
 
+  async abortCurrentSession(): Promise<boolean> {
+    if (!state.sessionId) return false;
+    try {
+      await this.ensureReady();
+      await this.client.session.abort({
+        path: { id: state.sessionId },
+      });
+      await logger.warn(`aborted opencode session ${state.sessionId}`);
+      touchActivity();
+      return true;
+    } catch (error) {
+      await logger.warn(`failed to abort opencode session ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
   async status(): Promise<{ healthy: boolean; sessionId: string | null }> {
     return {
       healthy: await this.isHealthy(),
@@ -86,7 +104,7 @@ export class OpenCodeService {
     };
   }
 
-  async prompt(text: string, uploadedFiles: UploadedFile[] = []): Promise<PromptResult> {
+  async prompt(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = []): Promise<PromptResult> {
     await this.ensureReady();
     if (!state.sessionId) {
       await this.newSession();
@@ -95,13 +113,22 @@ export class OpenCodeService {
     if (!sessionId) throw new Error("Failed to initialize session");
 
     const body: {
-      parts: Array<{ type: "text"; text: string }>;
+      parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; filename?: string; url: string }>;
       model?: { providerID: string; modelID: string };
       system: string;
     } = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config)) }],
     };
+    for (const attachment of attachments) {
+      body.parts.push({
+        type: "file",
+        mime: attachment.mimeType,
+        filename: attachment.filename,
+        url: attachment.url,
+      });
+    }
+    await logger.info(`opencode prompt request attachments=${JSON.stringify(attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename, urlScheme: item.url.startsWith("data:") ? "data" : "remote" })))}`);
     const model = parseModel(state.model);
     if (model) {
       body.model = model;
@@ -119,10 +146,10 @@ export class OpenCodeService {
     const rawText = extractText(result).trim();
     await logger.info(`opencode prompt raw=${JSON.stringify(rawText)}`);
     const parsed = extractPromptResult(result);
-    if (parsed.files.length === 0 && parsed.message === (rawText || "已处理。")) {
+    if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.message === (rawText || "Done.")) {
       await logger.warn("opencode prompt did not return valid JSON; using plain-text fallback");
     }
-    await logger.info(`opencode prompt result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)}`);
+    await logger.info(`opencode prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     return parsed;
   }
 
@@ -156,8 +183,9 @@ export class OpenCodeService {
   }
 
   async generateStartupGreeting(): Promise<string> {
-    const result = await this.promptInTemporarySession(STARTUP_GREETING_REQUEST);
-    return result.message || "你好，我已上线。需要我处理什么？";
+    const replyLanguage = replyLanguageName(this.config);
+    const result = await this.promptInTemporarySession(`Reply in ${replyLanguage}. ${STARTUP_GREETING_REQUEST}`);
+    return result.message || `Bot is online. Reply in ${replyLanguage}.`;
   }
 
   stop(): void {
@@ -173,7 +201,7 @@ export class OpenCodeService {
     }
   }
 
-  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = []): Promise<PromptResult> {
+  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = []): Promise<PromptResult> {
     await this.ensureReady();
     const session = (await this.client.session.create({
       body: {
@@ -186,13 +214,22 @@ export class OpenCodeService {
     }
 
     const body: {
-      parts: Array<{ type: "text"; text: string }>;
+      parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; filename?: string; url: string }>;
       model?: { providerID: string; modelID: string };
       system: string;
     } = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config)) }],
     };
+    for (const attachment of attachments) {
+      body.parts.push({
+        type: "file",
+        mime: attachment.mimeType,
+        filename: attachment.filename,
+        url: attachment.url,
+      });
+    }
+    await logger.info(`opencode temporary prompt request attachments=${JSON.stringify(attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename, urlScheme: item.url.startsWith("data:") ? "data" : "remote" })))}`);
     const model = parseModel(state.model);
     if (model) {
       body.model = model;
@@ -207,7 +244,7 @@ export class OpenCodeService {
       throw new Error("OpenCode did not return a response message");
     }
     const parsed = extractPromptResult(result);
-    await logger.info(`opencode temporary prompt result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)}`);
+    await logger.info(`opencode temporary prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     return parsed;
   }
 }
@@ -231,13 +268,15 @@ function loadAgentsPrompt(repoRoot: string): string {
   }
 }
 
-function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string): string {
-  const userRequest = text.trim() || "Handle the user's request according to AGENTS.md and the memory-agent workflow for this repository.";
+function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string): string {
+  const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the memory-agent workflow for this repository.";
   const common = [
     "Work inside the repository context and strictly follow AGENTS.md.",
-    "Reply with JSON only: {\"message\": string, \"files\": string[] }.",
-    "`message` is the normal Chinese reply shown to the user.",
-    "`files` is a list of repository-relative file paths to send back to Telegram. If no file should be sent, use an empty array.",
+    `If you can return normal text, prefer ${replyLanguage} in a concise helpful style.`,
+    "If you need the Telegram bot to send repository files back, reply with JSON only: {\"message\": string, \"files\": string[] }.",
+    `When returning that JSON, \`message\` is the normal ${replyLanguage} reply shown to the user.`,
+    "When returning that JSON, `files` is a list of repository-relative file paths to send back to Telegram. If no file should be sent, use an empty array.",
+    "If you return non-text multimodal output parts such as audio, images, or video directly, that is also allowed.",
     "Answer the user directly. Do not expose internal note paths, markdown filenames, memory file names, or repository organization details unless the user explicitly asks for them.",
     personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
     "When you know a real repository file path, prefer explicit repo-relative paths such as assets/... or tmp/... .",
@@ -253,7 +292,7 @@ function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: 
   }
 
   const fileBlock = uploadedFiles
-    .map((file) => `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB)`)
+    .map((file) => `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB, source=${file.source})`)
     .join("\n");
   return [
     "The user uploaded files through Telegram. The files have already been saved under tmp/ in this repository.",
@@ -269,24 +308,46 @@ function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: 
 }
 
 function extractText(message: { parts?: Array<{ type?: string; text?: string }>; info?: { structured_output?: unknown } }): string {
-  const texts = (message.parts || [])
+  const parts = message.parts || [];
+  const texts = parts
     .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text?.trim())
     .filter(Boolean);
-  return texts.length > 0 ? texts.join("\n\n") : "已完成，但没有可显示的文本输出。";
+  if (texts.length > 0) return texts.join("\n\n");
+  if (parts.some((part) => part.type === "file")) return "Generated attachment output.";
+  return "Completed with no displayable text output.";
 }
 
-function extractPromptResult(message: { parts?: Array<{ type?: string; text?: string }>; info?: { structured_output?: unknown } }): PromptResult {
+function summarizeParts(message: { parts?: Array<{ type?: string; text?: string; mime?: string; filename?: string; url?: string }> }): Array<Record<string, unknown>> {
+  return (message.parts || []).map((part) => ({
+    type: part.type || "unknown",
+    textLength: typeof part.text === "string" ? part.text.length : 0,
+    mime: part.mime,
+    filename: part.filename,
+    hasUrl: typeof part.url === "string",
+  }));
+}
+
+function extractPromptResult(message: { parts?: Array<{ type?: string; text?: string; mime?: string; filename?: string; url?: string }>; info?: { structured_output?: unknown } }): PromptResult {
   const plain = extractText(message).trim();
+  const attachments = (message.parts || [])
+    .filter((part) => part.type === "file" && typeof part.url === "string" && typeof part.mime === "string")
+    .map((part) => ({
+      mimeType: part.mime as string,
+      filename: typeof part.filename === "string" ? part.filename : undefined,
+      url: part.url as string,
+    }));
+
   for (const candidate of extractJsonCandidates(plain)) {
     try {
       const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown };
       if (typeof parsed.message === "string") {
         return {
-          message: parsed.message.trim() || "已处理。",
+          message: parsed.message.trim() || "Done.",
           files: Array.isArray(parsed.files)
             ? parsed.files.filter((item): item is string => typeof item === "string")
             : [],
+          attachments,
         };
       }
     } catch {
@@ -294,7 +355,7 @@ function extractPromptResult(message: { parts?: Array<{ type?: string; text?: st
     }
   }
 
-  return { message: plain || "已处理。", files: [] };
+  return { message: plain || "Done.", files: [], attachments };
 }
 
 function extractJsonCandidates(text: string): string[] {
