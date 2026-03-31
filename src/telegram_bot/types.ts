@@ -6,7 +6,7 @@ export type AppConfig = {
     pollingIntervalMs: number;
     maxFileSizeMb: number;
     personaStyle: string;
-    uiLanguage: "zh" | "en";
+    language: "zh" | "en";
     waitingMessage: string;
   };
   paths: {

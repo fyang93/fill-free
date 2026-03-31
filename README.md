@@ -65,6 +65,7 @@ If OpenCode is already running on `127.0.0.1:4096`, the command reuses it.
 
 Useful config:
 
+- `telegram.language`: controls both UI text and conversation reply language (`zh` or `en`)
 - `telegram.persona_style`: tune the bot's reply tone
 
 ## Telegram Bot

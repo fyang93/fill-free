@@ -65,6 +65,7 @@ just serve
 
 常用配置：
 
+- `telegram.language`：同时控制界面文案和对话回复语言（`zh` 或 `en`）
 - `telegram.persona_style`：调整 bot 的回复风格
 
 ## Telegram Bot

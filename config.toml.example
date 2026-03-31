@@ -5,7 +5,7 @@ polling_timeout_sec = 20
 polling_interval_ms = 300
 max_file_size_mb = 200
 persona_style = "Speak like the Defect from Slay the Spire."
-ui_language = "zh"
+language = "zh"
 waiting_message = "机宝启动中..."
 
 [paths]
