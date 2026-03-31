@@ -28,7 +28,6 @@ await loadPersistentState();
 configureLogger(config.paths.logFile);
 const bot = new Bot(config.telegram.botToken);
 const opencode = new OpenCodeService(config);
-const hasPendingUpdatesOnStartup = await hasPendingAuthorizedUpdates();
 let activeTask: ActiveTask | null = null;
 let nextTaskId = 1;
 
@@ -36,29 +35,7 @@ function isAuthorized(ctx: Context): boolean {
   return ctx.from?.id === config.telegram.allowedUserId;
 }
 
-async function hasPendingAuthorizedUpdates(): Promise<boolean> {
-  try {
-    const updates = await bot.api.getUpdates({
-      limit: 20,
-      timeout: 0,
-      allowed_updates: ["message", "callback_query"],
-    } as any);
-    return updates.some((update: any) => {
-      const fromId = update.message?.from?.id ?? update.callback_query?.from?.id;
-      return fromId === config.telegram.allowedUserId;
-    });
-  } catch (error) {
-    await logger.warn(`failed to inspect pending Telegram updates on startup: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
-  }
-}
-
-async function sendStartupGreetingIfIdle(): Promise<void> {
-  if (hasPendingUpdatesOnStartup) {
-    await logger.info("Skipping startup greeting because pending authorized updates exist");
-    return;
-  }
-
+async function sendStartupGreeting(): Promise<void> {
   try {
     const greeting = await opencode.generateStartupGreeting();
     await bot.api.sendMessage(config.telegram.allowedUserId, greeting);
@@ -415,7 +392,7 @@ bot.on("message:audio", handleIncomingFile);
 await logger.info("Telegram bot starting");
 const reminderLoop = await startReminderLoop(config, bot);
 await bot.start({
-  drop_pending_updates: false,
+  drop_pending_updates: true,
   onStart: async (botInfo) => {
     await bot.api.setMyCommands([
       { command: "help", description: t(config, "command_help") },
@@ -424,7 +401,7 @@ await bot.start({
       { command: "reminders", description: t(config, "command_reminders") },
     ]);
     await logger.info(`Telegram bot started as @${botInfo.username}`);
-    await sendStartupGreetingIfIdle();
+    await sendStartupGreeting();
   },
 });
 
