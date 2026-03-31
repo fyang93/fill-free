@@ -50,6 +50,17 @@ serve:
       bun run telegram:bot &
     else
       bunx opencode serve --hostname {{opencode_host}} --port {{opencode_port}} &
+      echo 'waiting for opencode serve to become ready on {{opencode_addr}}...'
+      for _ in $(seq 1 100); do
+        if ss -ltn | rg -q '{{opencode_addr}}'; then
+          break
+        fi
+        sleep 0.2
+      done
+      if ! ss -ltn | rg -q '{{opencode_addr}}'; then
+        echo 'opencode serve did not start listening in time' >&2
+        exit 1
+      fi
       bun run telegram:bot &
     fi
     wait
