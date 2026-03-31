@@ -6,19 +6,9 @@
       "url": "https://mcp.exa.ai/mcp",
       "enabled": true
     },
-    "grep_app": {
-      "type": "remote",
-      "url": "https://mcp.grep.app",
-      "enabled": true
-    },
-    "context7": {
-      "type": "remote",
-      "url": "https://mcp.context7.com/mcp",
-      "headers": {
-        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}",
-        "Accept": "application/json, text/event-stream"
-      },
-      "enabled": true
+    "time": {
+      "type": "local",
+      "command": [ "uvx", "mcp-server-time" ]
     }
   }
 }
