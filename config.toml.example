@@ -7,7 +7,7 @@ max_file_size_mb = 200
 persona_style = "Speak like the Defect from Slay the Spire."
 language = "zh"
 waiting_message = "机宝启动中..."
-wairing_message_candidates = ["还在想...", "再等我一下...", "马上就好..."]
+waiting_message_candidates = ["还在想...", "再等我一下...", "马上就好..."]
 
 [paths]
 repo_root = "."

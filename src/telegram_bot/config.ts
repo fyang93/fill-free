@@ -56,7 +56,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       personaStyle: asString(telegram.persona_style),
       language: asLanguage(telegram.language),
       waitingMessage: asString(telegram.waiting_message, "机宝启动中..."),
-      waitingMessageCandidates: asStringArray(telegram.wairing_message_candidates),
+      waitingMessageCandidates: asStringArray(telegram.waiting_message_candidates),
     },
     paths: {
       repoRoot,

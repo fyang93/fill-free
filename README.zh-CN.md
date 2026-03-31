@@ -67,7 +67,7 @@ just serve
 
 - `telegram.language`：同时控制界面文案和对话回复语言（`zh` 或 `en`）
 - `telegram.waiting_message`：任务处理中先显示的等待文案
-- `telegram.wairing_message_candidates`：可选的等待文案列表；非空时每 5 秒随机替换一次
+- `telegram.waiting_message_candidates`：可选的等待文案列表；非空时每 5 秒随机替换一次
 - `telegram.persona_style`：调整 bot 的回复风格
 
 ## Telegram Bot
