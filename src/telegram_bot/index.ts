@@ -25,7 +25,6 @@ const MODEL_LIST_LIMIT = 30;
 const MODEL_CALLBACK_PREFIX = "model:set:";
 const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule)/i;
 const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
-const WAITING_MESSAGE_ROTATION_MS = 5000;
 const REMINDER_CANCEL_RE = /^(算了|取消|不用了|不需要了|先不用|cancel|never mind)$/i;
 
 type ActiveTask = {
@@ -200,7 +199,7 @@ function startWaitingMessageRotation(task: ActiveTask, waitingTemplate: string, 
     void bot.api.editMessageText(task.chatId, task.waitingMessageId, renderWaitingText(waitingTemplate, currentWaitingMessage)).catch(() => {
       // ignore transient edit failures during waiting-message rotation
     });
-  }, WAITING_MESSAGE_ROTATION_MS);
+  }, config.telegram.waitingMessageRotationMs);
 }
 
 function stopWaitingMessageRotation(task: ActiveTask | null): void {

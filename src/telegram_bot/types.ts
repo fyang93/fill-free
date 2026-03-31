@@ -9,6 +9,7 @@ export type AppConfig = {
     language: "zh" | "en";
     waitingMessage: string;
     waitingMessageCandidates: string[];
+    waitingMessageRotationMs: number;
   };
   paths: {
     repoRoot: string;
