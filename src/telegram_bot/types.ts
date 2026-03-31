@@ -37,10 +37,18 @@ export type PromptAttachment = {
   url: string;
 };
 
+export type PendingReminderConfirmation = {
+  originalRequest: string;
+  referenceTimeIso: string;
+  confirmationText: string;
+  createdAt: string;
+};
+
 export type SessionState = {
   sessionId: string | null;
   model: string | null;
   lastActivityAt: string | null;
   recentUploads: UploadedFile[];
   recentUploadsAt: string | null;
+  pendingReminderConfirmation: PendingReminderConfirmation | null;
 };

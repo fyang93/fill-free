@@ -3,7 +3,19 @@ import { loadConfig } from "./config";
 import { saveTelegramFile, sendLocalFiles, sendPromptAttachments, uploadedFileToAttachment } from "./files";
 import { configureLogger, logger } from "./logger";
 import { OpenCodeService } from "./opencode";
-import { clearRecentUploads, currentModel, getRecentUploads, loadPersistentState, persistState, rememberUploads, state, touchActivity } from "./state";
+import {
+  clearPendingReminderConfirmation,
+  clearRecentUploads,
+  currentModel,
+  getPendingReminderConfirmation,
+  getRecentUploads,
+  loadPersistentState,
+  persistState,
+  rememberUploads,
+  setPendingReminderConfirmation,
+  state,
+  touchActivity,
+} from "./state";
 import { createReminder, handleReminderCallback, showReminderList, startReminderLoop } from "./reminders";
 import { t, uiLocaleTag } from "./i18n";
 import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
@@ -14,6 +26,7 @@ const MODEL_CALLBACK_PREFIX = "model:set:";
 const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule)/i;
 const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
 const WAITING_MESSAGE_ROTATION_MS = 5000;
+const REMINDER_CANCEL_RE = /^(算了|取消|不用了|不需要了|先不用|cancel|never mind)$/i;
 
 type ActiveTask = {
   id: number;
@@ -335,14 +348,53 @@ async function handleIncomingText(ctx: Context): Promise<void> {
   if (!text || text.startsWith("/")) return;
   if (!isAddressedToBot(ctx)) return;
 
-  if (shouldAttemptReminderParse(text)) {
-    const reminder = await opencode.parseReminderRequest(text, messageReferenceTime(ctx));
+  const pendingReminder = getPendingReminderConfirmation();
+  if (pendingReminder) {
+    if (REMINDER_CANCEL_RE.test(text)) {
+      await clearPendingReminderConfirmation();
+      await replyFormatted(ctx, "好的，已取消这次提醒确认。");
+      return;
+    }
+
+    const reminder = await opencode.parseReminderFollowup(pendingReminder.originalRequest, text, pendingReminder.referenceTimeIso);
     if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
+      await clearPendingReminderConfirmation();
       const created = await createReminder(config, reminder.text, reminder.scheduledAt);
       const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-      await replyFormatted(ctx, reminder.needsConfirmation && reminder.confirmationText
-        ? reminder.confirmationText
-        : t(config, "reminder_created", { time: displayTime, text: created.text }));
+      await replyFormatted(ctx, t(config, "reminder_created", { time: displayTime, text: created.text }));
+      return;
+    }
+    if (reminder.needsConfirmation && reminder.confirmationText) {
+      await setPendingReminderConfirmation({
+        originalRequest: pendingReminder.originalRequest,
+        referenceTimeIso: pendingReminder.referenceTimeIso,
+        confirmationText: reminder.confirmationText,
+        createdAt: new Date().toISOString(),
+      });
+      await replyFormatted(ctx, reminder.confirmationText);
+      return;
+    }
+    await clearPendingReminderConfirmation();
+  }
+
+  if (shouldAttemptReminderParse(text)) {
+    const referenceTimeIso = messageReferenceTime(ctx);
+    const reminder = await opencode.parseReminderRequest(text, referenceTimeIso);
+    if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
+      await clearPendingReminderConfirmation();
+      const created = await createReminder(config, reminder.text, reminder.scheduledAt);
+      const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
+      await replyFormatted(ctx, t(config, "reminder_created", { time: displayTime, text: created.text }));
+      return;
+    }
+    if (reminder.needsConfirmation && reminder.confirmationText) {
+      await setPendingReminderConfirmation({
+        originalRequest: text,
+        referenceTimeIso,
+        confirmationText: reminder.confirmationText,
+        createdAt: new Date().toISOString(),
+      });
+      await replyFormatted(ctx, reminder.confirmationText);
       return;
     }
   }

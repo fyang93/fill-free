@@ -159,32 +159,23 @@ export class OpenCodeService {
   }
 
   async parseReminderRequest(text: string, referenceTimeIso: string): Promise<ReminderParseResult> {
-    await this.ensureReady();
-    const session = (await this.client.session.create({ body: { title: "Reminder parser" } })) as any;
-    const sessionData = session.data ?? session;
-    const reply = (await this.client.session.prompt({
-      path: { id: sessionData.id },
-      body: {
-        system: "Decide whether the user is asking for a future reminder. Reply with JSON only.",
-        parts: [{
-          type: "text",
-          text: [
-            `Reference time: ${referenceTimeIso}`,
-            "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), needsConfirmation(boolean), confirmationText(string).",
-            "If this is not a reminder request, return {\"shouldCreate\":false}.",
-            `User message: ${text}`,
-          ].join("\n"),
-        }],
-      },
-    })) as any;
-    const result = reply.data ?? reply;
-    const output = extractText(result).trim();
-    const jsonText = output.replace(/^```json\s*|```$/g, "").trim();
-    try {
-      return JSON.parse(jsonText) as ReminderParseResult;
-    } catch {
-      return { shouldCreate: false };
-    }
+    return this.runReminderParser([
+      `Reference time: ${referenceTimeIso}`,
+      "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), needsConfirmation(boolean), confirmationText(string).",
+      "If this is not a reminder request, return {\"shouldCreate\":false}.",
+      `User message: ${text}`,
+    ].join("\n"));
+  }
+
+  async parseReminderFollowup(originalRequest: string, followupText: string, referenceTimeIso: string): Promise<ReminderParseResult> {
+    return this.runReminderParser([
+      `Reference time: ${referenceTimeIso}`,
+      "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), needsConfirmation(boolean), confirmationText(string).",
+      "The user is clarifying a previous reminder request. Combine the original request with the follow-up to infer the intended reminder.",
+      `Original reminder request: ${originalRequest}`,
+      `User follow-up clarification: ${followupText}`,
+      "If the follow-up is still insufficient, set needsConfirmation=true and ask one concise follow-up question.",
+    ].join("\n"));
   }
 
   async generateStartupGreeting(): Promise<string> {
@@ -203,6 +194,27 @@ export class OpenCodeService {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async runReminderParser(text: string): Promise<ReminderParseResult> {
+    await this.ensureReady();
+    const session = (await this.client.session.create({ body: { title: "Reminder parser" } })) as any;
+    const sessionData = session.data ?? session;
+    const reply = (await this.client.session.prompt({
+      path: { id: sessionData.id },
+      body: {
+        system: "Decide whether the user is asking for a future reminder. Reply with JSON only.",
+        parts: [{ type: "text", text }],
+      },
+    })) as any;
+    const result = reply.data ?? reply;
+    const output = extractText(result).trim();
+    const jsonText = output.replace(/^```json\s*|```$/g, "").trim();
+    try {
+      return JSON.parse(jsonText) as ReminderParseResult;
+    } catch {
+      return { shouldCreate: false };
     }
   }
 
