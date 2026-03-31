@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import { loadConfig } from "./config";
 import { saveTelegramFile, sendLocalFiles, sendPromptAttachments, uploadedFileToAttachment } from "./files";
@@ -9,9 +10,11 @@ import {
   currentModel,
   getPendingReminderConfirmation,
   getRecentUploads,
+  hasRecentUploads,
   loadPersistentState,
   persistState,
   rememberUploads,
+  retainRecentUploads,
   setPendingReminderConfirmation,
   state,
   touchActivity,
@@ -150,12 +153,53 @@ function messageReferenceTime(ctx: Context): string {
   return new Date().toISOString();
 }
 
-async function buildRecentAttachments(files: UploadedFile[]): Promise<PromptAttachment[]> {
-  return Promise.all(
-    files
-      .filter((file) => file.source !== "voice" && file.source !== "audio")
-      .map((file) => uploadedFileToAttachment(file)),
+async function buildRecentAttachments(files: UploadedFile[]): Promise<{ files: UploadedFile[]; attachments: PromptAttachment[] }> {
+  const settled = await Promise.allSettled(
+    files.map(async (file) => ({
+      file,
+      attachment: file.source === "voice" || file.source === "audio" ? null : await uploadedFileToAttachment(file),
+    })),
   );
+
+  const validFiles: UploadedFile[] = [];
+  const attachments: PromptAttachment[] = [];
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      validFiles.push(result.value.file);
+      if (result.value.attachment) attachments.push(result.value.attachment);
+      continue;
+    }
+    await logger.warn(`skipping missing recent upload: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+  }
+
+  if (validFiles.length !== files.length) {
+    retainRecentUploads(validFiles);
+  }
+
+  return { files: validFiles, attachments };
+}
+
+async function pruneRecentUploads(): Promise<void> {
+  if (!hasRecentUploads()) return;
+  const recentUploads = getRecentUploads();
+  const settled = await Promise.allSettled(
+    recentUploads.map(async (file) => {
+      await stat(file.absolutePath);
+      return file;
+    }),
+  );
+
+  const validFiles: UploadedFile[] = [];
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      validFiles.push(result.value);
+    }
+  }
+
+  if (validFiles.length !== recentUploads.length) {
+    retainRecentUploads(validFiles);
+    await logger.info(`pruned stale recent uploads: ${recentUploads.length - validFiles.length} removed`);
+  }
 }
 
 async function interruptActiveTask(reason: string): Promise<void> {
@@ -273,6 +317,8 @@ async function runPromptTask(
         await replyFormatted(ctx, t(config, "send_failed"));
       }
     }
+
+    await pruneRecentUploads();
     await setReactionSafe(ctx, "👍");
   } catch (error) {
     if (task.cancelled || activeTask?.id !== task.id) {
@@ -282,6 +328,7 @@ async function runPromptTask(
     stopWaitingMessageRotation(task);
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`prompt handling failed: ${message}`);
+    await pruneRecentUploads();
     await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(config, "task_failed", { error: message }));
     await setReactionSafe(ctx, "👎");
   } finally {
@@ -397,11 +444,12 @@ bot.command("model", async (ctx) => {
 });
 
 async function handleIncomingText(ctx: Context): Promise<void> {
-  const text = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() || "" : "";
-  if (!text || text.startsWith("/")) return;
-  if (!isAddressedToBot(ctx)) return;
+  try {
+    const text = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() || "" : "";
+    if (!text || text.startsWith("/")) return;
+    if (!isAddressedToBot(ctx)) return;
 
-  const pendingReminder = getPendingReminderConfirmation();
+    const pendingReminder = getPendingReminderConfirmation();
   if (pendingReminder) {
     if (REMINDER_CANCEL_RE.test(text)) {
       await clearPendingReminderConfirmation();
@@ -468,11 +516,17 @@ async function handleIncomingText(ctx: Context): Promise<void> {
     return;
   }
 
-  const recentUploads = getRecentUploads();
-  const attachments = await buildRecentAttachments(recentUploads);
-  const telegramMessageTime = messageReferenceTime(ctx);
-  await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
-  startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, recentUploads, attachments, telegramMessageTime);
+    const recentUploads = getRecentUploads();
+    const { files: validRecentUploads, attachments } = await buildRecentAttachments(recentUploads);
+    const telegramMessageTime = messageReferenceTime(ctx);
+    await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
+    startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, validRecentUploads, attachments, telegramMessageTime);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logger.error(`text handling failed: ${message}`);
+    await replyFormatted(ctx, t(config, "task_failed", { error: message }));
+    await setReactionSafe(ctx, "👎");
+  }
 }
 
 async function handleIncomingFile(ctx: Context): Promise<void> {
@@ -542,6 +596,18 @@ bot.on("message:document", handleIncomingFile);
 bot.on("message:photo", handleIncomingFile);
 bot.on("message:voice", handleIncomingFile);
 bot.on("message:audio", handleIncomingFile);
+
+bot.catch(async (error) => {
+  const message = error.error instanceof Error ? error.error.stack || error.error.message : String(error.error);
+  await logger.error(`unhandled bot error for update ${error.ctx.update.update_id}: ${message}`);
+  try {
+    if (error.ctx.chat?.id) {
+      await replyFormatted(error.ctx, t(config, "task_failed", { error: "internal error" }));
+    }
+  } catch {
+    // ignore secondary reply failures
+  }
+});
 
 await logger.info("Telegram bot starting");
 const reminderLoop = await startReminderLoop(config, bot);

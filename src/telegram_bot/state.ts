@@ -49,9 +49,20 @@ export function rememberUploads(files: UploadedFile[]): void {
   state.recentUploadsAt = new Date().toISOString();
 }
 
+export function retainRecentUploads(files: UploadedFile[]): void {
+  state.recentUploads = files;
+  if (files.length === 0) {
+    state.recentUploadsAt = null;
+  }
+}
+
 export function clearRecentUploads(): void {
   state.recentUploads = [];
   state.recentUploadsAt = null;
+}
+
+export function hasRecentUploads(): boolean {
+  return state.recentUploads.length > 0;
 }
 
 export function getRecentUploads(): UploadedFile[] {
