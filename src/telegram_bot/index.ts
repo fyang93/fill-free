@@ -28,6 +28,7 @@ await loadPersistentState();
 configureLogger(config.paths.logFile);
 const bot = new Bot(config.telegram.botToken);
 const opencode = new OpenCodeService(config);
+let botUsername: string | null = null;
 let activeTask: ActiveTask | null = null;
 let nextTaskId = 1;
 
@@ -97,6 +98,35 @@ function shouldAttemptReminderParse(text: string): boolean {
 
 function helpText(): string {
   return t(config, "help_text");
+}
+
+function requiresDirectMention(ctx: Context): boolean {
+  return ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
+}
+
+function entityMentionsBot(text: string | undefined, entities: Array<{ type?: string; offset?: number; length?: number }> | undefined): boolean {
+  if (!text || !entities || !botUsername) return false;
+  const expectedMention = `@${botUsername.toLowerCase()}`;
+  return entities.some((entity) => {
+    if (entity.type !== "mention") return false;
+    if (typeof entity.offset !== "number" || typeof entity.length !== "number") return false;
+    const mention = text.slice(entity.offset, entity.offset + entity.length).toLowerCase();
+    return mention === expectedMention;
+  });
+}
+
+function isAddressedToBot(ctx: Context): boolean {
+  if (!requiresDirectMention(ctx)) return true;
+  const message = ctx.message;
+  if (!message) return false;
+
+  const text = "text" in message ? message.text : undefined;
+  const textEntities = "entities" in message ? (message.entities as Array<{ type?: string; offset?: number; length?: number }> | undefined) : undefined;
+  if (entityMentionsBot(text, textEntities)) return true;
+
+  const caption = "caption" in message ? message.caption : undefined;
+  const captionEntities = "caption_entities" in message ? (message.caption_entities as Array<{ type?: string; offset?: number; length?: number }> | undefined) : undefined;
+  return entityMentionsBot(caption, captionEntities);
 }
 
 function messageReferenceTime(ctx: Context): string {
@@ -302,6 +332,7 @@ bot.command("model", async (ctx) => {
 async function handleIncomingText(ctx: Context): Promise<void> {
   const text = ctx.message && "text" in ctx.message ? ctx.message.text?.trim() || "" : "";
   if (!text || text.startsWith("/")) return;
+  if (!isAddressedToBot(ctx)) return;
 
   if (shouldAttemptReminderParse(text)) {
     const reminder = await opencode.parseReminderRequest(text, messageReferenceTime(ctx));
@@ -324,6 +355,7 @@ async function handleIncomingText(ctx: Context): Promise<void> {
 
 async function handleIncomingFile(ctx: Context): Promise<void> {
   const caption = ctx.message && "caption" in ctx.message ? ctx.message.caption?.trim() || "" : "";
+  if (requiresDirectMention(ctx) && !isAddressedToBot(ctx)) return;
   try {
     const uploaded = await saveTelegramFile(ctx, config);
     if (!uploaded) return;
@@ -400,6 +432,7 @@ await bot.start({
       { command: "model", description: t(config, "command_model") },
       { command: "reminders", description: t(config, "command_reminders") },
     ]);
+    botUsername = botInfo.username || null;
     await logger.info(`Telegram bot started as @${botInfo.username}`);
     await sendStartupGreeting();
   },
