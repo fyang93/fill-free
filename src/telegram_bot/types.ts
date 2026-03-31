@@ -40,7 +40,6 @@ export type PromptAttachment = {
 export type PendingReminderConfirmation = {
   originalRequest: string;
   referenceTimeIso: string;
-  confirmationText: string;
   createdAt: string;
 };
 

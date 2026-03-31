@@ -271,7 +271,7 @@ async function runPromptTask(
         await logger.info(`sent files back to telegram: ${sentFiles.join(", ")}`);
       } else {
         await logger.warn(`file send failed for candidates: ${answer.files.join(", ")}`);
-        await ctx.reply(t(config, "send_failed"));
+        await replyFormatted(ctx, t(config, "send_failed"));
       }
     }
     await setReactionSafe(ctx, "👍");
@@ -283,7 +283,7 @@ async function runPromptTask(
     stopWaitingMessageRotation(task);
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`prompt handling failed: ${message}`);
-    await ctx.api.editMessageText(chatId, waiting.message_id, t(config, "task_failed", { error: message }));
+    await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(config, "task_failed", { error: message }));
     await setReactionSafe(ctx, "👎");
   } finally {
     stopWaitingMessageRotation(task);
@@ -296,14 +296,14 @@ async function runPromptTask(
 bot.use(unauthorizedGuard);
 
 bot.command("help", async (ctx) => {
-  await ctx.reply(helpText());
+  await replyFormatted(ctx, helpText());
 });
 
 bot.command("new", async (ctx) => {
   await interruptActiveTask("/new command");
   const sessionId = await opencode.newSession();
   clearRecentUploads();
-  await ctx.reply(t(config, "new_session", { sessionId }));
+  await replyFormatted(ctx, t(config, "new_session", { sessionId }));
 });
 
 bot.command("reminders", async (ctx) => {
@@ -318,11 +318,11 @@ bot.command("model", async (ctx) => {
     try {
       const { defaults, models } = await opencode.listModels();
       const activeModel = resolveDisplayedModel(defaults);
-      await ctx.reply(t(config, "choose_model"), {
+      await replyFormatted(ctx, t(config, "choose_model"), {
         reply_markup: buildModelKeyboard(models, activeModel),
       });
     } catch (error) {
-      await ctx.reply(t(config, "fetch_models_failed", { error: error instanceof Error ? error.message : String(error) }));
+      await replyFormatted(ctx, t(config, "fetch_models_failed", { error: error instanceof Error ? error.message : String(error) }));
     }
     return;
   }
@@ -331,15 +331,15 @@ bot.command("model", async (ctx) => {
   try {
     const { models } = await opencode.listModels();
     if (!models.includes(nextModel)) {
-      await ctx.reply(t(config, "model_not_found", { model: nextModel }));
+      await replyFormatted(ctx, t(config, "model_not_found", { model: nextModel }));
       return;
     }
     await interruptActiveTask(`/model switch to ${nextModel}`);
     state.model = nextModel;
     await persistState();
-    await ctx.reply(t(config, "model_switched", { model: nextModel }));
+    await replyFormatted(ctx, t(config, "model_switched", { model: nextModel }));
   } catch (error) {
-    await ctx.reply(t(config, "model_switch_failed", { error: error instanceof Error ? error.message : String(error) }));
+    await replyFormatted(ctx, t(config, "model_switch_failed", { error: error instanceof Error ? error.message : String(error) }));
   }
 });
 
@@ -368,7 +368,6 @@ async function handleIncomingText(ctx: Context): Promise<void> {
       await setPendingReminderConfirmation({
         originalRequest: pendingReminder.originalRequest,
         referenceTimeIso: pendingReminder.referenceTimeIso,
-        confirmationText: reminder.confirmationText,
         createdAt: new Date().toISOString(),
       });
       await replyFormatted(ctx, reminder.confirmationText);
@@ -391,7 +390,6 @@ async function handleIncomingText(ctx: Context): Promise<void> {
       await setPendingReminderConfirmation({
         originalRequest: text,
         referenceTimeIso,
-        confirmationText: reminder.confirmationText,
         createdAt: new Date().toISOString(),
       });
       await replyFormatted(ctx, reminder.confirmationText);
@@ -418,7 +416,7 @@ async function handleIncomingFile(ctx: Context): Promise<void> {
 
     if (!caption) {
       await setReactionSafe(ctx, "👍");
-      await ctx.reply(t(config, "file_saved", { path: uploaded.savedPath, waiting_message: config.telegram.waitingMessage }));
+      await replyFormatted(ctx, t(config, "file_saved", { path: uploaded.savedPath, waiting_message: config.telegram.waitingMessage }));
       return;
     }
 
@@ -431,7 +429,7 @@ async function handleIncomingFile(ctx: Context): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`file handling failed: ${message}`);
-    await ctx.reply(t(config, "file_processing_failed", { error: message }));
+    await replyFormatted(ctx, t(config, "file_processing_failed", { error: message }));
     await setReactionSafe(ctx, "👎");
   }
 }
@@ -459,7 +457,7 @@ bot.on("callback_query:data", async (ctx) => {
     await persistState();
     await ctx.answerCallbackQuery({ text: t(config, "callback_model_switched", { model: compactModelLabel(model) }) });
     if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-      await ctx.api.editMessageText(ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model"), {
+      await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model"), {
         reply_markup: buildModelKeyboard(models, state.model || model),
       });
     }

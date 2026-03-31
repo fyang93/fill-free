@@ -69,10 +69,9 @@ function parsePendingReminderConfirmation(value: unknown): PendingReminderConfir
   const record = value as Record<string, unknown>;
   const originalRequest = typeof record.originalRequest === "string" ? record.originalRequest.trim() : "";
   const referenceTimeIso = typeof record.referenceTimeIso === "string" ? record.referenceTimeIso.trim() : "";
-  const confirmationText = typeof record.confirmationText === "string" ? record.confirmationText.trim() : "";
   const createdAt = typeof record.createdAt === "string" ? record.createdAt.trim() : "";
-  if (!originalRequest || !referenceTimeIso || !confirmationText || !createdAt) return null;
-  return { originalRequest, referenceTimeIso, confirmationText, createdAt };
+  if (!originalRequest || !referenceTimeIso || !createdAt) return null;
+  return { originalRequest, referenceTimeIso, createdAt };
 }
 
 export function getPendingReminderConfirmation(): PendingReminderConfirmation | null {

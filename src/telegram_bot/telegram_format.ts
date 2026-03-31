@@ -40,7 +40,6 @@ export function markdownToTelegramHtml(markdown: string): string {
   text = text.replace(/(^|[\s(])\*([^*\n][\s\S]*?[^*\n])\*(?=[\s),.!?:;]|$)/g, "$1<i>$2</i>");
   text = text.replace(/(^|[\s(])_([^_\n][\s\S]*?[^_\n])_(?=[\s),.!?:;]|$)/g, "$1<i>$2</i>");
   text = text.replace(/~~([^~\n][\s\S]*?[^~\n])~~/g, "<s>$1</s>");
-  text = text.replace(/\n/g, "\n");
 
   text = restorePlaceholders(text, inlineCodes);
   text = restorePlaceholders(text, fencedBlocks);
