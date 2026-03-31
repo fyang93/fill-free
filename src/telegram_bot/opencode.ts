@@ -104,7 +104,12 @@ export class OpenCodeService {
     };
   }
 
-  async prompt(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = []): Promise<PromptResult> {
+  async prompt(
+    text: string,
+    uploadedFiles: UploadedFile[] = [],
+    attachments: PromptAttachment[] = [],
+    telegramMessageTime?: string,
+  ): Promise<PromptResult> {
     await this.ensureReady();
     if (!state.sessionId) {
       await this.newSession();
@@ -118,7 +123,7 @@ export class OpenCodeService {
       system: string;
     } = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config)) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -268,10 +273,11 @@ function loadAgentsPrompt(repoRoot: string): string {
   }
 }
 
-function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string): string {
+function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string): string {
   const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the memory-agent workflow for this repository.";
   const common = [
     "Work inside the repository context and strictly follow AGENTS.md.",
+    telegramMessageTime ? `Telegram message time: ${telegramMessageTime}` : "",
     `If you can return normal text, prefer ${replyLanguage} in a concise helpful style.`,
     "If you need the Telegram bot to send repository files back, reply with JSON only: {\"message\": string, \"files\": string[] }.",
     `When returning that JSON, \`message\` is the normal ${replyLanguage} reply shown to the user.`,

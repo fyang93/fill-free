@@ -194,8 +194,9 @@ function startPromptTask(
   promptText: string,
   uploadedFiles: UploadedFile[] = [],
   attachments: PromptAttachment[] = [],
+  telegramMessageTime?: string,
 ): void {
-  void runPromptTask(ctx, waitingTemplate, promptText, uploadedFiles, attachments).catch(async (error) => {
+  void runPromptTask(ctx, waitingTemplate, promptText, uploadedFiles, attachments, telegramMessageTime).catch(async (error) => {
     await logger.error(`background prompt task crashed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
   });
 }
@@ -206,6 +207,7 @@ async function runPromptTask(
   promptText: string,
   uploadedFiles: UploadedFile[] = [],
   attachments: PromptAttachment[] = [],
+  telegramMessageTime?: string,
 ): Promise<void> {
   const chatId = ctx.chat?.id;
   const sourceMessageId = ctx.message?.message_id;
@@ -226,7 +228,7 @@ async function runPromptTask(
   startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
 
   try {
-    const answer = await opencode.prompt(promptText, uploadedFiles, attachments);
+    const answer = await opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime);
     if (task.cancelled || activeTask?.id !== task.id) {
       await logger.warn(`discarding stale prompt result for task ${task.id}`);
       return;
@@ -338,8 +340,9 @@ async function handleIncomingText(ctx: Context): Promise<void> {
 
   const recentUploads = getRecentUploads();
   const attachments = await buildRecentAttachments(recentUploads);
+  const telegramMessageTime = messageReferenceTime(ctx);
   await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
-  startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, recentUploads, attachments);
+  startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, recentUploads, attachments, telegramMessageTime);
 }
 
 async function handleIncomingFile(ctx: Context): Promise<void> {
@@ -359,9 +362,10 @@ async function handleIncomingFile(ctx: Context): Promise<void> {
 
     const attachment = await uploadedFileToAttachment(uploaded);
     const waitingTemplate = t(config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: WAITING_MESSAGE_PLACEHOLDER });
+    const telegramMessageTime = messageReferenceTime(ctx);
 
     await logger.info(`received ${uploaded.source} message ${ctx.message?.message_id} with caption and scheduled prompt task`);
-    startPromptTask(ctx, waitingTemplate, caption, [uploaded], [attachment]);
+    startPromptTask(ctx, waitingTemplate, caption, [uploaded], [attachment], telegramMessageTime);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`file handling failed: ${message}`);
