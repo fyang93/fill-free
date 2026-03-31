@@ -1,7 +1,7 @@
 set shell := ["bash", "-cu"]
 
 opencode_host := "127.0.0.1"
-opencode_port := "4096"
+opencode_port := "4196"
 opencode_addr := opencode_host + ":" + opencode_port
 
 # Show available recipes and examples.
