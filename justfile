@@ -40,10 +40,6 @@ use +note:
 check:
     uv run memory-agent check
 
-# Show a network-based reference time and the local clock offset.
-time:
-    uv run --no-project python scripts/network_time.py
-
 # Start OpenCode serve and the Telegram bot together. Usage: `just serve`.
 serve:
     #!/usr/bin/env bash
