@@ -6,6 +6,7 @@ import type { AppConfig } from "./types";
 import { logger } from "./logger";
 import { t, uiLocaleTag } from "./i18n";
 import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
+import { getAccurateNow } from "./time";
 
 export type ReminderRecurrence =
   | { kind: "once" }
@@ -61,6 +62,10 @@ const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 function remindersPath(config: AppConfig): string {
+  return path.join(config.paths.repoRoot, "memory", "reminders.json");
+}
+
+function legacyRemindersPath(config: AppConfig): string {
   return path.join(config.paths.repoRoot, "index", "reminders.json");
 }
 
@@ -183,8 +188,7 @@ function normalizeReminder(raw: unknown): Reminder | null {
   };
 }
 
-async function readReminders(config: AppConfig): Promise<Reminder[]> {
-  const filePath = remindersPath(config);
+async function readReminderFile(filePath: string): Promise<Reminder[]> {
   try {
     const raw = await readFile(filePath, "utf8");
     const parsed = JSON.parse(raw);
@@ -193,6 +197,12 @@ async function readReminders(config: AppConfig): Promise<Reminder[]> {
   } catch {
     return [];
   }
+}
+
+async function readReminders(config: AppConfig): Promise<Reminder[]> {
+  const primary = await readReminderFile(remindersPath(config));
+  if (primary.length > 0) return primary;
+  return readReminderFile(legacyRemindersPath(config));
 }
 
 async function writeReminders(config: AppConfig, reminders: Reminder[]): Promise<void> {
@@ -214,19 +224,20 @@ export async function createReminder(
 ): Promise<Reminder> {
   const reminders = await readReminders(config);
   const normalizedRecurrence = normalizeRecurrence(recurrence);
+  const now = await getAccurateNow();
   let normalizedScheduledAt = normalizeScheduledAt(scheduledAt);
   if (normalizedRecurrence.kind === "lunarYearly") {
-    normalizedScheduledAt = nextLunarYearlyOccurrence(normalizedScheduledAt, new Date(Date.now() - 1000), normalizedRecurrence);
+    normalizedScheduledAt = nextLunarYearlyOccurrence(normalizedScheduledAt, new Date(now.getTime() - 1000), normalizedRecurrence);
   }
   const reminder: Reminder = {
-    id: `rmd_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    id: `rmd_${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     text,
     scheduledAt: normalizedScheduledAt,
     recurrence: normalizedRecurrence,
     category: metadata?.category || "routine",
     specialKind: metadata?.specialKind,
     status: "pending",
-    createdAt: new Date().toISOString(),
+    createdAt: now.toISOString(),
   };
   reminders.push(reminder);
   await writeReminders(config, reminders);
@@ -241,7 +252,15 @@ function eventReminderTime(event: AutoReminderEvent): { hour: number; minute: nu
 }
 
 function eventOffsets(event: AutoReminderEvent): number[] {
-  const offsets = event.offsetsDays && event.offsetsDays.length > 0 ? event.offsetsDays : [0, -7, -1];
+  let offsets = event.offsetsDays && event.offsetsDays.length > 0 ? event.offsetsDays : undefined;
+  if (!offsets) {
+    // Birthdays and anniversaries get default reminders roughly one month, one week, one day before, and on the day.
+    if (event.kind === "birthday" || event.kind === "anniversary") {
+      offsets = [0, -1, -7, -30];
+    } else {
+      offsets = [];
+    }
+  }
   return Array.from(new Set(offsets.filter((value) => Number.isInteger(value)))).sort((a, b) => a - b);
 }
 
@@ -498,6 +517,13 @@ function nextLunarYearlyOccurrence(baseIso: string, now: Date, recurrence: Extra
 function nextReminderOccurrence(reminder: Reminder, now = new Date()): string | null {
   const recurrence = normalizeRecurrence(reminder.recurrence, reminder.repeat);
   if (recurrence.kind === "once") return null;
+
+  // Only treat yearly / lunarYearly as recurring for special events such as birthdays, anniversaries, memorials, and festivals.
+  // For normal tasks (including ad-hoc schedules like next month's meetings), yearly-style recurrences should behave like once-only.
+  if ((recurrence.kind === "yearly" || recurrence.kind === "lunarYearly") && !reminder.specialKind) {
+    return null;
+  }
+
   if (recurrence.kind === "interval") return nextIntervalOccurrence(reminder.scheduledAt, now, recurrence);
   if (recurrence.kind === "weekly") return nextWeeklyOccurrence(reminder.scheduledAt, now, recurrence);
   if (recurrence.kind === "monthly") return nextMonthlyOccurrence(reminder.scheduledAt, now, recurrence);
@@ -566,7 +592,7 @@ export async function deliverDueReminders(
   renderMessage?: (reminder: Reminder, fallback: string) => Promise<string>,
 ): Promise<number> {
   const reminders = await readReminders(config);
-  const now = new Date();
+  const now = await getAccurateNow();
   let sent = 0;
   let changed = false;
   for (const reminder of reminders) {

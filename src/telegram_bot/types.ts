@@ -2,7 +2,8 @@ export type AppConfig = {
   telegram: {
     botToken: string;
     allowedUserIds: number[];
-    adminUserId: number | null;
+    trustedUserIds: number[];
+    mainUserId: number | null;
     pollingTimeoutSec: number;
     pollingIntervalMs: number;
     maxFileSizeMb: number;

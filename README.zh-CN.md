@@ -63,8 +63,9 @@ just serve
 
 常用配置：
 
-- `telegram.allowed_user_ids`：允许访问 bot 的 Telegram 用户 ID 列表
-- `telegram.admin_user_id`：可选的管理员 Telegram 用户 ID，拥有最高权限；该用户始终可访问，并且在其明确要求时可以直接返回内部/敏感细节而不额外做隐私拦截
+- `telegram.allowed_user_ids`：允许访问 bot 的 Telegram 用户 ID 列表，这些用户默认只有只读权限（可以对话和查询记忆，但不能修改仓库内容）
+- `telegram.trusted_user_ids`：可信用户 ID 列表，这些用户拥有完整权限，可以按照 AGENTS.md 修改笔记、整理文件、更新记忆
+- `telegram.main_user_id`：主用户 Telegram ID，只会对这个用户发送启动 greeting
 - `telegram.language`：同时控制界面文案和对话回复语言（`zh` 或 `en`）
 - `telegram.waiting_message`：任务处理中先显示的等待文案
 - `telegram.waiting_message_candidates`：可选的等待文案列表；非空时按配置的轮换间隔随机替换
@@ -78,7 +79,6 @@ just serve
 - `/help`
 - `/new`
 - `/model`
-- `/reminders`
 
 使用方式：
 

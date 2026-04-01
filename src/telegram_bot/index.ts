@@ -3,31 +3,27 @@ import { Bot, InlineKeyboard, type Context } from "grammy";
 import { loadConfig } from "./config";
 import { saveTelegramFile, sendLocalFiles, sendPromptAttachments, uploadedFileToAttachment } from "./files";
 import { configureLogger, logger } from "./logger";
-import { OpenCodeService } from "./opencode";
+import { OpenCodeService, type ReminderParseResult } from "./opencode";
 import {
-  clearPendingReminderConfirmation,
   clearRecentUploads,
   currentModel,
-  getPendingReminderConfirmation,
   getRecentUploads,
   hasRecentUploads,
   loadPersistentState,
   persistState,
   rememberUploads,
   retainRecentUploads,
-  setPendingReminderConfirmation,
   state,
   touchActivity,
 } from "./state";
-import { createAutoEventReminders, createReminder, handleReminderCallback, reminderScheduleSummary, showReminderList, startReminderLoop, summarizeCreatedReminders } from "./reminders";
+import { createAutoEventReminders, createReminder, handleReminderCallback, reminderScheduleSummary, startReminderLoop, summarizeCreatedReminders, type AutoReminderEvent } from "./reminders";
 import { t } from "./i18n";
 import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
+import { getAccurateNowIso } from "./time";
 import type { PromptAttachment, UploadedFile } from "./types";
 
 const MODEL_CALLBACK_PREFIX = "model:";
-const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule|生日|纪念日|周年|忌日|anniversary|birthday|memorial|春节|中秋|端午|元宵|重阳|清明|festival)/i;
 const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
-const REMINDER_CANCEL_RE = /^(算了|取消|不用了|不需要了|先不用|cancel|never mind)$/i;
 
 type ActiveTask = {
   id: number;
@@ -48,17 +44,17 @@ let botUserId: number | null = null;
 let activeTask: ActiveTask | null = null;
 let nextTaskId = 1;
 
-type AccessLevel = "admin" | "allowed" | "none";
+type AccessLevel = "trusted" | "allowed" | "none";
 
 function accessLevelForUserId(userId: number | undefined): AccessLevel {
   if (typeof userId !== "number") return "none";
-  if (config.telegram.adminUserId === userId) return "admin";
+  if (config.telegram.trustedUserIds.includes(userId)) return "trusted";
   if (config.telegram.allowedUserIds.includes(userId)) return "allowed";
   return "none";
 }
 
-function isAdminUserId(userId: number | undefined): boolean {
-  return accessLevelForUserId(userId) === "admin";
+function isTrustedUserId(userId: number | undefined): boolean {
+  return accessLevelForUserId(userId) === "trusted";
 }
 
 function isAuthorized(ctx: Context): boolean {
@@ -68,14 +64,19 @@ function isAuthorized(ctx: Context): boolean {
 async function sendStartupGreeting(): Promise<void> {
   try {
     const greeting = await opencode.generateStartupGreeting();
-    const recipients = Array.from(new Set([
-      ...config.telegram.allowedUserIds,
-      ...(config.telegram.adminUserId ? [config.telegram.adminUserId] : []),
-    ]));
-    for (const userId of recipients) {
-      await sendMessageFormatted(bot, userId, greeting);
+    if (!greeting) {
+      await logger.warn("startup greeting generation returned empty output; skipping greet");
+      return;
     }
-    await logger.info(`Sent startup greeting to ${recipients.length} authorized Telegram user(s)`);
+
+    const mainUserId = config.telegram.mainUserId;
+    if (!mainUserId) {
+      await logger.warn("telegram.main_user_id is not configured; skipping startup greeting");
+      return;
+    }
+
+    await sendMessageFormatted(bot, mainUserId, greeting);
+    await logger.info("Sent startup greeting to main_user_id only");
   } catch (error) {
     await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -186,12 +187,138 @@ async function editMessageTextFormattedSafe(ctx: Context, chatId: number, messag
   }
 }
 
-function shouldAttemptReminderParse(text: string): boolean {
-  return REMINDER_HINT_RE.test(text);
-}
-
 function helpText(): string {
   return t(config, "help_text");
+}
+
+function trimmedString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function integerInRange(value: unknown, min: number, max: number): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : undefined;
+}
+
+function normalizeParsedRecurrence(recurrence: ReminderParseResult["recurrence"]): ReminderParseResult["recurrence"] | undefined {
+  if (!recurrence || typeof recurrence !== "object") return undefined;
+  const kind = recurrence.kind;
+  if (kind === "once" || kind === "daily" || kind === "weekdays") return { kind };
+  if (kind === "interval") {
+    const unit = recurrence.unit;
+    const every = integerInRange(recurrence.every, 1, 10000);
+    if (unit && every && ["minute", "hour", "day", "week", "month", "year"].includes(unit)) {
+      return { kind, unit, every };
+    }
+    return undefined;
+  }
+  if (kind === "weekly") {
+    const daysOfWeek = Array.isArray(recurrence.daysOfWeek)
+      ? Array.from(new Set(recurrence.daysOfWeek.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 0 && value <= 6))).sort((a, b) => a - b)
+      : [];
+    const every = integerInRange(recurrence.every, 1, 1000) ?? 1;
+    return daysOfWeek.length > 0 ? { kind, every, daysOfWeek } : undefined;
+  }
+  if (kind === "monthly") {
+    const every = integerInRange(recurrence.every, 1, 1000) ?? 1;
+    if (recurrence.mode === "nthWeekday") {
+      const weekOfMonth = integerInRange(recurrence.weekOfMonth, -1, 5);
+      const dayOfWeek = integerInRange(recurrence.dayOfWeek, 0, 6);
+      if (weekOfMonth && weekOfMonth !== 0 && dayOfWeek !== undefined) return { kind, every, mode: "nthWeekday", weekOfMonth, dayOfWeek };
+      return undefined;
+    }
+    const dayOfMonth = integerInRange(recurrence.dayOfMonth, 1, 31);
+    return dayOfMonth ? { kind, every, mode: "dayOfMonth", dayOfMonth } : undefined;
+  }
+  if (kind === "yearly") {
+    const month = integerInRange(recurrence.month, 1, 12);
+    const day = integerInRange(recurrence.day, 1, 31);
+    const every = integerInRange(recurrence.every, 1, 1000) ?? 1;
+    if (!month || !day) return undefined;
+    const normalized: NonNullable<ReminderParseResult["recurrence"]> = { kind, every, month, day };
+    const offsetDays = Number(recurrence.offsetDays);
+    if (Number.isInteger(offsetDays)) normalized.offsetDays = offsetDays;
+    return normalized;
+  }
+  if (kind === "lunarYearly") {
+    const month = integerInRange(recurrence.month, 1, 12);
+    const day = integerInRange(recurrence.day, 1, 30);
+    if (!month || !day) return undefined;
+    const normalized: NonNullable<ReminderParseResult["recurrence"]> = { kind, month, day };
+    if (recurrence.isLeapMonth === true) normalized.isLeapMonth = true;
+    if (recurrence.leapMonthPolicy === "same-leap-only" || recurrence.leapMonthPolicy === "prefer-non-leap" || recurrence.leapMonthPolicy === "both") normalized.leapMonthPolicy = recurrence.leapMonthPolicy;
+    const offsetDays = Number(recurrence.offsetDays);
+    if (Number.isInteger(offsetDays)) normalized.offsetDays = offsetDays;
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeParsedEvent(event: ReminderParseResult["event"], fallbackTitle: string): AutoReminderEvent | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  if (event.kind !== "birthday" && event.kind !== "anniversary" && event.kind !== "memorial" && event.kind !== "festival") return undefined;
+  if (event.calendar !== "gregorian" && event.calendar !== "chinese-lunar") return undefined;
+  const month = integerInRange(event.month, 1, 12);
+  const day = integerInRange(event.day, 1, event.calendar === "chinese-lunar" ? 30 : 31);
+  if (!month || !day) return undefined;
+  const reminderTimeHour = integerInRange(event.reminderTime?.hour, 0, 23);
+  const reminderTimeMinute = integerInRange(event.reminderTime?.minute, 0, 59);
+  const rawOffsets = Array.isArray(event.offsetsDays)
+    ? Array.from(new Set(event.offsetsDays.map((value) => Number(value)).filter((value) => Number.isInteger(value)))).sort((a, b) => a - b)
+    : [];
+  const offsetsDays = rawOffsets.length > 0 ? rawOffsets : undefined;
+
+  const isBirthdayOrAnniversary = event.kind === "birthday" || event.kind === "anniversary";
+  if (!isBirthdayOrAnniversary && !offsetsDays) {
+    // For memorials and festivals, do not invent offsets; fall back to normal reminder behavior unless the user explicitly provided offsets.
+    return undefined;
+  }
+
+  return {
+    kind: event.kind,
+    title: trimmedString(event.title) || fallbackTitle,
+    calendar: event.calendar,
+    month,
+    day,
+    year: integerInRange(event.year, 1, 9999),
+    isLeapMonth: event.isLeapMonth === true,
+    leapMonthPolicy: event.leapMonthPolicy === "same-leap-only" || event.leapMonthPolicy === "prefer-non-leap" || event.leapMonthPolicy === "both" ? event.leapMonthPolicy : undefined,
+    reminderTime: {
+      hour: reminderTimeHour ?? 9,
+      minute: reminderTimeMinute ?? 0,
+    },
+    offsetsDays,
+  };
+}
+
+function normalizeReminderParseResult(parsed: ReminderParseResult, fallbackTitle: string): {
+  shouldCreate: boolean;
+  text?: string;
+  scheduledAt?: string;
+  recurrence?: ReminderParseResult["recurrence"];
+  event?: AutoReminderEvent;
+  needsConfirmation: boolean;
+  confirmationText?: string;
+} {
+  const text = trimmedString(parsed.text);
+  const scheduledAt = trimmedString(parsed.scheduledAt);
+  const validScheduledAt = scheduledAt && Number.isFinite(Date.parse(scheduledAt)) ? scheduledAt : undefined;
+  const recurrence = normalizeParsedRecurrence(parsed.recurrence);
+  const event = normalizeParsedEvent(parsed.event, text || fallbackTitle);
+  const normalized = {
+    shouldCreate: parsed.shouldCreate === true && Boolean(event || (text && validScheduledAt)),
+    text,
+    scheduledAt: validScheduledAt,
+    recurrence,
+    event,
+    needsConfirmation: parsed.needsConfirmation === true,
+    confirmationText: trimmedString(parsed.confirmationText),
+  };
+  if (parsed.shouldCreate && !normalized.shouldCreate && !normalized.needsConfirmation) {
+    normalized.needsConfirmation = true;
+    normalized.confirmationText = "我理解你是想设置提醒，但时间或提醒类型还不够明确。你可以再具体说一下时间、频率，或是否是生日/纪念日这类事件。";
+  }
+  return normalized;
 }
 
 function requiresDirectMention(ctx: Context): boolean {
@@ -231,12 +358,12 @@ function isAddressedToBot(ctx: Context): boolean {
   return entityMentionsBot(caption, captionEntities);
 }
 
-function messageReferenceTime(ctx: Context): string {
+async function messageReferenceTime(ctx: Context): Promise<string> {
   const unixSeconds = ctx.message?.date;
   if (typeof unixSeconds === "number") {
     return new Date(unixSeconds * 1000).toISOString();
   }
-  return new Date().toISOString();
+  return getAccurateNowIso();
 }
 
 async function buildRecentAttachments(files: UploadedFile[]): Promise<{ files: UploadedFile[]; attachments: PromptAttachment[] }> {
@@ -378,7 +505,7 @@ async function runPromptTask(
   startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
 
   try {
-    const answer = await opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, isAdminUserId(ctx.from?.id));
+    const answer = await opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, isTrustedUserId(ctx.from?.id));
     if (task.cancelled || activeTask?.id !== task.id) {
       await logger.warn(`discarding stale prompt result for task ${task.id}`);
       return;
@@ -492,10 +619,6 @@ bot.command("new", async (ctx) => {
   await replyFormatted(ctx, t(config, "new_session", { sessionId }));
 });
 
-bot.command("reminders", async (ctx) => {
-  await showReminderList(config, ctx);
-});
-
 bot.command("model", async (ctx) => {
   try {
     const { defaults, models } = await opencode.listModels();
@@ -522,126 +645,9 @@ async function handleIncomingText(ctx: Context): Promise<void> {
     if (!text || text.startsWith("/")) return;
     if (!isAddressedToBot(ctx)) return;
 
-    const pendingReminder = getPendingReminderConfirmation();
-  if (pendingReminder) {
-    if (REMINDER_CANCEL_RE.test(text)) {
-      await clearPendingReminderConfirmation();
-      await replyFormatted(ctx, "好的，已取消这次提醒确认。");
-      return;
-    }
-
-    await runReminderTask(
-      ctx,
-      () => opencode.parseReminderFollowup(pendingReminder.originalRequest, text, pendingReminder.referenceTimeIso),
-      async (reminder, chatId, waitingMessageId) => {
-        await logger.info(`reminder follow-up parse result: ${JSON.stringify(reminder)}`);
-        if (reminder.shouldCreate && reminder.event) {
-          await clearPendingReminderConfirmation();
-          const created = await createAutoEventReminders(config, {
-            kind: reminder.event.kind || "birthday",
-            title: reminder.event.title || reminder.text || pendingReminder.originalRequest,
-            calendar: reminder.event.calendar || "gregorian",
-            month: Number(reminder.event.month || 0),
-            day: Number(reminder.event.day || 0),
-            year: reminder.event.year,
-            isLeapMonth: reminder.event.isLeapMonth,
-            leapMonthPolicy: reminder.event.leapMonthPolicy,
-            reminderTime: {
-              hour: Number(reminder.event.reminderTime?.hour ?? 9),
-              minute: Number(reminder.event.reminderTime?.minute ?? 0),
-            },
-            offsetsDays: reminder.event.offsetsDays,
-          }, pendingReminder.referenceTimeIso);
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created_batch", {
-            count: created.length,
-            items: summarizeCreatedReminders(config, created),
-          }));
-          return;
-        }
-        if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
-          await clearPendingReminderConfirmation();
-          const created = await createReminder(config, reminder.text, reminder.scheduledAt, reminder.recurrence);
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", {
-            schedule: reminderScheduleSummary(config, created),
-            text: created.text,
-          }));
-          return;
-        }
-        if (reminder.needsConfirmation && reminder.confirmationText) {
-          await setPendingReminderConfirmation({
-            originalRequest: pendingReminder.originalRequest,
-            referenceTimeIso: pendingReminder.referenceTimeIso,
-            createdAt: new Date().toISOString(),
-          });
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, reminder.confirmationText);
-          return;
-        }
-        await clearPendingReminderConfirmation();
-        await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "generic_done"));
-      },
-      `follow-up ${JSON.stringify(text)}`,
-    );
-    return;
-  }
-
-  if (shouldAttemptReminderParse(text)) {
-    const referenceTimeIso = messageReferenceTime(ctx);
-    await runReminderTask(
-      ctx,
-      () => opencode.parseReminderRequest(text, referenceTimeIso),
-      async (reminder, chatId, waitingMessageId) => {
-        await logger.info(`reminder parse result: ${JSON.stringify(reminder)}`);
-        if (reminder.shouldCreate && reminder.event) {
-          await clearPendingReminderConfirmation();
-          const created = await createAutoEventReminders(config, {
-            kind: reminder.event.kind || "birthday",
-            title: reminder.event.title || reminder.text || text,
-            calendar: reminder.event.calendar || "gregorian",
-            month: Number(reminder.event.month || 0),
-            day: Number(reminder.event.day || 0),
-            year: reminder.event.year,
-            isLeapMonth: reminder.event.isLeapMonth,
-            leapMonthPolicy: reminder.event.leapMonthPolicy,
-            reminderTime: {
-              hour: Number(reminder.event.reminderTime?.hour ?? 9),
-              minute: Number(reminder.event.reminderTime?.minute ?? 0),
-            },
-            offsetsDays: reminder.event.offsetsDays,
-          }, referenceTimeIso);
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created_batch", {
-            count: created.length,
-            items: summarizeCreatedReminders(config, created),
-          }));
-          return;
-        }
-        if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
-          await clearPendingReminderConfirmation();
-          const created = await createReminder(config, reminder.text, reminder.scheduledAt, reminder.recurrence);
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", {
-            schedule: reminderScheduleSummary(config, created),
-            text: created.text,
-          }));
-          return;
-        }
-        if (reminder.needsConfirmation && reminder.confirmationText) {
-          await setPendingReminderConfirmation({
-            originalRequest: text,
-            referenceTimeIso,
-            createdAt: new Date().toISOString(),
-          });
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, reminder.confirmationText);
-          return;
-        }
-        await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "generic_done"));
-      },
-      `initial ${JSON.stringify(text)}`,
-    );
-    return;
-  }
-
     const recentUploads = getRecentUploads();
     const { files: validRecentUploads, attachments } = await buildRecentAttachments(recentUploads);
-    const telegramMessageTime = messageReferenceTime(ctx);
+    const telegramMessageTime = await messageReferenceTime(ctx);
     await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
     startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, validRecentUploads, attachments, telegramMessageTime);
   } catch (error) {
@@ -655,6 +661,15 @@ async function handleIncomingText(ctx: Context): Promise<void> {
 async function handleIncomingFile(ctx: Context): Promise<void> {
   const caption = ctx.message && "caption" in ctx.message ? ctx.message.caption?.trim() || "" : "";
   if (requiresDirectMention(ctx) && !isAddressedToBot(ctx)) return;
+
+  const accessLevel = accessLevelForUserId(ctx.from?.id);
+  if (accessLevel !== "trusted") {
+    await logger.warn(`Telegram file upload rejected level=${accessLevel} user=${ctx.from?.id ?? "unknown"}`);
+    await setReactionSafe(ctx, "👎");
+    await replyFormatted(ctx, t(config, "file_upload_not_allowed"));
+    return;
+  }
+
   try {
     const uploaded = await saveTelegramFile(ctx, config);
     if (!uploaded) return;
@@ -670,7 +685,7 @@ async function handleIncomingFile(ctx: Context): Promise<void> {
 
     const attachment = await uploadedFileToAttachment(uploaded);
     const waitingTemplate = t(config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: WAITING_MESSAGE_PLACEHOLDER });
-    const telegramMessageTime = messageReferenceTime(ctx);
+    const telegramMessageTime = await messageReferenceTime(ctx);
 
     await logger.info(`received ${uploaded.source} message ${ctx.message?.message_id} with caption and scheduled prompt task`);
     startPromptTask(ctx, waitingTemplate, caption, [uploaded], [attachment], telegramMessageTime);
@@ -813,7 +828,6 @@ await bot.start({
       { command: "help", description: t(config, "command_help") },
       { command: "new", description: t(config, "command_new") },
       { command: "model", description: t(config, "command_model") },
-      { command: "reminders", description: t(config, "command_reminders") },
     ]);
     botUsername = botInfo.username || null;
     botUserId = botInfo.id;

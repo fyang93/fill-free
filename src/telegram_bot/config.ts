@@ -54,14 +54,16 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   const logFile = path.resolve(repoRoot, asString(paths.log_file, "logs/telegram-bot.log"));
 
   const allowedUserIds = asNumberArray(telegram.allowed_user_ids);
-  const adminUserIdValue = asNumber(telegram.admin_user_id, NaN);
-  const adminUserId = Number.isFinite(adminUserIdValue) && adminUserIdValue > 0 ? adminUserIdValue : null;
+  const trustedUserIds = asNumberArray(telegram.trusted_user_ids);
+  const mainUserIdValue = asNumber(telegram.main_user_id, NaN);
+  const mainUserId = Number.isFinite(mainUserIdValue) && mainUserIdValue > 0 ? mainUserIdValue : null;
 
   const config: AppConfig = {
     telegram: {
       botToken: asString(telegram.bot_token),
       allowedUserIds,
-      adminUserId,
+      trustedUserIds,
+      mainUserId,
       pollingTimeoutSec: asNumber(telegram.polling_timeout_sec, 20),
       pollingIntervalMs: asNumber(telegram.polling_interval_ms, 300),
       maxFileSizeMb: asNumber(telegram.max_file_size_mb, 20),

@@ -63,8 +63,9 @@ If OpenCode is already running on `127.0.0.1:4096`, the command reuses it.
 
 Useful config:
 
-- `telegram.allowed_user_ids`: list of Telegram user IDs allowed to access the bot
-- `telegram.admin_user_id`: optional admin Telegram user ID with highest privilege; this user is always authorized and can request sensitive/internal details without extra privacy filtering
+- `telegram.allowed_user_ids`: list of Telegram user IDs allowed to access the bot; these users are read-only by default (they can chat and query memory but cannot modify repo content)
+- `telegram.trusted_user_ids`: list of trusted Telegram user IDs with full privileges to modify notes, organize files, and update memory according to AGENTS.md
+- `telegram.main_user_id`: optional main Telegram user ID; only this user receives the startup greeting
 - `telegram.language`: controls both UI text and conversation reply language (`zh` or `en`)
 - `telegram.waiting_message`: initial in-progress message shown while a task is running
 - `telegram.waiting_message_candidates`: optional list of replacement waiting messages rotated using the configured interval
@@ -78,7 +79,6 @@ Commands:
 - `/help`
 - `/new`
 - `/model`
-- `/reminders`
 
 Usage:
 

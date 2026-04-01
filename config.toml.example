@@ -1,7 +1,11 @@
 [telegram]
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
+# Users allowed to chat with the bot (read-only by default)
 allowed_user_ids = [123456789]
-admin_user_id = 123456789
+# Users with full trusted access (can modify memory, files, etc.)
+trusted_user_ids = [123456789]
+# Optional main user ID; only this user receives startup greetings
+main_user_id = 123456789
 polling_timeout_sec = 20
 polling_interval_ms = 300
 max_file_size_mb = 200

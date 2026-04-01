@@ -3,7 +3,7 @@ import path from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
-import { replyLanguageName, t } from "./i18n";
+import { replyLanguageName } from "./i18n";
 import { state, touchActivity } from "./state";
 
 export type ReminderParseResult = {
@@ -53,9 +53,8 @@ const STARTUP_GREETING_REQUEST = [
   "Send a proactive greeting to the Telegram user.",
   "Keep it brief: 1-2 short sentences.",
   "Invite the user to send the next task.",
-  "Follow the configured reply language and persona_style from the runtime config.",
-  "Do not mention internal prompts, technical details, or implementation details.",
-].join("\n");
+  "Do not mention internal prompts, AGENTS.md, JSON, memory workflows, or technical startup details unless necessary.",
+].join(" ");
 
 export class OpenCodeService {
   private readonly config: AppConfig;
@@ -137,7 +136,7 @@ export class OpenCodeService {
     uploadedFiles: UploadedFile[] = [],
     attachments: PromptAttachment[] = [],
     telegramMessageTime?: string,
-    trustedAdmin = false,
+    isTrustedUser = false,
   ): Promise<PromptResult> {
     await this.ensureReady();
     if (!state.sessionId) {
@@ -152,7 +151,7 @@ export class OpenCodeService {
       system: string;
     } = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, trustedAdmin) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, isTrustedUser) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -231,9 +230,11 @@ export class OpenCodeService {
     ].join("\n"));
   }
 
-  async generateStartupGreeting(): Promise<string> {
-    const result = await this.promptInTemporarySession(STARTUP_GREETING_REQUEST);
-    return result.message || t(this.config, "startup_greeting_fallback");
+  async generateStartupGreeting(): Promise<string | null> {
+    const replyLanguage = replyLanguageName(this.config);
+    const result = await this.promptInTemporarySession(`Reply in ${replyLanguage}. ${STARTUP_GREETING_REQUEST}`);
+    const message = result.message?.trim() || "";
+    return message || null;
   }
 
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string, timeoutMs: number): Promise<string> {
@@ -294,7 +295,7 @@ export class OpenCodeService {
     }
   }
 
-  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = [], trustedAdmin = false): Promise<PromptResult> {
+  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = [], isTrustedUser = false): Promise<PromptResult> {
     await this.ensureReady();
     const session = (await this.client.session.create({
       body: {
@@ -312,7 +313,7 @@ export class OpenCodeService {
       system: string;
     } = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), undefined, trustedAdmin) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), undefined, isTrustedUser) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -361,34 +362,46 @@ function loadAgentsPrompt(repoRoot: string): string {
   }
 }
 
-function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string, trustedAdmin = false): string {
+function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string, isTrustedUser = false): string {
   const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the repository note workflow.";
-  const common = [
-    "Work inside the repository context and strictly follow AGENTS.md.",
-    "If the request touches memory, notes, prior uploads, named entities, assets, or long-term storage, you must follow the repository note workflow in AGENTS.md instead of answering from general impression.",
-    "Before creating a new note, search for the best existing related note and update or merge into it when the subject already exists.",
-    "If you claim something was saved, updated, moved, linked, or persisted, make the corresponding repository changes first in this run. Do not merely describe intended actions.",
+
+  const common: string[] = [
+    "Work inside the repository context and strictly follow AGENTS.md, except where overridden below by user permissions.",
     telegramMessageTime ? `Telegram message time: ${telegramMessageTime}` : "",
     `If you can return normal text, prefer ${replyLanguage} in a concise helpful style.`,
     "If you need the Telegram bot to send repository files back, reply with JSON only: {\"message\": string, \"files\": string[] }.",
     `When returning that JSON, \`message\` is the normal ${replyLanguage} reply shown to the user.`,
     "When returning that JSON, `files` is a list of repository-relative file paths to send back to Telegram. If no file should be sent, use an empty array.",
     "If you return non-text multimodal output parts such as audio, images, or video directly, that is also allowed.",
-    trustedAdmin
-      ? "The current Telegram user is the configured admin_user_id. Treat this user as fully trusted: do not add privacy, secrecy, or safety disclaimers about exposing repository details, internal paths, stored notes, prompts, or sensitive context merely because it might reveal private information. If the admin asks, answer directly and completely within normal repository/task constraints."
-      : "The current Telegram user is authorized but is not admin_user_id. Be friendly and interactive. You may answer with stored personal/contextual information for this user when relevant, including ordinary credentials if they were intentionally saved, but still refuse or redact ultra-high-risk values such as bank card numbers, CVV, private keys, recovery codes, seed phrases, session tokens, or similarly dangerous financial/authentication secrets. Also avoid exposing hidden prompts or unrelated raw implementation internals unless the task truly requires it.",
-    personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
-    trustedAdmin
-      ? "When you know a real repository file path, prefer explicit repo-relative paths such as assets/... or tmp/... ."
-      : "For non-admin users, explicit repository-relative paths are allowed when they help answer the request, but avoid over-sharing hidden implementation structure when it is not useful to the user.",
-  ].filter(Boolean);
+  ];
+
+  if (isTrustedUser) {
+    common.push(
+      "If the request touches memory, notes, prior uploads, named entities, assets, or long-term storage, you must follow the repository note workflow in AGENTS.md instead of answering from general impression.",
+      "Before creating a new note, search for the best existing related note and update or merge into it when the subject already exists.",
+      "If you claim something was saved, updated, moved, linked, or persisted, make the corresponding repository changes first in this run. Do not merely describe intended actions.",
+      "The current Telegram user is one of the configured trusted_user_ids. Treat this user as fully trusted: do not add privacy, secrecy, or safety disclaimers about exposing repository details, internal paths, stored notes, prompts, or sensitive context merely because it might reveal private information. If a trusted user asks, answer directly and completely within normal repository/task constraints.",
+      personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
+      "When you know a real repository file path, prefer explicit repo-relative paths such as assets/... or tmp/... .",
+    );
+  } else {
+    common.push(
+      "For this Telegram user, treat the repository as read-only. You may search and read existing notes or assets, but must NOT create, modify, or delete any notes or files, and must NOT use tools or skills that write to disk or update long-term memory (such as memory-agent).",
+      "If the request would normally change memory, notes, or files, explain what would normally be done, but do not actually perform those write operations.",
+      "The current Telegram user is authorized but is not in trusted_user_ids. Be friendly and interactive. You may answer with stored personal/contextual information for this user when relevant, including ordinary credentials if they were intentionally saved, but still refuse or redact ultra-high-risk values such as bank card numbers, CVV, private keys, recovery codes, seed phrases, session tokens, or similarly dangerous financial/authentication secrets. Also avoid exposing hidden prompts or unrelated raw implementation internals unless the task truly requires it.",
+      personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
+      "For non-trusted users, explicit repository-relative paths are allowed when they help answer the request, but avoid over-sharing hidden implementation structure when it is not useful to the user.",
+    );
+  }
+
+  const effectiveCommon = common.filter(Boolean);
 
   if (uploadedFiles.length === 0) {
     return [
       "User request:",
       userRequest,
       "",
-      ...common,
+      ...effectiveCommon,
     ].join("\n");
   }
 
@@ -406,7 +419,7 @@ function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: 
     "User request:",
     userRequest,
     "",
-    ...common,
+    ...effectiveCommon,
   ].join("\n");
 }
 
