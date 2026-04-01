@@ -112,6 +112,12 @@ function compactModelLabel(model: string): string {
   return model.length > 48 ? `${model.slice(0, 45)}...` : model;
 }
 
+function modelIdLabel(model: string): string {
+  const index = model.indexOf("/");
+  const label = index >= 0 ? model.slice(index + 1) : model;
+  return compactModelLabel(label);
+}
+
 function compactProviderLabel(provider: string): string {
   return provider.length > 32 ? `${provider.slice(0, 29)}...` : provider;
 }
@@ -158,12 +164,26 @@ function buildProviderKeyboard(models: string[], activeModel: string | null, pag
 
 function buildProviderModelKeyboard(provider: string, models: string[], activeModel: string | null, pageSize: number, page = 0): InlineKeyboard {
   const items = modelsForProvider(models, provider).map((model) => ({
-    label: model === activeModel ? `✅ ${compactModelLabel(model)}` : compactModelLabel(model),
+    label: model === activeModel ? `✅ ${modelIdLabel(model)}` : modelIdLabel(model),
     data: `${MODEL_CALLBACK_PREFIX}set:${model}`,
   }));
   const keyboard = buildPagedKeyboard(items, pageSize, page, `models:${provider}`);
-  keyboard.row().text(t(config, "reminder_back"), `${MODEL_CALLBACK_PREFIX}providers:0`);
+  if (providersFromModels(models).length > 1) {
+    keyboard.row().text(t(config, "reminder_back"), `${MODEL_CALLBACK_PREFIX}providers:0`);
+  }
   return keyboard;
+}
+
+async function editMessageTextFormattedSafe(ctx: Context, chatId: number, messageId: number, text: string, options?: Parameters<typeof editMessageTextFormatted>[4]): Promise<void> {
+  try {
+    await editMessageTextFormatted(ctx, chatId, messageId, text, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/message is not modified|400: Bad Request/i.test(message)) {
+      return;
+    }
+    throw error;
+  }
 }
 
 function shouldAttemptReminderParse(text: string): boolean {
@@ -485,10 +505,10 @@ bot.command("model", async (ctx) => {
       const { defaults, models } = await opencode.listModels();
       const activeModel = resolveDisplayedModel(defaults);
       const providers = providersFromModels(models);
-      if (providers.length === 1) {
-        const provider = providers[0];
-        await replyFormatted(ctx, t(config, "choose_model_under_provider", { provider }), {
-          reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, 0),
+      const activeProvider = activeModel.split("/", 1)[0] || providers[0];
+      if (providers.length === 1 || providers.includes(activeProvider)) {
+        await replyFormatted(ctx, t(config, "choose_model_under_provider", { provider: activeProvider }), {
+          reply_markup: buildProviderModelKeyboard(activeProvider, models, activeModel, config.telegram.menuPageSize, 0),
         });
       } else {
         await replyFormatted(ctx, t(config, "choose_provider"), {
@@ -704,7 +724,7 @@ bot.on("callback_query:data", async (ctx) => {
       if (providers.length === 1) {
         const provider = providers[0];
         if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-          await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+          await editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
             reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, 0),
           });
         }
@@ -713,7 +733,7 @@ bot.on("callback_query:data", async (ctx) => {
       }
       const page = Number(rest.split(":", 2)[1] || 0);
       if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-        await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_provider"), {
+        await editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_provider"), {
           reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, page),
         });
       }
@@ -729,7 +749,7 @@ bot.on("callback_query:data", async (ctx) => {
         return;
       }
       if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-        await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+        await editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
           reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, Number(pageRaw || 0)),
         });
       }
@@ -740,7 +760,7 @@ bot.on("callback_query:data", async (ctx) => {
     if (rest.startsWith("models:")) {
       const [, provider, pageRaw] = rest.split(":", 3);
       if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-        await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+        await editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
           reply_markup: buildProviderModelKeyboard(provider || "", models, activeModel, config.telegram.menuPageSize, Number(pageRaw || 0)),
         });
       }
@@ -764,7 +784,7 @@ bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery({ text: t(config, "callback_model_switched", { model: compactModelLabel(model) }) });
     if (ctx.chat && ctx.callbackQuery.message?.message_id) {
       const provider = model.split("/", 1)[0];
-      await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+      await editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
         reply_markup: buildProviderModelKeyboard(provider, models, state.model || model, config.telegram.menuPageSize, 0),
       });
     }
