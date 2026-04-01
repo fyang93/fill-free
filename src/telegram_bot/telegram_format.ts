@@ -1,9 +1,27 @@
 import type { Bot, Context, InlineKeyboard } from "grammy";
+import MarkdownIt from "markdown-it";
 
 type TelegramFormatOptions = {
   reply_markup?: InlineKeyboard;
   parse_mode?: "HTML";
 };
+
+type MarkdownToken = {
+  type: string;
+  tag: string;
+  nesting: number;
+  content: string;
+  attrs?: Array<[string, string]> | null;
+  children?: MarkdownToken[] | null;
+  info?: string;
+  level?: number;
+};
+
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: false,
+});
 
 function escapeHtml(text: string): string {
   return text
@@ -17,116 +35,274 @@ function escapeHtmlAttribute(text: string): string {
   return escapeHtml(text).replaceAll("'", "&#39;");
 }
 
-function splitTableRow(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((cell) => cell.trim());
-}
-
-function isTableSeparator(line: string): boolean {
-  const normalized = line.trim().replace(/^\|/, "").replace(/\|$/, "").replaceAll(/[:\-\s|]/g, "");
-  return normalized.length === 0 && /-/.test(line);
-}
-
-function isLikelyTableLine(line: string): boolean {
-  return line.includes("|");
+function repeat(text: string, count: number): string {
+  return Array.from({ length: Math.max(0, count) }, () => text).join("");
 }
 
 function padRight(text: string, width: number): string {
   return text + " ".repeat(Math.max(0, width - text.length));
 }
 
-function renderTableBlock(lines: string[]): string | null {
-  if (lines.length < 2 || !isTableSeparator(lines[1])) return null;
-  const rows = [splitTableRow(lines[0]), ...lines.slice(2).map(splitTableRow)];
+function tokenAttr(token: MarkdownToken, name: string): string | null {
+  return token.attrs?.find(([key]) => key === name)?.[1] || null;
+}
+
+function renderInlineTokens(tokens: MarkdownToken[] | null | undefined): string {
+  if (!tokens || tokens.length === 0) return "";
+  let output = "";
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+
+    switch (token.type) {
+      case "text":
+        output += escapeHtml(token.content);
+        break;
+      case "code_inline":
+        output += `<code>${escapeHtml(token.content)}</code>`;
+        break;
+      case "softbreak":
+      case "hardbreak":
+        output += "\n";
+        break;
+      case "strong_open":
+        output += "<b>";
+        break;
+      case "strong_close":
+        output += "</b>";
+        break;
+      case "em_open":
+        output += "<i>";
+        break;
+      case "em_close":
+        output += "</i>";
+        break;
+      case "s_open":
+        output += "<s>";
+        break;
+      case "s_close":
+        output += "</s>";
+        break;
+      case "link_open": {
+        const href = tokenAttr(token, "href");
+        output += href ? `<a href="${escapeHtmlAttribute(href)}">` : "";
+        break;
+      }
+      case "link_close":
+        output += "</a>";
+        break;
+      case "image": {
+        const src = tokenAttr(token, "src");
+        const alt = renderInlineTokens(token.children);
+        if (src) {
+          output += `<a href="${escapeHtmlAttribute(src)}">${alt || escapeHtml(src)}</a>`;
+        } else {
+          output += alt;
+        }
+        break;
+      }
+      default:
+        if (token.children?.length) {
+          output += renderInlineTokens(token.children);
+        } else if (token.content) {
+          output += escapeHtml(token.content);
+        }
+        break;
+    }
+  }
+
+  return output;
+}
+
+function inlineText(tokens: MarkdownToken[] | null | undefined): string {
+  if (!tokens || tokens.length === 0) return "";
+  return tokens.map((token) => {
+    if (token.type === "softbreak" || token.type === "hardbreak") return " ";
+    if (token.type === "code_inline" || token.type === "text") return token.content;
+    if (token.children?.length) return inlineText(token.children);
+    return token.content || "";
+  }).join("").replace(/\s+/g, " ").trim();
+}
+
+function renderTable(tokens: MarkdownToken[], startIndex: number): { html: string; nextIndex: number } {
+  const rows: string[][] = [];
+  let currentRow: string[] | null = null;
+  let inCell = false;
+  let cellBuffer = "";
+  let index = startIndex + 1;
+
+  for (; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.type === "table_close") break;
+    if (token.type === "tr_open") {
+      currentRow = [];
+      continue;
+    }
+    if (token.type === "tr_close") {
+      if (currentRow) rows.push(currentRow);
+      currentRow = null;
+      continue;
+    }
+    if (token.type === "th_open" || token.type === "td_open") {
+      inCell = true;
+      cellBuffer = "";
+      continue;
+    }
+    if (token.type === "th_close" || token.type === "td_close") {
+      if (currentRow) currentRow.push(cellBuffer.trim());
+      inCell = false;
+      cellBuffer = "";
+      continue;
+    }
+    if (inCell && token.type === "inline") {
+      cellBuffer += inlineText(token.children);
+      continue;
+    }
+    if (inCell && token.type === "code_inline") {
+      cellBuffer += token.content;
+      continue;
+    }
+    if (inCell && token.type === "softbreak") {
+      cellBuffer += " ";
+    }
+  }
+
+  if (rows.length === 0) {
+    return { html: "", nextIndex: index };
+  }
+
   const columnCount = Math.max(...rows.map((row) => row.length));
-  const widths = Array.from({ length: columnCount }, (_, index) => {
-    return Math.max(...rows.map((row) => (row[index] || "").length));
+  const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
+    return Math.max(...rows.map((row) => (row[columnIndex] || "").length));
   });
   const rendered = rows.map((row, rowIndex) => {
-    const line = widths.map((width, index) => padRight(row[index] || "", width)).join(" | ");
+    const line = widths.map((width, columnIndex) => padRight(row[columnIndex] || "", width)).join(" | ");
     if (rowIndex === 0) {
-      const separator = widths.map((width) => "-".repeat(Math.max(3, width))).join("-+-");
-      return `${line}\n${separator}`;
+      return `${line}\n${widths.map((width) => repeat("-", Math.max(3, width))).join("-+-")}`;
     }
     return line;
   }).join("\n");
-  return `<pre>${escapeHtml(rendered)}</pre>`;
+
+  return { html: `<pre>${escapeHtml(rendered)}</pre>`, nextIndex: index };
 }
 
-function applyInlineFormatting(text: string): string {
-  const codeTokens: string[] = [];
-  let next = text.replace(/`([^`]+)`/g, (_match, code) => {
-    const token = `@@CODE${codeTokens.length}@@`;
-    codeTokens.push(`<code>${escapeHtml(code)}</code>`);
-    return token;
-  });
+function renderBlockquote(tokens: MarkdownToken[], startIndex: number): { html: string; nextIndex: number } {
+  const nested: MarkdownToken[] = [];
+  let depth = 1;
+  let index = startIndex + 1;
 
-  next = escapeHtml(next);
-  next = next.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label, url) => {
-    return `<a href="${escapeHtmlAttribute(url)}">${escapeHtml(label)}</a>`;
-  });
-  next = next.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  next = next.replace(/__([^_]+)__/g, "<b>$1</b>");
-  next = next.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, "$1<i>$2</i>");
-  next = next.replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?]|$)/g, "$1<i>$2</i>");
-  next = next.replace(/~~([^~]+)~~/g, "<s>$1</s>");
-
-  for (let index = 0; index < codeTokens.length; index += 1) {
-    next = next.replace(`@@CODE${index}@@`, codeTokens[index]);
+  for (; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.type === "blockquote_open") {
+      depth += 1;
+    } else if (token.type === "blockquote_close") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+    nested.push(token);
   }
-  return next;
+
+  const rendered = renderBlocks(nested)
+    .replace(/<pre><code>/g, "<pre>")
+    .replace(/<\/code><\/pre>/g, "</pre>");
+
+  return { html: `<blockquote>${rendered || escapeHtml("")}</blockquote>`, nextIndex: index };
+}
+
+function renderBlocks(tokens: MarkdownToken[]): string {
+  const blocks: string[] = [];
+  const listStack: Array<{ ordered: boolean; next: number }> = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+
+    switch (token.type) {
+      case "heading_open": {
+        const inline = tokens[index + 1];
+        blocks.push(`<b>${renderInlineTokens(inline?.children || [])}</b>`);
+        index += 2;
+        break;
+      }
+      case "paragraph_open": {
+        const inline = tokens[index + 1];
+        blocks.push(renderInlineTokens(inline?.children || []));
+        index += 2;
+        break;
+      }
+      case "bullet_list_open":
+        listStack.push({ ordered: false, next: 0 });
+        break;
+      case "ordered_list_open": {
+        const start = Number(tokenAttr(token, "start") || "1");
+        listStack.push({ ordered: true, next: Number.isFinite(start) ? start : 1 });
+        break;
+      }
+      case "bullet_list_close":
+      case "ordered_list_close":
+        listStack.pop();
+        break;
+      case "list_item_open": {
+        const depth = Math.max(0, listStack.length - 1);
+        const currentList = listStack[listStack.length - 1];
+        const marker = currentList?.ordered ? `${currentList.next++}.` : "•";
+        const parts: MarkdownToken[] = [];
+        let cursor = index + 1;
+        let itemDepth = 1;
+        for (; cursor < tokens.length; cursor += 1) {
+          const next = tokens[cursor];
+          if (next.type === "list_item_open") itemDepth += 1;
+          if (next.type === "list_item_close") {
+            itemDepth -= 1;
+            if (itemDepth === 0) break;
+          }
+          parts.push(next);
+        }
+        const body = renderBlocks(parts).split("\n").filter(Boolean);
+        if (body.length > 0) {
+          const indent = "  ".repeat(depth);
+          blocks.push(body.map((line, lineIndex) => `${indent}${lineIndex === 0 ? `${marker} ` : "  "}${line}`).join("\n"));
+        }
+        index = cursor;
+        break;
+      }
+      case "fence":
+      case "code_block":
+        blocks.push(`<pre><code>${escapeHtml(token.content.replace(/\n$/, ""))}</code></pre>`);
+        break;
+      case "blockquote_open": {
+        const rendered = renderBlockquote(tokens, index);
+        blocks.push(rendered.html);
+        index = rendered.nextIndex;
+        break;
+      }
+      case "hr":
+        blocks.push(`<pre>${escapeHtml(repeat("-", 24))}</pre>`);
+        break;
+      case "table_open": {
+        const rendered = renderTable(tokens, index);
+        if (rendered.html) blocks.push(rendered.html);
+        index = rendered.nextIndex;
+        break;
+      }
+      case "html_block":
+      case "html_inline":
+        if (token.content.trim()) blocks.push(escapeHtml(token.content));
+        break;
+      case "inline":
+        if (token.level === 0) blocks.push(renderInlineTokens(token.children));
+        break;
+      default:
+        break;
+    }
+  }
+
+  return blocks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function markdownToTelegramHtml(text: string): string {
   const normalized = text.replaceAll("\r\n", "\n");
-  const lines = normalized.split("\n");
-  const blocks: string[] = [];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-
-    const fenceMatch = line.match(/^```([a-zA-Z0-9_-]+)?\s*$/);
-    if (fenceMatch) {
-      const codeLines: string[] = [];
-      index += 1;
-      while (index < lines.length && !lines[index].startsWith("```")) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-      blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
-      continue;
-    }
-
-    if (isLikelyTableLine(line) && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
-      const tableLines = [line, lines[index + 1]];
-      let cursor = index + 2;
-      while (cursor < lines.length && isLikelyTableLine(lines[cursor])) {
-        tableLines.push(lines[cursor]);
-        cursor += 1;
-      }
-      const renderedTable = renderTableBlock(tableLines);
-      if (renderedTable) {
-        blocks.push(renderedTable);
-        index = cursor - 1;
-        continue;
-      }
-    }
-
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      blocks.push(`<b>${applyInlineFormatting(headingMatch[2].trim())}</b>`);
-      continue;
-    }
-
-    if (line.trim().length === 0) {
-      blocks.push("");
-      continue;
-    }
-
-    blocks.push(applyInlineFormatting(line));
-  }
-
-  return blocks.join("\n");
+  const tokens = markdown.parse(normalized, {}) as MarkdownToken[];
+  return renderBlocks(tokens) || escapeHtml(normalized);
 }
 
 async function withTelegramFormattingFallback<T>(
