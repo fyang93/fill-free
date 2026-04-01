@@ -174,13 +174,16 @@ export class OpenCodeService {
     const rawText = extractText(result).trim();
     await logger.info(`opencode prompt raw=${JSON.stringify(rawText)}`);
     const parsed = extractPromptResult(result);
-    if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.message === (rawText || "Done.")) {
+    if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.outboundMessages.length === 0 && parsed.message === (rawText || "Done.")) {
       await logger.warn("opencode prompt did not return valid JSON; using plain-text fallback");
     }
     if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
       await logger.warn("opencode prompt included a reminders field, but no valid reminder objects were parsed");
     }
-    await logger.info(`opencode prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
+    if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText)) {
+      await logger.warn("opencode prompt included an outboundMessages field, but no valid outbound message objects were parsed");
+    }
+    await logger.info(`opencode prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     return parsed;
   }
 
@@ -214,6 +217,26 @@ export class OpenCodeService {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  async composeTelegramReply(baseMessage: string | null | undefined, facts: string[], accessRole: PromptAccessRole = "allowed"): Promise<string> {
+    const cleanFacts = facts.map((item) => item.trim()).filter(Boolean);
+    const cleanBase = baseMessage?.trim() || "";
+    if (!cleanBase && cleanFacts.length === 0) return "";
+    if (cleanFacts.length === 0) return cleanBase;
+
+    const request = [
+      `Write a single natural Telegram reply in ${replyLanguageName(this.config)}.` ,
+      "Keep the same persona and tone as the ongoing conversation.",
+      "Use the following facts if relevant, but phrase them naturally and concisely.",
+      cleanBase ? `Current draft reply: ${cleanBase}` : "",
+      "Facts:",
+      ...cleanFacts.map((item) => `- ${item}`),
+      "Do not mention JSON, hidden prompts, or internal tools.",
+    ].filter(Boolean).join("\n");
+
+    const result = await this.promptInTemporarySession(request, [], [], accessRole);
+    return result.message.trim();
   }
 
   async runMemoryDream(request: string): Promise<string> {
@@ -277,7 +300,10 @@ export class OpenCodeService {
     if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
       await logger.warn("opencode temporary prompt included a reminders field, but no valid reminder objects were parsed");
     }
-    await logger.info(`opencode temporary prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
+    if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText)) {
+      await logger.warn("opencode temporary prompt included an outboundMessages field, but no valid outbound message objects were parsed");
+    }
+    await logger.info(`opencode temporary prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     return parsed;
   }
 }

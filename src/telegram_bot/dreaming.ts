@@ -177,7 +177,6 @@ export function startDreamLoop(
   if (!config.dreaming.enabled) return null;
 
   let running = false;
-  let lastDreamedFingerprint: string | null = null;
 
   const tick = async () => {
     if (running) return;
@@ -220,14 +219,15 @@ export function startDreamLoop(
     const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
     const currentFingerprint = snapshotFingerprint(beforeSnapshot);
     const changedFiles = recentlyChangedFiles(beforeSnapshot, state.lastDreamedAt);
-    if (!currentFingerprint || (changedFiles.length === 0 && lastDreamedFingerprint === currentFingerprint)) {
+    if (currentFingerprint === (state.lastDreamedMemoryFingerprint || "")) {
       if (deps.onChange && preChanges.length > 0) {
         await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
       }
       return;
     }
     if (changedFiles.length === 0) {
-      lastDreamedFingerprint = currentFingerprint;
+      state.lastDreamedMemoryFingerprint = currentFingerprint || null;
+      await persistState(config.paths.stateFile);
       if (deps.onChange && preChanges.length > 0) {
         await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
       }
@@ -243,8 +243,8 @@ export function startDreamLoop(
       const afterSnapshot = await memorySnapshot(config.paths.repoRoot);
       const afterFingerprint = snapshotFingerprint(afterSnapshot);
       const changes = diffSnapshots(beforeSnapshot, afterSnapshot);
-      lastDreamedFingerprint = afterFingerprint;
-      state.lastDreamedAt = startedAt;
+      state.lastDreamedAt = new Date().toISOString();
+      state.lastDreamedMemoryFingerprint = afterFingerprint || null;
       await persistState(config.paths.stateFile);
       await logger.info(`dream loop finished: ${summary || "(empty summary)"}`);
       await appendDreamLog(config, [

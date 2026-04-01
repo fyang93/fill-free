@@ -28,6 +28,7 @@ export const state: SessionState = {
   model: null,
   lastActivityAt: null,
   lastDreamedAt: null,
+  lastDreamedMemoryFingerprint: null,
   recentUploadsByScope: {},
   userTimezones: {},
   telegramUsers: {},
@@ -51,9 +52,10 @@ function normalizeLookupKey(value: string): string {
 export async function loadPersistentState(filePath: string): Promise<void> {
   try {
     const raw = await readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as { model?: unknown; lastDreamedAt?: unknown; userTimezones?: unknown; telegramUsers?: unknown };
+    const parsed = JSON.parse(raw) as { model?: unknown; lastDreamedAt?: unknown; lastDreamedMemoryFingerprint?: unknown; userTimezones?: unknown; telegramUsers?: unknown };
     state.model = typeof parsed.model === "string" && parsed.model.trim() ? parsed.model.trim() : null;
     state.lastDreamedAt = typeof parsed.lastDreamedAt === "string" && parsed.lastDreamedAt.trim() ? parsed.lastDreamedAt.trim() : null;
+    state.lastDreamedMemoryFingerprint = typeof parsed.lastDreamedMemoryFingerprint === "string" && parsed.lastDreamedMemoryFingerprint.trim() ? parsed.lastDreamedMemoryFingerprint.trim() : null;
     state.userTimezones = parsed.userTimezones && typeof parsed.userTimezones === "object"
       ? Object.fromEntries(
           Object.entries(parsed.userTimezones as Record<string, unknown>)
@@ -86,6 +88,7 @@ export async function loadPersistentState(filePath: string): Promise<void> {
   } catch {
     state.model = null;
     state.lastDreamedAt = null;
+    state.lastDreamedMemoryFingerprint = null;
     state.userTimezones = {};
     state.telegramUsers = {};
     state.recentUploadsByScope = {};
@@ -96,7 +99,7 @@ export async function persistState(filePath: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(
     filePath,
-    JSON.stringify({ model: state.model, lastDreamedAt: state.lastDreamedAt, userTimezones: state.userTimezones, telegramUsers: state.telegramUsers }, null, 2) + "\n",
+    JSON.stringify({ model: state.model, lastDreamedAt: state.lastDreamedAt, lastDreamedMemoryFingerprint: state.lastDreamedMemoryFingerprint, userTimezones: state.userTimezones, telegramUsers: state.telegramUsers }, null, 2) + "\n",
     "utf8",
   );
 }

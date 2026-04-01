@@ -28,9 +28,10 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     "Follow AGENTS.md.",
     telegramMessageTime ? `Telegram message time: ${telegramMessageTime}` : "",
     `Reply in ${replyLanguage}.`,
-    "If you need files or reminders, reply with JSON only: {\"message\": string, \"files\": string[], \"reminders\": []}.",
-    "Use the current reminder schema only: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", \"targetUser\" }.",
-    "Use targetUser only when the user clearly wants another recipient.",
+    "If the best response needs files, reminders, or relaying a message to another known Telegram user, reply with JSON only: {\"message\": string, \"files\": string[], \"reminders\": [], optional \"outboundMessages\": []}.",
+    "Reminder items use {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", \"targetUser\" }.",
+    "Outbound messages use {\"message\": string, optional \"targetUser\": { optional \"id\", \"username\", \"displayName\", \"role\" }}.",
+    "Use targetUser only when another recipient is actually intended.",
     personaStyle ? `Telegram reply style: ${personaStyle}` : "",
   ].filter(Boolean);
 

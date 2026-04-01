@@ -1,5 +1,5 @@
 import type { PromptAttachment } from "../types";
-import type { OpenCodeMessage, PromptReminderDraft, PromptResult } from "./types";
+import type { OpenCodeMessage, PromptOutboundMessageDraft, PromptReminderDraft, PromptResult } from "./types";
 
 export function parseModel(model: string | null): { providerID: string; modelID: string } | null {
   if (!model) return null;
@@ -63,7 +63,7 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
 
   for (const candidate of extractJsonCandidates(plain)) {
     try {
-      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown };
+      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown };
       if (typeof parsed.message === "string") {
         return {
           message: parsed.message.trim() || "Done.",
@@ -74,6 +74,9 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
           reminders: Array.isArray(parsed.reminders)
             ? parsed.reminders.filter((item): item is PromptReminderDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).title === "string" && Boolean((item as Record<string, unknown>).title) && typeof (item as Record<string, unknown>).schedule === "object" && Boolean((item as Record<string, unknown>).schedule))
             : [],
+          outboundMessages: Array.isArray(parsed.outboundMessages)
+            ? parsed.outboundMessages.filter((item): item is PromptOutboundMessageDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).message === "string" && Boolean(((item as Record<string, unknown>).message as string).trim()))
+            : [],
         };
       }
     } catch {
@@ -81,5 +84,5 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
     }
   }
 
-  return { message: plain || "Done.", files: [], attachments, reminders: [] };
+  return { message: plain || "Done.", files: [], attachments, reminders: [], outboundMessages: [] };
 }

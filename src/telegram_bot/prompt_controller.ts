@@ -3,7 +3,7 @@ import type { Bot, Context } from "grammy";
 import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
 import { saveTelegramFile, sendLocalFiles, sendPromptAttachments, uploadedFileToAttachment } from "./files";
-import { editMessageTextFormatted, replyFormatted } from "./telegram_format";
+import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
 import { getAccurateNowIso } from "./time";
 import {
   clearRecentUploads,
@@ -17,8 +17,9 @@ import {
 import { t } from "./i18n";
 import { accessLevelForUserId } from "./access";
 import type { OpenCodeService } from "./opencode";
-import { buildReminderPromptContext, rememberTelegramParticipants } from "./telegram_identity";
+import { buildTelegramPromptContext, rememberTelegramParticipants, resolveTelegramTargetUser } from "./telegram_identity";
 import { createStructuredReminders } from "./reminder_intent";
+import type { PromptOutboundMessageDraft } from "./opencode/types";
 
 export const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
 
@@ -210,6 +211,33 @@ export class PromptController {
     return sessionId;
   }
 
+  private async deliverOutboundMessages(ctx: Context, outboundMessages: PromptOutboundMessageDraft[], requesterUserId: number | undefined): Promise<{ delivered: string[]; clarifications: string[] }> {
+    const delivered: string[] = [];
+    const clarifications: string[] = [];
+    for (const outbound of outboundMessages) {
+      const text = typeof outbound.message === "string" ? outbound.message.trim() : "";
+      if (!text) continue;
+      const target = resolveTelegramTargetUser(this.deps.config, outbound.targetUser, ctx, requesterUserId);
+      if (target.status === "ambiguous" || target.status === "not_found") {
+        if (target.question) clarifications.push(target.question);
+        continue;
+      }
+      if (target.status === "self" || !target.userId) {
+        clarifications.push(t(this.deps.config, "telegram_outbound_target_required"));
+        continue;
+      }
+      try {
+        await sendMessageFormatted(this.deps.bot, target.userId, text);
+        delivered.push(t(this.deps.config, "telegram_outbound_delivered", { recipient: target.displayName || String(target.userId), text }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await logger.warn(`failed to send outbound telegram message to user=${target.userId}: ${message}`);
+        clarifications.push(t(this.deps.config, "telegram_outbound_delivery_failed", { recipient: target.displayName || String(target.userId), error: message }));
+      }
+    }
+    return { delivered, clarifications };
+  }
+
   private async messageReferenceTime(ctx: Context): Promise<string> {
     const unixSeconds = ctx.message?.date;
     if (typeof unixSeconds === "number") return new Date(unixSeconds * 1000).toISOString();
@@ -338,8 +366,8 @@ export class PromptController {
 
     try {
       const accessRole = this.deps.isAdminUserId(userId) ? "admin" : this.deps.isTrustedUserId(userId) ? "trusted" : "allowed";
-      const reminderPromptContext = buildReminderPromptContext(this.deps.config, ctx);
-      const effectivePromptText = reminderPromptContext ? `${promptText}\n\n${reminderPromptContext}` : promptText;
+      const telegramPromptContext = buildTelegramPromptContext(this.deps.config, ctx);
+      const effectivePromptText = telegramPromptContext ? `${promptText}\n\n${telegramPromptContext}` : promptText;
       const answer = await this.deps.opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole);
       if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
         await logger.warn(`discarding stale prompt result for task ${task.id}`);
@@ -348,16 +376,36 @@ export class PromptController {
 
       this.stopWaitingMessageRotation(task);
       const reminderResult = await createStructuredReminders(this.deps.config, this.deps.opencode, answer.reminders, ctx, userId, telegramMessageTime);
+      const outboundResult = this.deps.isTrustedUserId(userId) || this.deps.isAdminUserId(userId)
+        ? await this.deliverOutboundMessages(ctx, answer.outboundMessages, userId)
+        : answer.outboundMessages.length > 0
+          ? { delivered: [], clarifications: [t(this.deps.config, "telegram_outbound_trusted_only")] }
+          : { delivered: [], clarifications: [] };
       const reminderSummary = reminderResult.created.length === 1
         ? reminderResult.created[0]
         : reminderResult.created.length > 1
           ? t(this.deps.config, "reminder_created_batch", { count: reminderResult.created.length, items: reminderResult.created.map((item) => `- ${item}`).join("\n") })
           : "";
-      const finalMessage = [
-        answer.message || t(this.deps.config, "generic_done"),
+      const outboundSummary = outboundResult.delivered.length === 1
+        ? outboundResult.delivered[0]
+        : outboundResult.delivered.length > 1
+          ? t(this.deps.config, "telegram_outbound_batch", { count: outboundResult.delivered.length, items: outboundResult.delivered.map((item) => `- ${item}`).join("\n") })
+          : "";
+      const finalFacts = [
         reminderSummary,
+        outboundSummary,
         ...reminderResult.clarifications,
-      ].filter(Boolean).join("\n\n");
+        ...outboundResult.clarifications,
+      ].filter(Boolean);
+      let finalMessage = answer.message || t(this.deps.config, "generic_done");
+      if (finalFacts.length > 0) {
+        try {
+          finalMessage = await this.deps.opencode.composeTelegramReply(finalMessage, finalFacts, accessRole);
+        } catch (error) {
+          await logger.warn(`failed to compose telegram follow-up reply: ${error instanceof Error ? error.message : String(error)}`);
+          finalMessage = [finalMessage, ...finalFacts].filter(Boolean).join("\n\n");
+        }
+      }
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, finalMessage);
 
       if (answer.attachments.length > 0) {

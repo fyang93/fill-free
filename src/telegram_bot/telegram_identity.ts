@@ -1,8 +1,9 @@
 import type { Context } from "grammy";
+import { t } from "./i18n";
 import type { AppConfig } from "./types";
 import { findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramUsers, rememberTelegramUser } from "./state";
 
-export type ReminderTargetResolution = {
+export type TelegramTargetResolution = {
   status: "self" | "resolved" | "ambiguous" | "not_found";
   userId?: number;
   displayName?: string;
@@ -31,7 +32,7 @@ export function rememberTelegramParticipants(config: AppConfig, ctx: Context): b
   return changed;
 }
 
-export function buildReminderPromptContext(config: AppConfig, ctx: Context): string {
+export function buildTelegramPromptContext(config: AppConfig, ctx: Context): string {
   const authorizedUserIds = authorizedTelegramUserIds(config);
   const lines: string[] = [];
   const requester = ctx.from;
@@ -59,7 +60,20 @@ export function buildReminderPromptContext(config: AppConfig, ctx: Context): str
   return ["Telegram context:", ...lines].join("\n");
 }
 
-export function resolveReminderTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): ReminderTargetResolution {
+function replyTargetDisplayName(ctx: Context, authorizedUserIds: number[]): string | undefined {
+  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
+  if (!repliedMessage?.from?.id || !authorizedUserIds.includes(repliedMessage.from.id)) return undefined;
+  return getTelegramUserDisplayName(repliedMessage.from.id, authorizedUserIds)
+    || [repliedMessage.from.first_name, repliedMessage.from.last_name].filter(Boolean).join(" ").trim()
+    || repliedMessage.from.username
+    || String(repliedMessage.from.id);
+}
+
+function targetQuestion(config: AppConfig, key: "telegram_target_ambiguous" | "telegram_target_ambiguous_with_reply" | "telegram_target_not_found" | "telegram_target_not_found_with_reply", values: Record<string, string>): string {
+  return t(config, key, values);
+}
+
+export function resolveTelegramTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): TelegramTargetResolution {
   const authorizedUserIds = authorizedTelegramUserIds(config);
   if (!rawTarget || typeof rawTarget !== "object") {
     return requesterUserId
@@ -72,24 +86,19 @@ export function resolveReminderTargetUser(config: AppConfig, rawTarget: unknown,
   const username = typeof record.username === "string" && record.username.trim() ? record.username.trim().replace(/^@+/, "") : undefined;
   const displayName = typeof record.displayName === "string" && record.displayName.trim() ? record.displayName.trim() : undefined;
   const role = typeof record.role === "string" && record.role.trim() ? record.role.trim().toLowerCase() : undefined;
-  const targetLabel = username ? `@${username}` : displayName || role || (typeof directId === "number" ? String(directId) : "对方");
+  const targetLabel = username ? `@${username}` : displayName || role || (typeof directId === "number" ? String(directId) : "?");
 
   if (role && ["admin", "administrator", "管理员"].includes(role) && config.telegram.adminUserId) {
     const adminUserId = config.telegram.adminUserId;
     return {
       status: "resolved",
       userId: adminUserId,
-      displayName: getTelegramUserDisplayName(adminUserId, authorizedUserIds) || displayName || "管理员",
+      displayName: getTelegramUserDisplayName(adminUserId, authorizedUserIds) || displayName || "admin",
     };
   }
 
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
-  const repliedDisplayName = repliedMessage?.from && authorizedUserIds.includes(repliedMessage.from.id)
-    ? getTelegramUserDisplayName(repliedMessage.from.id, authorizedUserIds)
-      || [repliedMessage.from.first_name, repliedMessage.from.last_name].filter(Boolean).join(" ").trim()
-      || repliedMessage.from.username
-      || String(repliedMessage.from.id)
-    : undefined;
+  const repliedDisplayName = replyTargetDisplayName(ctx, authorizedUserIds);
   if (role && ["reply", "reply_target", "replied_user", "被回复的人"].includes(role) && repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
     return {
       status: "resolved",
@@ -109,28 +118,29 @@ export function resolveReminderTargetUser(config: AppConfig, rawTarget: unknown,
   }
 
   if (matchedUsers.length > 1) {
-    const options = matchedUsers.slice(0, 5).map((user) => user.username ? `${user.displayName} (@${user.username})` : `${user.displayName}（id: ${user.id}）`).join("、");
+    const options = matchedUsers.slice(0, 5).map((user) => user.username ? `${user.displayName} (@${user.username})` : `${user.displayName} (id: ${user.id})`).join(", ");
     return {
       status: "ambiguous",
       question: repliedDisplayName
-        ? `你想提醒的是谁？我找到多个可能对象：${options}。你是指当前回复的这位 ${repliedDisplayName} 吗？如果是，请直接说“提醒他/她……”，或者直接 @对方后再说一次。`
-        : `你想提醒的是谁？我找到多个可能对象：${options}。请直接 @对方，或回复对方消息后再说一次。`,
-    };
-  }
-
-  if (directId) {
-    return {
-      status: "not_found",
-      question: repliedDisplayName
-        ? `我还不能确认 Telegram 用户 ${targetLabel} 是谁。你是指当前回复的这位 ${repliedDisplayName} 吗？如果是，请直接说“提醒他/她……”，或者直接 @对方后再说一次。`
-        : `我还不能确认 Telegram 用户 ${targetLabel} 是谁。请直接 @对方，或回复对方消息后再说一次。`,
+        ? targetQuestion(config, "telegram_target_ambiguous_with_reply", { options, replyTarget: repliedDisplayName })
+        : targetQuestion(config, "telegram_target_ambiguous", { options }),
     };
   }
 
   return {
     status: "not_found",
     question: repliedDisplayName
-      ? `我还不能确认“${targetLabel}”是谁。你是指当前回复的这位 ${repliedDisplayName} 吗？如果是，请直接说“提醒他/她……”，或者直接 @对方后再说一次。`
-      : `我还不能确认“${targetLabel}”是谁。请直接 @对方，或回复对方消息后再说一次。`,
+      ? targetQuestion(config, "telegram_target_not_found_with_reply", { targetLabel, replyTarget: repliedDisplayName })
+      : targetQuestion(config, "telegram_target_not_found", { targetLabel }),
   };
+}
+
+export type ReminderTargetResolution = TelegramTargetResolution;
+
+export function buildReminderPromptContext(config: AppConfig, ctx: Context): string {
+  return buildTelegramPromptContext(config, ctx);
+}
+
+export function resolveReminderTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): ReminderTargetResolution {
+  return resolveTelegramTargetUser(config, rawTarget, ctx, requesterUserId);
 }

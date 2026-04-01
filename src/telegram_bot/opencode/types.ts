@@ -31,6 +31,11 @@ export type PromptReminderTarget = {
   role?: string;
 };
 
+export type PromptOutboundMessageDraft = {
+  message: string;
+  targetUser?: PromptReminderTarget;
+};
+
 export type PromptReminderDraft = {
   title: string;
   note?: string;
@@ -49,4 +54,5 @@ export type PromptResult = {
   files: string[];
   attachments: PromptAttachment[];
   reminders: PromptReminderDraft[];
+  outboundMessages: PromptOutboundMessageDraft[];
 };
