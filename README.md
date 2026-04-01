@@ -133,6 +133,7 @@ Reminder delivery behavior:
 
 - reminders store the owner user ID when applicable and deliver to that owner instead of broadcasting to all allowed users;
 - expired one-time reminders are pruned on startup;
+- when the idle dreaming loop actually changes reminders, tmp cleanup, or memory files, the admin receives a Telegram summary; if nothing changed, no dreaming notification is sent;
 - reminder wording is generated with the configured persona style;
 - one-time reminders pre-generate delivery text when created;
 - recurring reminders only pre-generate the next pending delivery text, and only when the next notification is within a 24-hour prewarm window.

@@ -36,6 +36,12 @@ const promptController = new PromptController({
   isAddressedToBot: (ctx) => isAddressedToBot(ctx, botUsername, botUserId),
 });
 
+async function sendAdminMessage(text: string): Promise<void> {
+  const adminUserId = config.telegram.adminUserId;
+  if (!adminUserId) return;
+  await sendMessageFormatted(bot, adminUserId, text);
+}
+
 async function sendStartupGreeting(): Promise<void> {
   try {
     const adminUserId = config.telegram.adminUserId;
@@ -50,13 +56,21 @@ async function sendStartupGreeting(): Promise<void> {
       return;
     }
 
-    await sendMessageFormatted(bot, adminUserId, greeting);
+    await sendAdminMessage(greeting);
     await logger.info("Sent startup greeting to admin_user_id only");
   } catch (error) {
     await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
+function startDreamLoopWithNotifications(): NodeJS.Timeout | null {
+  return startDreamLoop(config, opencode, {
+    isBusy: () => promptController.hasActiveTask(),
+    onChange: async (summary) => {
+      await sendAdminMessage(summary);
+    },
+  });
+}
 
 function helpText(): string {
   return t(config, "help_text");
@@ -179,16 +193,12 @@ let reminderLoop = await startReminderLoop(
     }
   },
 );
-let dreamLoop = startDreamLoop(config, opencode, {
-  isBusy: () => promptController.hasActiveTask(),
-});
+let dreamLoop = startDreamLoopWithNotifications();
 const configWatcher = startConfigWatcher(configPath, config, async (_reloadedConfig, result) => {
   configureLogger(config.paths.logFile);
   opencode.reloadConfig(config);
   if (dreamLoop) clearInterval(dreamLoop);
-  dreamLoop = startDreamLoop(config, opencode, {
-    isBusy: () => promptController.hasActiveTask(),
-  });
+  dreamLoop = startDreamLoopWithNotifications();
   await syncBotCommands();
   if (config.telegram.adminUserId && (result.reloadedKeys.length > 0 || result.restartRequiredKeys.length > 0)) {
     const lines = [t(config, "config_reload_notice")];
@@ -199,7 +209,7 @@ const configWatcher = startConfigWatcher(configPath, config, async (_reloadedCon
       lines.push(t(config, "config_reload_restart_required", { keys: result.restartRequiredKeys.join(", ") }));
       lines.push(t(config, "config_reload_restart_hint"));
     }
-    await sendMessageFormatted(bot, config.telegram.adminUserId, lines.join("\n"));
+    await sendAdminMessage(lines.join("\n"));
   }
 });
 

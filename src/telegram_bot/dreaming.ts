@@ -149,7 +149,7 @@ async function removeEmptyDirsUnder(root: string, dir = root): Promise<string[]>
 export function startDreamLoop(
   config: AppConfig,
   opencode: OpenCodeService,
-  deps: { isBusy: () => boolean },
+  deps: { isBusy: () => boolean; onChange?: (summary: string) => Promise<void> },
 ): NodeJS.Timeout | null {
   if (!config.dreaming.enabled) return null;
 
@@ -166,9 +166,12 @@ export function startDreamLoop(
     const idleMs = Date.now() - new Date(lastActivityAt).getTime();
     if (!Number.isFinite(idleMs) || idleMs < config.dreaming.idleAfterMs) return;
 
+    const preChanges: string[] = [];
+
     const reminderCleanup = await pruneInactiveReminderEvents(config);
     if (reminderCleanup.removed > 0) {
       await logger.info(`dream loop pruned ${reminderCleanup.removed} inactive reminders`);
+      preChanges.push(`删除了 ${reminderCleanup.removed} 条失效提醒`);
       await appendDreamLog(config, [
         `## ${new Date().toISOString()}`,
         `trigger: idle ${Math.round(idleMs / 1000)}s + reminder cleanup`,
@@ -181,6 +184,7 @@ export function startDreamLoop(
     const removedEmptyTmpDirs = await removeEmptyDirsUnder(config.paths.tmpDir);
     if (removedEmptyTmpDirs.length > 0) {
       await logger.info(`dream loop removed ${removedEmptyTmpDirs.length} empty tmp directories`);
+      preChanges.push(`清理了 ${removedEmptyTmpDirs.length} 个空的 tmp 目录`);
       await appendDreamLog(config, [
         `## ${new Date().toISOString()}`,
         `trigger: idle ${Math.round(idleMs / 1000)}s + tmp cleanup`,
@@ -192,8 +196,18 @@ export function startDreamLoop(
 
     const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
     const currentFingerprint = snapshotFingerprint(beforeSnapshot);
-    if (!currentFingerprint) return;
-    if (lastDreamedFingerprint === currentFingerprint) return;
+    if (!currentFingerprint) {
+      if (deps.onChange && preChanges.length > 0) {
+        await deps.onChange(["🧠 Dreaming 完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
+      }
+      return;
+    }
+    if (lastDreamedFingerprint === currentFingerprint) {
+      if (deps.onChange && preChanges.length > 0) {
+        await deps.onChange(["🧠 Dreaming 完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
+      }
+      return;
+    }
 
     running = true;
     const startedAt = new Date().toISOString();
@@ -215,6 +229,18 @@ export function startDreamLoop(
         `deleted: ${changes.deleted.length ? changes.deleted.join(", ") : "-"}`,
         "",
       ].join("\n"));
+      const memoryChanged = changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0;
+      if (deps.onChange && (preChanges.length > 0 || memoryChanged)) {
+        const lines = ["🧠 Dreaming 完成"];
+        if (preChanges.length > 0) lines.push(...preChanges.map((item) => `- ${item}`));
+        if (memoryChanged) {
+          lines.push(`- 记忆整理摘要：${summary || "已完成整理"}`);
+          if (changes.created.length > 0) lines.push(`- 新建：${changes.created.join(", ")}`);
+          if (changes.updated.length > 0) lines.push(`- 更新：${changes.updated.join(", ")}`);
+          if (changes.deleted.length > 0) lines.push(`- 删除：${changes.deleted.join(", ")}`);
+        }
+        await deps.onChange(lines.join("\n"));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await logger.warn(`dream loop failed: ${message}`);
