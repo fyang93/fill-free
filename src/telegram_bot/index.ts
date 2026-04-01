@@ -497,43 +497,22 @@ bot.command("reminders", async (ctx) => {
 });
 
 bot.command("model", async (ctx) => {
-  const text = ctx.message?.text || "";
-  const parts = text.trim().split(/\s+/).slice(1);
-
-  if (parts.length === 0) {
-    try {
-      const { defaults, models } = await opencode.listModels();
-      const activeModel = resolveDisplayedModel(defaults);
-      const providers = providersFromModels(models);
-      const activeProvider = activeModel.split("/", 1)[0] || providers[0];
-      if (providers.length === 1 || providers.includes(activeProvider)) {
-        await replyFormatted(ctx, t(config, "choose_model_under_provider", { provider: activeProvider }), {
-          reply_markup: buildProviderModelKeyboard(activeProvider, models, activeModel, config.telegram.menuPageSize, 0),
-        });
-      } else {
-        await replyFormatted(ctx, t(config, "choose_provider"), {
-          reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, 0),
-        });
-      }
-    } catch (error) {
-      await replyFormatted(ctx, t(config, "fetch_models_failed", { error: error instanceof Error ? error.message : String(error) }));
-    }
-    return;
-  }
-
-  const nextModel = parts[0];
   try {
-    const { models } = await opencode.listModels();
-    if (!models.includes(nextModel)) {
-      await replyFormatted(ctx, t(config, "model_not_found", { model: nextModel }));
-      return;
+    const { defaults, models } = await opencode.listModels();
+    const activeModel = resolveDisplayedModel(defaults);
+    const providers = providersFromModels(models);
+    const activeProvider = activeModel.split("/", 1)[0] || providers[0];
+    if (providers.length === 1 || providers.includes(activeProvider)) {
+      await replyFormatted(ctx, t(config, "choose_model_under_provider", { provider: activeProvider }), {
+        reply_markup: buildProviderModelKeyboard(activeProvider, models, activeModel, config.telegram.menuPageSize, 0),
+      });
+    } else {
+      await replyFormatted(ctx, t(config, "choose_provider"), {
+        reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, 0),
+      });
     }
-    await interruptActiveTask(`/model switch to ${nextModel}`);
-    state.model = nextModel;
-    await persistState();
-    await replyFormatted(ctx, t(config, "model_switched", { model: nextModel }));
   } catch (error) {
-    await replyFormatted(ctx, t(config, "model_switch_failed", { error: error instanceof Error ? error.message : String(error) }));
+    await replyFormatted(ctx, t(config, "fetch_models_failed", { error: error instanceof Error ? error.message : String(error) }));
   }
 });
 

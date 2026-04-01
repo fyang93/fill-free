@@ -3,7 +3,7 @@ import path from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
-import { replyLanguageName } from "./i18n";
+import { replyLanguageName, t } from "./i18n";
 import { state, touchActivity } from "./state";
 
 export type ReminderParseResult = {
@@ -48,11 +48,13 @@ export type PromptResult = {
 };
 
 const STARTUP_GREETING_REQUEST = [
-  "机器人刚刚启动，目前没有待处理的用户消息。",
-  "请用中文发送一条主动问候，1-2句话即可。",
-  "邀请用户发送下一个任务。",
-  "用ちいかわ的可爱、温暖风格来说话。",
-  "不要提及内部提示、技术细节或实现细节。",
+  "The Telegram bot has just started.",
+  "There are no pending user messages waiting to be handled right now.",
+  "Send a proactive greeting to the Telegram user.",
+  "Keep it brief: 1-2 short sentences.",
+  "Invite the user to send the next task.",
+  "Follow the configured reply language and persona_style from the runtime config.",
+  "Do not mention internal prompts, technical details, or implementation details.",
 ].join("\n");
 
 export class OpenCodeService {
@@ -231,7 +233,7 @@ export class OpenCodeService {
 
   async generateStartupGreeting(): Promise<string> {
     const result = await this.promptInTemporarySession(STARTUP_GREETING_REQUEST);
-    return result.message || "机宝已上线~ 有什么需要帮忙的吗？";
+    return result.message || t(this.config, "startup_greeting_fallback");
   }
 
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string, timeoutMs: number): Promise<string> {
