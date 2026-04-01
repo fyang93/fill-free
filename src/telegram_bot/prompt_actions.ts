@@ -93,7 +93,7 @@ async function deliverOutboundMessages(
       }
       const recipientLabel = target.displayName || String(recipientUserId);
       try {
-        const relayText = await opencode.composeOutboundRelayMessage(text, recipientLabel, accessRole);
+        const relayText = await opencode.composeOutboundRelayMessage(text, recipientLabel);
         await sendMessageFormatted(bot, recipientUserId, relayText);
         delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.`);
         sentMessages.push({ recipientLabel, text: relayText });

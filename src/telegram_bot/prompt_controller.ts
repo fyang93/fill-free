@@ -335,7 +335,7 @@ export class PromptController {
       let finalMessage = answer.message || t(this.deps.config, "generic_done");
       if (modelFacts.length > 0) {
         try {
-          finalMessage = await this.deps.opencode.composeTelegramReply(finalMessage, modelFacts, accessRole);
+          finalMessage = await this.deps.opencode.composeTelegramReply(finalMessage, modelFacts);
         } catch (error) {
           await logger.warn(`failed to compose telegram follow-up reply: ${error instanceof Error ? error.message : String(error)}`);
           finalMessage = [finalMessage, ...modelFacts].filter(Boolean).join("\n\n");

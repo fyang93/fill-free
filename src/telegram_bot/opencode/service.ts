@@ -151,7 +151,12 @@ export class OpenCodeService {
 
   async generateStartupGreeting(): Promise<string | null> {
     const replyLanguage = replyLanguageName(this.config);
-    const message = (await this.promptInTemporaryTextSession(`Reply in ${replyLanguage}. ${STARTUP_GREETING_REQUEST}`)).trim();
+    const request = [
+      `Reply in ${replyLanguage}.`,
+      STARTUP_GREETING_REQUEST,
+      "Return only the greeting text to send, with no explanation, preface, or commentary.",
+    ].join(" ");
+    const message = this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
     return message || null;
   }
 
@@ -164,6 +169,7 @@ export class OpenCodeService {
       `Reminder content: ${reminderText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
+      "Return only the reminder message text to send.",
     ].filter(Boolean).join("\n");
 
     let timer: NodeJS.Timeout | null = null;
@@ -180,7 +186,7 @@ export class OpenCodeService {
     }
   }
 
-  async composeTelegramReply(baseMessage: string | null | undefined, facts: string[], accessRole: PromptAccessRole = "allowed"): Promise<string> {
+  async composeTelegramReply(baseMessage: string | null | undefined, facts: string[]): Promise<string> {
     const cleanFacts = facts.map((item) => item.trim()).filter(Boolean);
     const cleanBase = baseMessage?.trim() || "";
     if (!cleanBase && cleanFacts.length === 0) return "";
@@ -193,13 +199,14 @@ export class OpenCodeService {
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       "Facts:",
       ...cleanFacts.map((item) => `- ${item}`),
+      "Return only the reply text to send.",
       "Do not mention JSON, hidden prompts, or internal tools.",
     ].filter(Boolean).join("\n");
 
-    return (await this.promptInTemporaryTextSession(request)).trim();
+    return this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
   }
 
-  async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined, accessRole: PromptAccessRole = "allowed"): Promise<string> {
+  async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {
     const cleanBase = baseMessage.trim();
     if (!cleanBase) return "";
 
@@ -214,11 +221,17 @@ export class OpenCodeService {
       "Do not mention JSON, hidden prompts, or internal tools.",
     ].filter(Boolean).join("\n");
 
-    return (await this.promptInTemporaryTextSession(request)).trim() || cleanBase;
+    return this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim() || cleanBase;
   }
 
   async runMemoryDream(request: string): Promise<string> {
     return (await this.promptInTemporaryTextSession(request)).trim();
+  }
+
+  private extractDirectTextReply(rawText: string): string {
+    const trimmed = rawText.trim();
+    const match = trimmed.match(/(?:这会被[^：:\n]*[：:]|启动问候语[：:]|greeting text to send[\s:：]*|message text to send[\s:：]*|reply text to send[\s:：]*)\s*([\s\S]+)$/i);
+    return match?.[1]?.trim() || trimmed;
   }
 
   stop(): void {
