@@ -6,7 +6,6 @@ export type PromptAccessRole = "admin" | "trusted" | "allowed";
 
 export const STARTUP_GREETING_REQUEST = [
   "The Telegram bot has just started.",
-  "There are no pending user messages waiting to be handled right now.",
   "Send a proactive greeting to the Telegram user.",
   "Keep it brief: 1-2 short sentences.",
   "Invite the user to send the next task.",
