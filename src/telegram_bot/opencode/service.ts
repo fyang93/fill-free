@@ -191,6 +191,7 @@ export class OpenCodeService {
       `Write a single natural Telegram reply in ${replyLanguageName(this.config)}.` ,
       "Keep the same persona and tone as the ongoing conversation.",
       "Use the following facts if relevant, but phrase them naturally and concisely.",
+      "If a fact includes a quoted message block beginning with >, preserve the quoted message content exactly.",
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       "Facts:",
       ...cleanFacts.map((item) => `- ${item}`),
@@ -332,13 +333,13 @@ export class OpenCodeService {
     if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.outboundMessages.length === 0 && parsed.message === (rawText || "Done.")) {
       await logger.warn(`${label}${repaired ? " repair" : ""} did not return valid JSON; using plain-text fallback`);
     }
-    if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
+    if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText) && !/"reminders"\s*:\s*\[\s*\]/i.test(rawText)) {
       await logger.warn(`${label}${repaired ? " repair" : ""} included a reminders field, but no valid reminder objects were parsed`);
     }
-    if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText)) {
+    if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText) && !/"outboundMessages"\s*:\s*\[\s*\]/i.test(rawText)) {
       await logger.warn(`${label}${repaired ? " repair" : ""} included an outboundMessages field, but no valid outbound message objects were parsed`);
     }
-    await logger.info(`${label}${repaired ? " repair" : ""} result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
+    await logger.info(`${label}${repaired ? " repair" : ""} result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics, targetUsers: item.targetUsers, targetUser: item.targetUser })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUsers: item.targetUsers, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     if (repaired && this.shouldRepairStructuredOutput(rawText, parsed)) {
       await logger.warn(`${label} repair still did not satisfy the structured output schema`);
     }

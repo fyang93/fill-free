@@ -31,8 +31,12 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     "Reply with plain text unless files, reminders, or relaying to another known Telegram user are needed.",
     "For structured output, return exactly one JSON object with no Markdown fences or extra commentary.",
     "Structured output schema: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": []}. Keep all top-level fields present; use \"\" or [] when empty.",
-    "Reminder item schema: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", \"targetUser\" }.",
-    "Outbound message schema: {\"message\": string, optional \"targetUser\": { optional \"id\", \"username\", \"displayName\", \"role\" }}. Use targetUser only for another recipient.",
+    "Reminder item schema: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", optional \"targetUser\", optional \"targetUsers\" }.",
+    "Reminder schedule kind must be exactly one of: once, interval, weekly, monthly, yearly, lunarYearly.",
+    "Schedule rules: once -> {\"kind\":\"once\",\"at\":\"ISO-8601\"}; interval -> {\"kind\":\"interval\",\"every\":number,\"unit\":\"minute|hour|day|week|month|year\", optional \"anchor\":\"ISO-8601\"}; weekly -> {\"kind\":\"weekly\",\"every\":number,\"daysOfWeek\":number[],\"time\":\"HH:MM\"}; monthly -> {\"kind\":\"monthly\",\"every\":number,\"mode\":\"dayOfMonth\"|\"nthWeekday\",\"time\":\"HH:MM\"} plus dayOfMonth or weekOfMonth+dayOfWeek; yearly -> {\"kind\":\"yearly\",\"every\":number,\"month\":number,\"day\":number,\"time\":\"HH:MM\"}; lunarYearly -> {\"kind\":\"lunarYearly\",\"month\":number,\"day\":number,\"time\":\"HH:MM\"} with optional isLeapMonth and leapMonthPolicy.",
+    "If notifications are included, each item must use integer \"offsetMinutes\"; omit notifications entirely when defaults are fine.",
+    "Outbound message schema: {\"message\": string, optional \"targetUser\", optional \"targetUsers\" }. A target item uses { optional \"id\", \"username\", \"displayName\", \"role\" }. Use targetUsers when more than one recipient is intended.",
+    "If the user asks you to tell, inform, relay, forward, or share information with another Telegram user now, use outboundMessages instead of reminders. Use reminders only when the user explicitly wants a future reminder.",
     personaStyle ? `Telegram reply style: ${personaStyle}` : "",
   ].filter(Boolean);
 

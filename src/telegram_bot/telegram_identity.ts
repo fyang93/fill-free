@@ -1,20 +1,81 @@
 import type { Context } from "grammy";
-import { t } from "./i18n";
 import type { AppConfig } from "./types";
 import { findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramUsers, rememberTelegramUser } from "./state";
 import { describeTelegramIdentityBinding } from "./telegram_bindings";
+
+export type TelegramTargetIssue =
+  | { kind: "ambiguous"; targetLabel: string; options: string[]; replyTarget?: string }
+  | { kind: "not_found"; targetLabel: string; replyTarget?: string };
 
 export type TelegramTargetResolution = {
   status: "self" | "resolved" | "ambiguous" | "not_found";
   userId?: number;
   displayName?: string;
-  question?: string;
+  issue?: TelegramTargetIssue;
 };
 
 function telegramUserSummary(user: { id: number; username?: string; displayName: string }): string {
   return user.username
     ? `id=${user.id}, username=@${user.username}, displayName=${user.displayName}`
     : `id=${user.id}, displayName=${user.displayName}`;
+}
+
+function telegramDisplayName(user: { id: number; username?: string; first_name?: string; last_name?: string }, authorizedUserIds: number[]): string {
+  return getTelegramUserDisplayName(user.id, authorizedUserIds)
+    || [user.first_name, user.last_name].filter(Boolean).join(" ").trim()
+    || user.username
+    || String(user.id);
+}
+
+function buildTelegramContextLines(config: AppConfig, ctx: Context): string[] {
+  const authorizedUserIds = authorizedTelegramUserIds(config);
+  const lines: string[] = [];
+  const requester = ctx.from;
+  if (requester?.id) {
+    lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: telegramDisplayName(requester, authorizedUserIds) })}`);
+    const requesterBinding = describeTelegramIdentityBinding(config, requester.id);
+    if (requesterBinding) lines.push(`Requester identity: ${requesterBinding}`);
+  }
+
+  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
+  if (repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
+    lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: telegramDisplayName(repliedMessage.from, authorizedUserIds) })}`);
+    const replyBinding = describeTelegramIdentityBinding(config, repliedMessage.from.id);
+    if (replyBinding) lines.push(`Reply target identity: ${replyBinding}`);
+  }
+
+  if (config.telegram.adminUserId) {
+    lines.push(`Admin user id: ${config.telegram.adminUserId}`);
+  }
+
+  const knownUsers = listKnownTelegramUsers(authorizedUserIds).slice(0, 12);
+  if (knownUsers.length > 0) {
+    lines.push("Known Telegram users:");
+    lines.push(...knownUsers.map((user) => `- ${telegramUserSummary(user)}`));
+  }
+
+  return lines;
+}
+
+function replyTargetDisplayName(ctx: Context, authorizedUserIds: number[]): string | undefined {
+  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
+  if (!repliedMessage?.from?.id || !authorizedUserIds.includes(repliedMessage.from.id)) return undefined;
+  return telegramDisplayName(repliedMessage.from, authorizedUserIds);
+}
+
+function targetIssueFact(issue: TelegramTargetIssue): string {
+  if (issue.kind === "ambiguous") {
+    return issue.replyTarget
+      ? `Outbound target is ambiguous. Matches: ${issue.options.join(", ") || "unknown"}. Replied message target: ${issue.replyTarget}. Ask the user to confirm by @mention or by replying again.`
+      : `Outbound target is ambiguous. Matches: ${issue.options.join(", ") || "unknown"}. Ask the user to confirm by @mention or by replying again.`;
+  }
+  return issue.replyTarget
+    ? `Outbound target could not be identified: ${issue.targetLabel}. Replied message target: ${issue.replyTarget}. Ask the user to confirm by @mention or by replying again.`
+    : `Outbound target could not be identified: ${issue.targetLabel}. Ask the user to confirm by @mention or by replying again.`;
+}
+
+export function describeTelegramTargetIssue(issue: TelegramTargetIssue): string {
+  return targetIssueFact(issue);
 }
 
 export function authorizedTelegramUserIds(config: AppConfig): number[] {
@@ -34,48 +95,8 @@ export function rememberTelegramParticipants(config: AppConfig, ctx: Context): b
 }
 
 export function buildTelegramPromptContext(config: AppConfig, ctx: Context): string {
-  const authorizedUserIds = authorizedTelegramUserIds(config);
-  const lines: string[] = [];
-  const requester = ctx.from;
-  if (requester?.id) {
-    lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: [requester.first_name, requester.last_name].filter(Boolean).join(" ").trim() || requester.username || String(requester.id) })}`);
-    const requesterBinding = describeTelegramIdentityBinding(config, requester.id);
-    if (requesterBinding) lines.push(`Requester identity: ${requesterBinding}`);
-  }
-
-  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
-  if (repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
-    lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: [repliedMessage.from.first_name, repliedMessage.from.last_name].filter(Boolean).join(" ").trim() || repliedMessage.from.username || String(repliedMessage.from.id) })}`);
-    const replyBinding = describeTelegramIdentityBinding(config, repliedMessage.from.id);
-    if (replyBinding) lines.push(`Reply target identity: ${replyBinding}`);
-  }
-
-  const adminUserId = config.telegram.adminUserId;
-  if (adminUserId) {
-    lines.push(`Admin user id: ${adminUserId}`);
-  }
-
-  const knownUsers = listKnownTelegramUsers(authorizedUserIds).slice(0, 12);
-  if (knownUsers.length > 0) {
-    lines.push("Known Telegram users:");
-    lines.push(...knownUsers.map((user) => `- ${telegramUserSummary(user)}`));
-  }
-
-  if (lines.length === 0) return "";
-  return ["Telegram context:", ...lines].join("\n");
-}
-
-function replyTargetDisplayName(ctx: Context, authorizedUserIds: number[]): string | undefined {
-  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
-  if (!repliedMessage?.from?.id || !authorizedUserIds.includes(repliedMessage.from.id)) return undefined;
-  return getTelegramUserDisplayName(repliedMessage.from.id, authorizedUserIds)
-    || [repliedMessage.from.first_name, repliedMessage.from.last_name].filter(Boolean).join(" ").trim()
-    || repliedMessage.from.username
-    || String(repliedMessage.from.id);
-}
-
-function targetQuestion(config: AppConfig, key: "telegram_target_ambiguous" | "telegram_target_ambiguous_with_reply" | "telegram_target_not_found" | "telegram_target_not_found_with_reply", values: Record<string, string>): string {
-  return t(config, key, values);
+  const lines = buildTelegramContextLines(config, ctx);
+  return lines.length > 0 ? ["Telegram context:", ...lines].join("\n") : "";
 }
 
 export function resolveTelegramTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): TelegramTargetResolution {
@@ -123,28 +144,46 @@ export function resolveTelegramTargetUser(config: AppConfig, rawTarget: unknown,
   }
 
   if (matchedUsers.length > 1) {
-    const options = matchedUsers.slice(0, 5).map((user) => user.username ? `${user.displayName} (@${user.username})` : `${user.displayName} (id: ${user.id})`).join(", ");
     return {
       status: "ambiguous",
-      question: repliedDisplayName
-        ? targetQuestion(config, "telegram_target_ambiguous_with_reply", { options, replyTarget: repliedDisplayName })
-        : targetQuestion(config, "telegram_target_ambiguous", { options }),
+      issue: {
+        kind: "ambiguous",
+        targetLabel,
+        options: matchedUsers.slice(0, 5).map((user) => user.username ? `${user.displayName} (@${user.username})` : `${user.displayName} (id: ${user.id})`),
+        replyTarget: repliedDisplayName,
+      },
     };
   }
 
   return {
     status: "not_found",
-    question: repliedDisplayName
-      ? targetQuestion(config, "telegram_target_not_found_with_reply", { targetLabel, replyTarget: repliedDisplayName })
-      : targetQuestion(config, "telegram_target_not_found", { targetLabel }),
+    issue: { kind: "not_found", targetLabel, replyTarget: repliedDisplayName },
   };
 }
 
-export type ReminderTargetResolution = TelegramTargetResolution;
+export function resolveTelegramTargetUsers(config: AppConfig, rawTargets: unknown, ctx: Context, requesterUserId?: number): { resolved: TelegramTargetResolution[]; clarifications: string[] } {
+  const inputs = Array.isArray(rawTargets) ? rawTargets : rawTargets == null ? [] : [rawTargets];
+  const resolved: TelegramTargetResolution[] = [];
+  const clarifications: string[] = [];
+  const seen = new Set<string>();
 
-export function buildReminderPromptContext(config: AppConfig, ctx: Context): string {
-  return buildTelegramPromptContext(config, ctx);
+  for (const input of inputs) {
+    const target = resolveTelegramTargetUser(config, input, ctx, requesterUserId);
+    if (target.issue) {
+      const clarification = describeTelegramTargetIssue(target.issue);
+      if (!clarifications.includes(clarification)) clarifications.push(clarification);
+      continue;
+    }
+    const key = target.status === "self" ? "self" : target.userId != null ? `user:${target.userId}` : `${target.status}:${target.displayName || "?"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resolved.push(target);
+  }
+
+  return { resolved, clarifications };
 }
+
+export type ReminderTargetResolution = TelegramTargetResolution;
 
 export function resolveReminderTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): ReminderTargetResolution {
   return resolveTelegramTargetUser(config, rawTarget, ctx, requesterUserId);

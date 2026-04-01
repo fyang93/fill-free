@@ -34,6 +34,7 @@ export type PromptReminderTarget = {
 export type PromptOutboundMessageDraft = {
   message: string;
   targetUser?: PromptReminderTarget;
+  targetUsers?: PromptReminderTarget[];
 };
 
 export type PromptReminderDraft = {
@@ -47,6 +48,7 @@ export type PromptReminderDraft = {
   timezone?: string;
   notifications?: Array<{ id?: string; offsetMinutes: number; enabled?: boolean; label?: string }>;
   targetUser?: PromptReminderTarget;
+  targetUsers?: PromptReminderTarget[];
 };
 
 export type PromptResult = {

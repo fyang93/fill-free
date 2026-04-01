@@ -2,8 +2,8 @@ import { stat } from "node:fs/promises";
 import type { Bot, Context } from "grammy";
 import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
-import { saveTelegramFile, sendLocalFiles, sendPromptAttachments, uploadedFileToAttachment } from "./files";
-import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
+import { saveTelegramFile, uploadedFileToAttachment } from "./files";
+import { editMessageTextFormatted, replyFormatted } from "./telegram_format";
 import { getAccurateNowIso } from "./time";
 import {
   clearRecentUploads,
@@ -17,11 +17,10 @@ import {
 import { t } from "./i18n";
 import { accessLevelForUserId } from "./access";
 import type { OpenCodeService } from "./opencode";
-import { buildTelegramPromptContext, rememberTelegramParticipants, resolveTelegramTargetUser } from "./telegram_identity";
-import { createStructuredReminders } from "./reminder_intent";
-import type { PromptOutboundMessageDraft } from "./opencode/types";
-
-export const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
+import { executePromptActions } from "./prompt_actions";
+import { WAITING_MESSAGE_PLACEHOLDER } from "./prompt_constants";
+import { createWaitingMessageController, deliverPromptOutputs } from "./prompt_task_runtime";
+import { buildTelegramPromptContext, rememberTelegramParticipants } from "./telegram_identity";
 
 type ActiveTask = {
   id: number;
@@ -59,8 +58,15 @@ function isConfigMutationRequest(text: string): boolean {
 export class PromptController {
   private activeTasks = new Map<string, ActiveTask>();
   private nextTaskId = 1;
+  private readonly waiting;
 
-  constructor(private readonly deps: PromptControllerDeps) {}
+  constructor(private readonly deps: PromptControllerDeps) {
+    this.waiting = createWaitingMessageController(
+      this.deps.config,
+      this.deps.bot,
+      (scopeKey, taskId) => this.activeTasks.get(scopeKey)?.id === taskId,
+    );
+  }
 
   hasActiveTask(): boolean {
     return this.activeTasks.size > 0;
@@ -100,7 +106,7 @@ export class PromptController {
       const running = this.activeTasks.get(key);
       if (!running || running.cancelled) continue;
       running.cancelled = true;
-      this.stopWaitingMessageRotation(running);
+      this.waiting.stop(running);
       this.activeTasks.delete(key);
       await logger.warn(`interrupting active task ${running.id} for ${running.scopeLabel}: ${reason}`);
       await this.deps.opencode.abortCurrentSession(running.scopeKey, running.scopeLabel);
@@ -211,33 +217,6 @@ export class PromptController {
     return sessionId;
   }
 
-  private async deliverOutboundMessages(ctx: Context, outboundMessages: PromptOutboundMessageDraft[], requesterUserId: number | undefined): Promise<{ delivered: string[]; clarifications: string[] }> {
-    const delivered: string[] = [];
-    const clarifications: string[] = [];
-    for (const outbound of outboundMessages) {
-      const text = typeof outbound.message === "string" ? outbound.message.trim() : "";
-      if (!text) continue;
-      const target = resolveTelegramTargetUser(this.deps.config, outbound.targetUser, ctx, requesterUserId);
-      if (target.status === "ambiguous" || target.status === "not_found") {
-        if (target.question) clarifications.push(target.question);
-        continue;
-      }
-      if (target.status === "self" || !target.userId) {
-        clarifications.push(t(this.deps.config, "telegram_outbound_target_required"));
-        continue;
-      }
-      try {
-        await sendMessageFormatted(this.deps.bot, target.userId, text);
-        delivered.push(t(this.deps.config, "telegram_outbound_delivered", { recipient: target.displayName || String(target.userId), text }));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await logger.warn(`failed to send outbound telegram message to user=${target.userId}: ${message}`);
-        clarifications.push(t(this.deps.config, "telegram_outbound_delivery_failed", { recipient: target.displayName || String(target.userId), error: message }));
-      }
-    }
-    return { delivered, clarifications };
-  }
-
   private async messageReferenceTime(ctx: Context): Promise<string> {
     const unixSeconds = ctx.message?.date;
     if (typeof unixSeconds === "number") return new Date(unixSeconds * 1000).toISOString();
@@ -286,40 +265,6 @@ export class PromptController {
     }
   }
 
-  private renderWaitingText(template: string, waitingMessage: string): string {
-    return template.includes(WAITING_MESSAGE_PLACEHOLDER)
-      ? template.replaceAll(WAITING_MESSAGE_PLACEHOLDER, waitingMessage)
-      : waitingMessage;
-  }
-
-  private chooseNextWaitingMessage(current: string, candidates: string[]): string {
-    const filtered = candidates.filter((candidate) => candidate !== current);
-    const pool = filtered.length > 0 ? filtered : candidates;
-    return pool[Math.floor(Math.random() * pool.length)] || current;
-  }
-
-  private startWaitingMessageRotation(task: ActiveTask, waitingTemplate: string, initialWaitingMessage: string): void {
-    const candidates = this.deps.config.telegram.waitingMessageCandidates;
-    if (candidates.length === 0) return;
-
-    let currentWaitingMessage = initialWaitingMessage;
-    task.waitingMessageRotation = setInterval(() => {
-      if (task.cancelled || this.activeTasks.get(task.scopeKey)?.id !== task.id) return;
-      const nextWaitingMessage = this.chooseNextWaitingMessage(currentWaitingMessage, candidates);
-      if (!nextWaitingMessage || nextWaitingMessage === currentWaitingMessage) return;
-      currentWaitingMessage = nextWaitingMessage;
-      void this.deps.bot.api.editMessageText(task.chatId, task.waitingMessageId, this.renderWaitingText(waitingTemplate, currentWaitingMessage)).catch(() => {
-        // ignore transient edit failures during waiting-message rotation
-      });
-    }, this.deps.config.telegram.waitingMessageRotationMs);
-  }
-
-  private stopWaitingMessageRotation(task: ActiveTask | null): void {
-    if (!task?.waitingMessageRotation) return;
-    clearInterval(task.waitingMessageRotation);
-    task.waitingMessageRotation = undefined;
-  }
-
   private startPromptTask(
     ctx: Context,
     waitingTemplate: string,
@@ -350,7 +295,7 @@ export class PromptController {
     await this.interruptActiveTask(`new incoming message ${sourceMessageId}`, scope.key);
     await this.setReactionSafe(ctx, "🤔");
     const initialWaitingMessage = this.deps.config.telegram.waitingMessage;
-    const waiting = await ctx.reply(this.renderWaitingText(waitingTemplate, initialWaitingMessage));
+    const waiting = await ctx.reply(this.waiting.render(waitingTemplate, initialWaitingMessage));
     const task: ActiveTask = {
       id: this.nextTaskId++,
       userId,
@@ -362,7 +307,7 @@ export class PromptController {
       cancelled: false,
     };
     this.activeTasks.set(scope.key, task);
-    this.startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
+    this.waiting.start(task, waitingTemplate, initialWaitingMessage);
 
     try {
       const accessRole = this.deps.isAdminUserId(userId) ? "admin" : this.deps.isTrustedUserId(userId) ? "trusted" : "allowed";
@@ -374,54 +319,30 @@ export class PromptController {
         return;
       }
 
-      this.stopWaitingMessageRotation(task);
-      const reminderResult = await createStructuredReminders(this.deps.config, this.deps.opencode, answer.reminders, ctx, userId, telegramMessageTime);
-      const outboundResult = this.deps.isTrustedUserId(userId) || this.deps.isAdminUserId(userId)
-        ? await this.deliverOutboundMessages(ctx, answer.outboundMessages, userId)
-        : answer.outboundMessages.length > 0
-          ? { delivered: [], clarifications: [t(this.deps.config, "telegram_outbound_trusted_only")] }
-          : { delivered: [], clarifications: [] };
-      const reminderSummary = reminderResult.created.length === 1
-        ? reminderResult.created[0]
-        : reminderResult.created.length > 1
-          ? t(this.deps.config, "reminder_created_batch", { count: reminderResult.created.length, items: reminderResult.created.map((item) => `- ${item}`).join("\n") })
-          : "";
-      const outboundSummary = outboundResult.delivered.length === 1
-        ? outboundResult.delivered[0]
-        : outboundResult.delivered.length > 1
-          ? t(this.deps.config, "telegram_outbound_batch", { count: outboundResult.delivered.length, items: outboundResult.delivered.map((item) => `- ${item}`).join("\n") })
-          : "";
-      const finalFacts = [
-        reminderSummary,
-        outboundSummary,
-        ...reminderResult.clarifications,
-        ...outboundResult.clarifications,
-      ].filter(Boolean);
+      this.waiting.stop(task);
+      const actionResult = await executePromptActions({
+        config: this.deps.config,
+        bot: this.deps.bot,
+        opencode: this.deps.opencode,
+        answer,
+        ctx,
+        requesterUserId: userId,
+        telegramMessageTime,
+        canDeliverOutbound: this.deps.isTrustedUserId(userId) || this.deps.isAdminUserId(userId),
+      });
+      const modelFacts = actionResult.facts;
       let finalMessage = answer.message || t(this.deps.config, "generic_done");
-      if (finalFacts.length > 0) {
+      if (modelFacts.length > 0) {
         try {
-          finalMessage = await this.deps.opencode.composeTelegramReply(finalMessage, finalFacts, accessRole);
+          finalMessage = await this.deps.opencode.composeTelegramReply(finalMessage, modelFacts, accessRole);
         } catch (error) {
           await logger.warn(`failed to compose telegram follow-up reply: ${error instanceof Error ? error.message : String(error)}`);
-          finalMessage = [finalMessage, ...finalFacts].filter(Boolean).join("\n\n");
+          finalMessage = [finalMessage, ...modelFacts].filter(Boolean).join("\n\n");
         }
       }
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, finalMessage);
 
-      if (answer.attachments.length > 0) {
-        const sentAttachments = await sendPromptAttachments(ctx, this.deps.config, answer.attachments);
-        if (sentAttachments > 0) await logger.info(`sent ${sentAttachments} direct attachments back to telegram`);
-      }
-
-      if (answer.files.length > 0) {
-        const sentFiles = await sendLocalFiles(ctx, this.deps.config, answer.files);
-        if (sentFiles.length > 0) {
-          await logger.info(`sent files back to telegram: ${sentFiles.join(", ")}`);
-        } else {
-          await logger.warn(`file send failed for candidates: ${answer.files.join(", ")}`);
-          await replyFormatted(ctx, t(this.deps.config, "send_failed"));
-        }
-      }
+      await deliverPromptOutputs(ctx, this.deps.config, answer);
 
       await this.pruneRecentUploads(scope.key);
       await this.setReactionSafe(ctx, "🥰");
@@ -430,14 +351,14 @@ export class PromptController {
         await logger.warn(`ignored prompt failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
-      this.stopWaitingMessageRotation(task);
+      this.waiting.stop(task);
       const message = error instanceof Error ? error.message : String(error);
       await logger.error(`prompt handling failed: ${message}`);
       await this.pruneRecentUploads(scope.key);
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(this.deps.config, "task_failed", { error: message }));
       await this.setReactionSafe(ctx, "😞");
     } finally {
-      this.stopWaitingMessageRotation(task);
+      this.waiting.stop(task);
       if (this.activeTasks.get(scope.key)?.id === task.id) this.activeTasks.delete(scope.key);
     }
   }

@@ -211,10 +211,6 @@ export function findTelegramUsers(input: { id?: number; username?: string; displ
   });
 }
 
-export function findTelegramUser(input: { id?: number; username?: string; displayName?: string }, allowedUserIds?: number[]): KnownTelegramUser | null {
-  return findTelegramUsers(input, allowedUserIds)[0] || null;
-}
-
 function uploadsKey(scopeKey: string | undefined): string {
   return scopeKey?.trim() || "global";
 }

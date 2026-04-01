@@ -7,19 +7,7 @@ export type ReminderRecurrence =
   | { kind: "yearly"; every: number; month: number; day: number; offsetDays?: number }
   | { kind: "lunarYearly"; month: number; day: number; isLeapMonth?: boolean; leapMonthPolicy?: "same-leap-only" | "prefer-non-leap" | "both"; offsetDays?: number };
 
-// Legacy reminder shape kept temporarily during the v2 migration.
-export type Reminder = {
-  id: string;
-  text: string;
-  scheduledAt: string;
-  recurrence?: ReminderRecurrence;
-  category?: "routine" | "special";
-  specialKind?: "birthday" | "festival" | "anniversary" | "memorial";
-  status: "pending" | "sent" | "deleted";
-  createdAt: string;
-  sentAt?: string;
-  ownerUserId?: number;
-};
+export type ReminderSpecialKind = "birthday" | "festival" | "anniversary" | "memorial";
 
 export type ReminderView = "menu" | "upcoming" | "routine" | "special" | "special:birthday" | "special:festival" | "special:anniversary" | "special:memorial" | "all";
 
@@ -69,6 +57,11 @@ export type ReminderDeliveryState = {
 
 export type ReminderTimeSemantics = "absolute" | "local";
 
+export type ReminderRecipient = {
+  userId: number;
+  displayName?: string;
+};
+
 export type ReminderEvent = {
   id: string;
   title: string;
@@ -83,9 +76,7 @@ export type ReminderEvent = {
   status: "active" | "paused" | "deleted";
   createdAt: string;
   updatedAt?: string;
-  ownerUserId?: number;
-  targetUserId?: number;
-  targetDisplayName?: string;
+  recipients: ReminderRecipient[];
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
   deliveryPreparedNotificationId?: string;

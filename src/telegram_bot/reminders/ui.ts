@@ -85,8 +85,13 @@ function notificationLabel(instance: ReminderNotificationInstance): string {
   return instance.label || `${instance.offsetMinutes}m`;
 }
 
-function timeSemanticsLabel(event: ReminderEvent): string {
-  return event.timeSemantics === "absolute" ? "固定时间" : "本地时间";
+function timeSemanticsLabel(config: AppConfig, event: ReminderEvent): string {
+  return t(config, event.timeSemantics === "absolute" ? "reminder_time_semantics_absolute" : "reminder_time_semantics_local");
+}
+
+function eventRecipientsLabel(config: AppConfig, event: ReminderEvent): string {
+  if (event.recipients.length === 0) return t(config, "reminder_recipients_unspecified");
+  return event.recipients.map((item) => item.displayName || String(item.userId)).join("、");
 }
 
 function eventDetailText(config: AppConfig, event: ReminderEvent): string {
@@ -95,12 +100,12 @@ function eventDetailText(config: AppConfig, event: ReminderEvent): string {
     : event.notifications.map((item) => `- ${item.label || item.offsetMinutes}`).join("\n");
   return [
     `⏰ ${event.title}`,
-    `时间：${reminderEventScheduleSummary(config, event)}`,
-    `对象：${event.targetDisplayName || (typeof event.targetUserId === "number" ? String(event.targetUserId) : "自己")}`,
-    `时间语义：${timeSemanticsLabel(event)}`,
-    ...(event.timeSemantics === "absolute" ? [`时区：${event.timezone}`] : []),
-    `提醒：`,
-    notifications || "- 无",
+    t(config, "reminder_detail_time", { value: reminderEventScheduleSummary(config, event) }),
+    t(config, "reminder_detail_recipients", { value: eventRecipientsLabel(config, event) }),
+    t(config, "reminder_detail_time_semantics", { value: timeSemanticsLabel(config, event) }),
+    ...(event.timeSemantics === "absolute" ? [t(config, "reminder_detail_timezone", { value: event.timezone })] : []),
+    t(config, "reminder_detail_notifications"),
+    notifications || t(config, "reminder_detail_none"),
   ].join("\n");
 }
 
@@ -187,7 +192,7 @@ export async function handleReminderCallback(config: AppConfig, ctx: Context): P
       await ctx.answerCallbackQuery({ text: t(config, "reminder_missing"), show_alert: true });
       return true;
     }
-    await editMessageTextFormatted(ctx, ctx.chat.id, messageId, `${t(config, "reminder_delete_confirm", { time: reminderEventScheduleSummary(config, event), repeat: timeSemanticsLabel(event), text: event.title })}\n\n${eventDetailText(config, event)}`, { reply_markup: buildDeleteConfirmKeyboard(config, event.id, view) });
+    await editMessageTextFormatted(ctx, ctx.chat.id, messageId, `${t(config, "reminder_delete_confirm", { time: reminderEventScheduleSummary(config, event), repeat: timeSemanticsLabel(config, event), text: event.title })}\n\n${eventDetailText(config, event)}`, { reply_markup: buildDeleteConfirmKeyboard(config, event.id, view) });
     await ctx.answerCallbackQuery();
     return true;
   }

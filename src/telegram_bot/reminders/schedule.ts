@@ -2,7 +2,6 @@ import solarLunar from "solarlunar";
 import type { AppConfig } from "../types";
 import { t, uiLocaleTag } from "../i18n";
 import type {
-  Reminder,
   ReminderEvent,
   ReminderNotificationInstance,
   ReminderOccurrence,
@@ -317,11 +316,6 @@ function reminderTimeLabel(schedule: ReminderSchedule): string {
   return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
 }
 
-function offsetSuffix(config: AppConfig, offsetDays = 0): string {
-  if (offsetDays === 0) return "";
-  return t(config, "reminder_offset_days_before", { days: Math.abs(offsetDays) });
-}
-
 export function reminderEventScheduleSummary(config: AppConfig, event: ReminderEvent): string {
   const schedule = event.schedule;
   if (schedule.kind === "once") {
@@ -370,7 +364,7 @@ export function reminderEventScheduleSummary(config: AppConfig, event: ReminderE
 
 function notificationLabel(config: AppConfig, instance: ReminderNotificationInstance): string {
   if (instance.label) return instance.label;
-  if (instance.offsetMinutes === 0) return t(config, "reminder_repeat_none");
+  if (instance.offsetMinutes === 0) return t(config, "reminder_notification_now");
   const abs = Math.abs(instance.offsetMinutes);
   if (abs % 1440 === 0) return t(config, "reminder_offset_days_before", { days: abs / 1440 });
   if (abs % 60 === 0) return `${abs / 60}${t(config, "reminder_unit_hour")}`;
@@ -388,138 +382,3 @@ export function formatReminderEvent(config: AppConfig, event: ReminderEvent): st
   return `${when} ${event.title}${notifications ? ` [${notifications}]` : ""}`;
 }
 
-// Legacy wrappers kept temporarily while parts of the system still consume the old Reminder shape.
-function recurrenceKind(reminder: Reminder): ReminderRecurrence["kind"] {
-  return normalizeRecurrence(reminder.recurrence).kind;
-}
-
-function isRecurring(reminder: Reminder): boolean {
-  return recurrenceKind(reminder) !== "once";
-}
-
-function nextWeeklyOccurrence(baseIso: string, now: Date, recurrence: Extract<ReminderRecurrence, { kind: "weekly" }>): string {
-  const base = new Date(baseIso);
-  if (!Number.isFinite(base.getTime())) throw new Error(`Invalid reminder time: ${baseIso}`);
-  const allowedDays = new Set(recurrence.daysOfWeek);
-  for (let offset = 1; offset <= 366 * Math.max(1, recurrence.every); offset += 1) {
-    const candidate = cloneDate(base);
-    candidate.setDate(candidate.getDate() + offset);
-    if (!allowedDays.has(candidate.getDay())) continue;
-    const passedWeeks = weeksBetween(base, candidate);
-    if (passedWeeks % recurrence.every !== 0) continue;
-    if (candidate.getTime() <= now.getTime()) continue;
-    return candidate.toISOString();
-  }
-  throw new Error(`Failed to compute next weekly reminder from ${baseIso}`);
-}
-
-function nextMonthlyOccurrence(baseIso: string, now: Date, recurrence: Extract<ReminderRecurrence, { kind: "monthly" }>): string {
-  const base = new Date(baseIso);
-  if (!Number.isFinite(base.getTime())) throw new Error(`Invalid reminder time: ${baseIso}`);
-  for (let monthOffset = recurrence.every; monthOffset <= recurrence.every * 120; monthOffset += recurrence.every) {
-    const target = addMonths(base, monthOffset);
-    let candidate: Date | null;
-    if (recurrence.mode === "dayOfMonth") {
-      candidate = new Date(target.getFullYear(), target.getMonth(), monthDay(target.getFullYear(), target.getMonth(), recurrence.dayOfMonth), base.getHours(), base.getMinutes(), base.getSeconds(), base.getMilliseconds());
-    } else {
-      candidate = nthWeekdayOfMonth(target.getFullYear(), target.getMonth(), recurrence.weekOfMonth, recurrence.dayOfWeek, base.getHours(), base.getMinutes());
-    }
-    if (!candidate) continue;
-    if (candidate.getTime() <= now.getTime()) continue;
-    return candidate.toISOString();
-  }
-  throw new Error(`Failed to compute next monthly reminder from ${baseIso}`);
-}
-
-function nextYearlyOccurrence(baseIso: string, now: Date, recurrence: Extract<ReminderRecurrence, { kind: "yearly" }>): string {
-  const base = new Date(baseIso);
-  if (!Number.isFinite(base.getTime())) throw new Error(`Invalid reminder time: ${baseIso}`);
-  const offsetDays = recurrence.offsetDays || 0;
-  for (let yearOffset = 0; yearOffset <= recurrence.every * 100; yearOffset += recurrence.every) {
-    const year = base.getFullYear() + yearOffset;
-    const actualEvent = new Date(year, recurrence.month - 1, monthDay(year, recurrence.month - 1, recurrence.day), base.getHours(), base.getMinutes(), base.getSeconds(), base.getMilliseconds());
-    const candidate = new Date(actualEvent.getTime() + offsetDays * MS_PER_DAY);
-    if (candidate.getTime() <= now.getTime()) continue;
-    return candidate.toISOString();
-  }
-  throw new Error(`Failed to compute next yearly reminder from ${baseIso}`);
-}
-
-export function nextReminderOccurrence(reminder: Reminder, now = new Date()): string | null {
-  const recurrence = normalizeRecurrence(reminder.recurrence);
-  if (recurrence.kind === "once") return null;
-  if ((recurrence.kind === "yearly" || recurrence.kind === "lunarYearly") && !reminder.specialKind) {
-    return null;
-  }
-  if (recurrence.kind === "interval") {
-    const schedule: ReminderSchedule = { kind: "interval", unit: recurrence.unit, every: recurrence.every, anchorAt: reminder.scheduledAt };
-    return nextScheduleOccurrence(schedule, now);
-  }
-  if (recurrence.kind === "weekly") return nextWeeklyOccurrence(reminder.scheduledAt, now, recurrence);
-  if (recurrence.kind === "monthly") return nextMonthlyOccurrence(reminder.scheduledAt, now, recurrence);
-  if (recurrence.kind === "yearly") return nextYearlyOccurrence(reminder.scheduledAt, now, recurrence);
-  return nextLunarYearlyOccurrence(reminder.scheduledAt, now, recurrence);
-}
-
-export function reminderRecurrenceText(config: AppConfig, reminder: Reminder): string {
-  const recurrence = normalizeRecurrence(reminder.recurrence);
-  if (recurrence.kind === "interval") {
-    if (recurrence.unit === "day" && recurrence.every === 1) return t(config, "reminder_repeat_daily");
-    return t(config, "reminder_repeat_interval", { every: recurrence.every, unit: t(config, `reminder_unit_${recurrence.unit}`) });
-  }
-  if (recurrence.kind === "weekly") {
-    if (recurrence.every === 1 && recurrence.daysOfWeek.join(",") === "1,2,3,4,5") return t(config, "reminder_repeat_weekdays");
-    return t(config, "reminder_repeat_weekly", { every: recurrence.every, days: recurrence.daysOfWeek.map((day) => t(config, `weekday_short_${day}`)).join(", ") });
-  }
-  if (recurrence.kind === "monthly") {
-    if (recurrence.mode === "dayOfMonth") return t(config, "reminder_repeat_monthly_day", { every: recurrence.every, day: recurrence.dayOfMonth });
-    return t(config, "reminder_repeat_monthly_nth_weekday", { every: recurrence.every, ordinal: t(config, `ordinal_${recurrence.weekOfMonth}`), day: t(config, `weekday_short_${recurrence.dayOfWeek}`) });
-  }
-  if (recurrence.kind === "yearly") {
-    return t(config, "reminder_repeat_yearly", { every: recurrence.every, month: recurrence.month, day: recurrence.day, offset: offsetSuffix(config, recurrence.offsetDays) }).trim();
-  }
-  if (recurrence.kind === "lunarYearly") {
-    return t(config, "reminder_repeat_lunar_yearly", {
-      month: lunarMonthLabel(recurrence.month, recurrence.isLeapMonth),
-      day: lunarDayLabel(recurrence.day),
-      leapPolicy: recurrence.isLeapMonth ? t(config, `reminder_lunar_leap_policy_${recurrence.leapMonthPolicy || "prefer-non-leap"}`) : "",
-      offset: offsetSuffix(config, recurrence.offsetDays),
-    }).trim();
-  }
-  return t(config, "reminder_repeat_none");
-}
-
-export function formatReminder(config: AppConfig, reminder: Reminder): string {
-  const repeatLabel = isRecurring(reminder) ? `[${reminderRecurrenceText(config, reminder)}]` : "";
-  return `${new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }).slice(0, 16)}${repeatLabel ? ` ${repeatLabel}` : ""} ${reminder.text}`;
-}
-
-export function reminderScheduleSummary(config: AppConfig, reminder: Reminder): string {
-  const time = new Date(reminder.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-  const recurrence = normalizeRecurrence(reminder.recurrence);
-  if (recurrence.kind === "interval") {
-    if (recurrence.unit === "day" && recurrence.every === 1) return t(config, "reminder_created_daily", { time });
-    return t(config, "reminder_created_interval", { every: recurrence.every, unit: t(config, `reminder_unit_${recurrence.unit}`), time });
-  }
-  if (recurrence.kind === "weekly") {
-    if (recurrence.every === 1 && recurrence.daysOfWeek.join(",") === "1,2,3,4,5") return t(config, "reminder_created_weekdays", { time });
-    return t(config, "reminder_created_weekly", { every: recurrence.every, days: recurrence.daysOfWeek.map((day) => t(config, `weekday_short_${day}`)).join(", "), time });
-  }
-  if (recurrence.kind === "monthly") {
-    if (recurrence.mode === "dayOfMonth") return t(config, "reminder_created_monthly_day", { every: recurrence.every, day: recurrence.dayOfMonth, time });
-    return t(config, "reminder_created_monthly_nth_weekday", { every: recurrence.every, ordinal: t(config, `ordinal_${recurrence.weekOfMonth}`), day: t(config, `weekday_short_${recurrence.dayOfWeek}`), time });
-  }
-  if (recurrence.kind === "yearly") {
-    return t(config, "reminder_created_yearly", { every: recurrence.every, month: recurrence.month, day: recurrence.day, offset: offsetSuffix(config, recurrence.offsetDays), time }).trim();
-  }
-  if (recurrence.kind === "lunarYearly") {
-    return t(config, "reminder_created_lunar_yearly", {
-      month: lunarMonthLabel(recurrence.month, recurrence.isLeapMonth),
-      day: lunarDayLabel(recurrence.day),
-      leapPolicy: recurrence.isLeapMonth ? t(config, `reminder_lunar_leap_policy_${recurrence.leapMonthPolicy || "prefer-non-leap"}`) : "",
-      offset: offsetSuffix(config, recurrence.offsetDays),
-      time,
-    }).trim();
-  }
-  return t(config, "reminder_created_once", { time });
-}

@@ -1,0 +1,111 @@
+import type { Bot, Context } from "grammy";
+import { logger } from "./logger";
+import type { OpenCodeService } from "./opencode";
+import type { PromptOutboundMessageDraft, PromptResult } from "./opencode/types";
+import { createStructuredReminders } from "./reminder_intent";
+import { sendMessageFormatted } from "./telegram_format";
+import { resolveTelegramTargetUsers } from "./telegram_identity";
+import type { AppConfig } from "./types";
+
+const OUTBOUND_TARGET_REQUIRED_FACT = "Outbound target is missing. Ask the user to specify the recipient by @mention or by replying to that person's message.";
+const OUTBOUND_TRUST_REQUIRED_FACT = "Outbound relay is not allowed for this requester. Only trusted or admin users may ask the bot to message other Telegram users.";
+
+export type PromptActionExecution = {
+  facts: string[];
+};
+
+type ExecutePromptActionsInput = {
+  config: AppConfig;
+  bot: Bot<Context>;
+  opencode: OpenCodeService;
+  answer: PromptResult;
+  ctx: Context;
+  requesterUserId?: number;
+  telegramMessageTime?: string;
+  canDeliverOutbound: boolean;
+};
+
+type OutboundDeliveryResult = {
+  delivered: string[];
+  clarifications: string[];
+};
+
+function summarizeFactBlock(plural: string, items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0] || "";
+  return `${plural}:\n${items.map((item) => `- ${item}`).join("\n")}`;
+}
+
+async function deliverOutboundMessages(
+  config: AppConfig,
+  bot: Bot<Context>,
+  ctx: Context,
+  outboundMessages: PromptOutboundMessageDraft[],
+  requesterUserId: number | undefined,
+): Promise<OutboundDeliveryResult> {
+  const delivered: string[] = [];
+  const clarifications: string[] = [];
+
+  for (const outbound of outboundMessages) {
+    const text = typeof outbound.message === "string" ? outbound.message.trim() : "";
+    if (!text) continue;
+
+    const rawTargets = Array.isArray(outbound.targetUsers) && outbound.targetUsers.length > 0
+      ? outbound.targetUsers
+      : outbound.targetUser
+        ? [outbound.targetUser]
+        : [];
+    if (rawTargets.length === 0) {
+      clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
+      continue;
+    }
+
+    const targetResult = resolveTelegramTargetUsers(config, rawTargets, ctx, requesterUserId);
+    clarifications.push(...targetResult.clarifications);
+
+    for (const target of targetResult.resolved) {
+      const recipientUserId = target.status === "self" ? requesterUserId : target.userId;
+      if (!recipientUserId) {
+        clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
+        continue;
+      }
+      const recipientLabel = target.displayName || String(recipientUserId);
+      try {
+        await sendMessageFormatted(bot, recipientUserId, text);
+        delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.\n> ${text}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await logger.warn(`failed to send outbound telegram message to user=${recipientUserId}: ${message}`);
+        clarifications.push(`Outbound delivery failed. Recipient: ${recipientLabel}. Error: ${message}`);
+      }
+    }
+  }
+
+  return { delivered, clarifications };
+}
+
+export async function executePromptActions(input: ExecutePromptActionsInput): Promise<PromptActionExecution> {
+  const reminderResult = await createStructuredReminders(
+    input.config,
+    input.opencode,
+    input.answer.reminders,
+    input.ctx,
+    input.requesterUserId,
+    input.telegramMessageTime,
+  );
+
+  const outboundResult = input.canDeliverOutbound
+    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId)
+    : input.answer.outboundMessages.length > 0
+      ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT] }
+      : { delivered: [], clarifications: [] };
+
+  return {
+    facts: [
+      summarizeFactBlock("Multiple reminders created", reminderResult.created),
+      summarizeFactBlock("Multiple outbound messages delivered", outboundResult.delivered),
+      ...reminderResult.clarifications,
+      ...outboundResult.clarifications,
+    ].filter(Boolean),
+  };
+}

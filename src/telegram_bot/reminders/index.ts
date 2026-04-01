@@ -1,5 +1,4 @@
 export type {
-  Reminder,
   ReminderDeliveryState,
   ReminderEvent,
   ReminderEventKind,
@@ -8,23 +7,20 @@ export type {
   ReminderOccurrence,
   ReminderRecurrence,
   ReminderSchedule,
+  ReminderSpecialKind,
   ReminderStoreV2,
   ReminderTimeSemantics,
   ReminderView,
 } from "./types";
 
 export {
-  formatReminder,
   formatReminderEvent,
   getCurrentOccurrence,
   listNotificationInstances,
   nextLunarYearlyOccurrence,
-  nextReminderOccurrence,
   normalizeRecurrence,
   normalizeScheduledAt,
   reminderEventScheduleSummary,
-  reminderRecurrenceText,
-  reminderScheduleSummary,
 } from "./schedule";
 
 export {
@@ -39,25 +35,19 @@ export {
 export {
   buildDefaultReminderNotifications,
   buildReminderEvent,
-  createReminder,
   createReminderEvent,
   createReminderEventWithDefaults,
   defaultReminderEventKind,
   defaultReminderTimeSemantics,
   isValidReminderTimezone,
-  deleteReminder,
   deleteReminderEvent,
-  getReminder,
   getReminderEvent,
-  listPendingReminders,
   pruneExpiredReminderEvents,
   pruneInactiveReminderEvents,
   readReminderEvents,
-  readReminders,
   resolveReminderTimezone,
   updateReminderEvent,
   writeReminderEvents,
-  writeReminders,
 } from "./store";
 
 export {
