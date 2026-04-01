@@ -11,6 +11,7 @@ export type AppConfig = {
     waitingMessageCandidates: string[];
     waitingMessageRotationMs: number;
     reminderMessageTimeoutMs: number;
+    promptTaskTimeoutMs: number;
     menuPageSize: number;
   };
   paths: {

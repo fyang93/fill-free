@@ -17,6 +17,7 @@ waiting_message = "机宝启动中..."
 waiting_message_candidates = ["还在想...", "再等我一下...", "马上就好..."]
 waiting_message_rotation_ms = 5000
 reminder_message_timeout_ms = 60000
+prompt_task_timeout_ms = 60000
 menu_page_size = 8
 
 [paths]

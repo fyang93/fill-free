@@ -153,9 +153,11 @@ export class OpenCodeService {
     const replyLanguage = replyLanguageName(this.config);
     const request = [
       `Reply in ${replyLanguage}.`,
+      this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
       STARTUP_GREETING_REQUEST,
+      "Use the Telegram reply persona consistently.",
       "Return only the greeting text to send, with no explanation, preface, or commentary.",
-    ].join(" ");
+    ].filter(Boolean).join(" ");
     const message = this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
     return message || null;
   }

@@ -33,6 +33,7 @@ function diffConfigKeys(before: AppConfig, after: AppConfig): string[] {
   if (!equalStringArray(before.telegram.waitingMessageCandidates, after.telegram.waitingMessageCandidates)) changed.push("telegram.waiting_message_candidates");
   if (before.telegram.waitingMessageRotationMs !== after.telegram.waitingMessageRotationMs) changed.push("telegram.waiting_message_rotation_ms");
   if (before.telegram.reminderMessageTimeoutMs !== after.telegram.reminderMessageTimeoutMs) changed.push("telegram.reminder_message_timeout_ms");
+  if (before.telegram.promptTaskTimeoutMs !== after.telegram.promptTaskTimeoutMs) changed.push("telegram.prompt_task_timeout_ms");
   if (before.telegram.menuPageSize !== after.telegram.menuPageSize) changed.push("telegram.menu_page_size");
   if (before.paths.repoRoot !== after.paths.repoRoot) changed.push("paths.repo_root");
   if (before.paths.tmpDir !== after.paths.tmpDir) changed.push("paths.tmp_dir");

@@ -82,6 +82,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       waitingMessageCandidates: asStringArray(telegram.waiting_message_candidates),
       waitingMessageRotationMs: asNumber(telegram.waiting_message_rotation_ms, 5000),
       reminderMessageTimeoutMs: asNumber(telegram.reminder_message_timeout_ms, 60000),
+      promptTaskTimeoutMs: asNumber(telegram.prompt_task_timeout_ms, 60000),
       menuPageSize: asNumber(telegram.menu_page_size, 8),
     },
     paths: {

@@ -22,9 +22,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-async function loadMemoryAgentRules(): Promise<string> {
+const REMINDER_AGENT_SKILL_PATH = path.join(process.cwd(), ".agents/skills/reminder-agent/SKILL.md");
+
+async function loadSkillRules(skillPath: string): Promise<string> {
   try {
-    return (await readFile(MEMORY_AGENT_SKILL_PATH, "utf8")).trim();
+    return (await readFile(skillPath, "utf8")).trim();
   } catch {
     return "";
   }
@@ -41,19 +43,14 @@ function recentlyChangedFiles(snapshot: MemorySnapshot, lastDreamedAt: string | 
 }
 
 async function buildDreamRequest(lastDreamedAt: string | null, changedFiles: string[]): Promise<string> {
-  const memoryAgentRules = await loadMemoryAgentRules();
-  const conciseRules = memoryAgentRules
-    ? [
-        "Follow memory-agent rules, especially:",
-        "- keep long-term markdown under memory/",
-        "- keep long-term files under assets/",
-        "- keep memory links pointing to real asset paths",
-        "- merge into existing topic notes when it clearly fits",
-        "- preserve uncertainty instead of inventing",
-        "- do not treat other repository areas as general memory",
-        "- do not claim changes unless the repository was actually updated",
-      ].join("\n")
-    : "";
+  const [memoryAgentRules, reminderAgentRules] = await Promise.all([
+    loadSkillRules(MEMORY_AGENT_SKILL_PATH),
+    loadSkillRules(REMINDER_AGENT_SKILL_PATH),
+  ]);
+  const conciseRules = [
+    memoryAgentRules ? `Follow memory-agent rules:\n${memoryAgentRules}` : "",
+    reminderAgentRules ? `Follow reminder-agent rules when relevant:\n${reminderAgentRules}` : "",
+  ].filter(Boolean).join("\n\n");
   return [
     "Idle memory maintenance.",
     lastDreamedAt ? `Last dreaming: ${lastDreamedAt}` : "Last dreaming: none",

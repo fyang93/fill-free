@@ -55,6 +55,37 @@ function isConfigMutationRequest(text: string): boolean {
   return targets.some((item) => normalized.includes(item)) && actions.some((item) => normalized.includes(item));
 }
 
+function summarizeIncomingText(text: string, maxLength = 500): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}…` : trimmed;
+}
+
+function repliedMessageSummary(ctx: Context): string {
+  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
+  if (!repliedMessage) return "";
+  const repliedText = "text" in repliedMessage
+    ? repliedMessage.text
+    : "caption" in repliedMessage
+      ? repliedMessage.caption
+      : undefined;
+  const summary = summarizeIncomingText(repliedText || "");
+  return ` replyToMessage=${repliedMessage.message_id ?? "unknown"} replyToUser=${repliedMessage.from?.id ?? "unknown"} replyToText=${JSON.stringify(summary)}`;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+
 export class PromptController {
   private activeTasks = new Map<string, ActiveTask>();
   private nextTaskId = 1;
@@ -149,7 +180,7 @@ export class PromptController {
       const recentUploads = getRecentUploads(scope.key);
       const { files: validRecentUploads, attachments } = await this.buildRecentAttachments(scope.key, recentUploads);
       const telegramMessageTime = await this.messageReferenceTime(ctx);
-      await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
+      await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${repliedMessageSummary(ctx)}`);
       this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, validRecentUploads, attachments, telegramMessageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -199,7 +230,7 @@ export class PromptController {
       const waitingTemplate = t(this.deps.config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: WAITING_MESSAGE_PLACEHOLDER });
       const telegramMessageTime = await this.messageReferenceTime(ctx);
 
-      await logger.info(`received ${uploaded.source} message ${ctx.message?.message_id} with caption and scheduled prompt task`);
+      await logger.info(`received ${uploaded.source} message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} caption=${JSON.stringify(summarizeIncomingText(caption))}${repliedMessageSummary(ctx)} and scheduled prompt task`);
       this.startPromptTask(ctx, waitingTemplate, caption, [uploaded], [attachment], telegramMessageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -313,7 +344,13 @@ export class PromptController {
       const accessRole = this.deps.isAdminUserId(userId) ? "admin" : this.deps.isTrustedUserId(userId) ? "trusted" : "allowed";
       const telegramPromptContext = buildTelegramPromptContext(this.deps.config, ctx);
       const effectivePromptText = telegramPromptContext ? `${promptText}\n\n${telegramPromptContext}` : promptText;
-      const answer = await this.deps.opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole);
+      const promptStartedAt = Date.now();
+      const answer = await withTimeout(
+        this.deps.opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole),
+        this.deps.config.telegram.promptTaskTimeoutMs,
+        `prompt task ${task.id}`,
+      );
+      await logger.info(`prompt task ${task.id} completed in ${Date.now() - promptStartedAt}ms`);
       if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
         await logger.warn(`discarding stale prompt result for task ${task.id}`);
         return;
@@ -357,6 +394,10 @@ export class PromptController {
       }
       this.waiting.stop(task);
       const message = error instanceof Error ? error.message : String(error);
+      if (/timed out after/i.test(message)) {
+        await logger.warn(`prompt task ${task.id} timed out; aborting opencode session for ${task.scopeLabel}`);
+        await this.deps.opencode.abortCurrentSession(task.scopeKey, task.scopeLabel);
+      }
       await logger.error(`prompt handling failed: ${message}`);
       await this.pruneRecentUploads(scope.key);
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(this.deps.config, "task_failed", { error: message }));

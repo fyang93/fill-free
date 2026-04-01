@@ -42,6 +42,19 @@ async function sendAdminMessage(text: string): Promise<void> {
   await sendMessageFormatted(bot, adminUserId, text);
 }
 
+async function ensureUsableStartupModel(): Promise<void> {
+  if (!state.model) return;
+  try {
+    const { models } = await opencode.listModels();
+    if (models.includes(state.model)) return;
+    await logger.warn(`configured model ${state.model} is unavailable; falling back to the OpenCode default model`);
+    state.model = null;
+    await persistState(config.paths.stateFile);
+  } catch (error) {
+    await logger.warn(`failed to validate configured model at startup: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function sendStartupGreeting(): Promise<void> {
   try {
     const adminUserId = config.telegram.adminUserId;
@@ -220,6 +233,7 @@ await bot.start({
     botUsername = botInfo.username || null;
     botUserId = botInfo.id;
     await logger.info(`Telegram bot started as @${botInfo.username}`);
+    await ensureUsableStartupModel();
     const expiredReminderCleanup = await pruneExpiredReminderEvents(config);
     if (expiredReminderCleanup.removed > 0) {
       await logger.info(`startup pruned ${expiredReminderCleanup.removed} expired reminders: ${expiredReminderCleanup.removedIds.join(", ")}`);
