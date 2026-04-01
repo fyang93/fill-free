@@ -22,6 +22,8 @@ The bot has three practical permission levels:
 Notes:
 
 - `admin_user_id` is treated as trusted automatically at runtime, even if it is not repeated in `trusted_user_ids`.
+- A `trusted user` does not need to also appear in `allowed_user_ids`.
+- An `admin user` does not need to also appear in `trusted_user_ids` or `allowed_user_ids`.
 - Users not listed in `allowed_user_ids`, `trusted_user_ids`, or as `admin_user_id` cannot access the bot.
 
 ## Setup
@@ -76,9 +78,9 @@ If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
 ### `[telegram]`
 
 - `bot_token`: your Telegram bot token from BotFather.
-- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in privacy-restricted read-only mode. They may ask general questions, but should not be allowed to read private memory, reminders, personal files, or secrets.
-- `trusted_user_ids`: users allowed to read and modify memory, files, reminders, and other persistent repository data.
-- `admin_user_id`: optional admin user ID. The admin is treated as trusted automatically, receives startup/config-reload notices, can change runtime config, and can use admin-only commands like `/new` and `/model`.
+- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in privacy-restricted read-only mode. They may ask general questions, but should not be allowed to read private memory, reminders, personal files, or secrets. May be empty if you only use trusted/admin users.
+- `trusted_user_ids`: users allowed to read and modify memory, files, reminders, and other persistent repository data. Users listed here do not need to also appear in `allowed_user_ids`.
+- `admin_user_id`: optional admin user ID. The admin is treated as trusted automatically, receives startup/config-reload notices, can change runtime config, and can use admin-only commands like `/new` and `/model`. The admin does not need to also appear in `trusted_user_ids` or `allowed_user_ids`.
 - `max_file_size_mb`: max upload size accepted by the bot.
 - `persona_style`: optional reply style instruction for the assistant.
 - `language`: default reply language, `zh` or `en`.

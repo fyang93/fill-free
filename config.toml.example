@@ -1,10 +1,13 @@
 [telegram]
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 # Users allowed to chat with the bot in privacy-restricted read-only mode
-allowed_user_ids = [123456789]
+# May be empty if you only use trusted/admin users
+allowed_user_ids = []
 # Users with trusted access (can read/write private memory, files, reminders, etc.)
+# These users do not need to also appear in allowed_user_ids
 trusted_user_ids = [123456789]
 # Optional admin user ID; admin is also treated as trusted and may change runtime config
+# The admin does not need to also appear in trusted_user_ids or allowed_user_ids
 admin_user_id = 123456789
 max_file_size_mb = 200
 persona_style = "Speak like the Defect from Slay the Spire."

@@ -105,8 +105,14 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   if (!config.telegram.botToken) {
     throw new Error(`Missing telegram.bot_token in ${configPath}`);
   }
-  if (config.telegram.allowedUserIds.length === 0) {
-    throw new Error(`Missing telegram.allowed_user_ids in ${configPath}`);
+  if (
+    config.telegram.allowedUserIds.length === 0
+    && config.telegram.trustedUserIds.length === 0
+    && !config.telegram.adminUserId
+  ) {
+    throw new Error(
+      `Configure at least one accessible user via telegram.allowed_user_ids, telegram.trusted_user_ids, or telegram.admin_user_id in ${configPath}`,
+    );
   }
 
   return config;

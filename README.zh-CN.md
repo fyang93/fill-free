@@ -22,6 +22,8 @@
 补充说明：
 
 - 运行时会自动把 `admin_user_id` 视为 trusted，因此不必再重复写进 `trusted_user_ids`。
+- `trusted user` 不需要再额外写进 `allowed_user_ids`。
+- `admin user` 也不需要再额外写进 `trusted_user_ids` 或 `allowed_user_ids`。
 - 不在 `allowed_user_ids`、`trusted_user_ids` 或 `admin_user_id` 中的用户，不能访问 bot。
 
 ## 环境准备
@@ -76,9 +78,9 @@ just serve
 ### `[telegram]`
 
 - `bot_token`：从 BotFather 获取的 Telegram Bot Token。
-- `allowed_user_ids`：允许和 bot 对话、但属于“受隐私限制的只读”权限的 Telegram 用户 ID 列表。可以问一般问题，但不应读取私密记忆、提醒详情、个人文件或密钥等敏感数据。
-- `trusted_user_ids`：允许读取和修改记忆、文件、提醒和其他持久化仓库数据的用户 ID 列表。
-- `admin_user_id`：可选管理员用户 ID。admin 会自动被视为 trusted；此外还会收到启动 / 配置热重载通知，可以修改运行时配置，并能使用 `/new`、`/model` 这类管理命令。
+- `allowed_user_ids`：允许和 bot 对话、但属于“受隐私限制的只读”权限的 Telegram 用户 ID 列表。可以问一般问题，但不应读取私密记忆、提醒详情、个人文件或密钥等敏感数据。如果你只使用 trusted/admin，也可以留空。
+- `trusted_user_ids`：允许读取和修改记忆、文件、提醒和其他持久化仓库数据的用户 ID 列表。写在这里的用户不需要再额外写进 `allowed_user_ids`。
+- `admin_user_id`：可选管理员用户 ID。admin 会自动被视为 trusted；此外还会收到启动 / 配置热重载通知，可以修改运行时配置，并能使用 `/new`、`/model` 这类管理命令。admin 不需要再额外写进 `trusted_user_ids` 或 `allowed_user_ids`。
 - `max_file_size_mb`：bot 接受的上传文件大小上限。
 - `persona_style`：可选的人设 / 回复风格说明。
 - `language`：默认回复语言，支持 `zh` 或 `en`。
