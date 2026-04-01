@@ -31,6 +31,9 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     `Reply in ${replyLanguage}.`,
     "If you need the bot to send repository files back or create reminders, reply with JSON only: {\"message\": string, \"files\": string[], \"reminders\": [] }.",
     "Keep the JSON minimal.",
+    "Reminder objects must use the current schema only: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\" }.",
+    "For a one-time reminder, use schedule={\"kind\":\"once\",\"scheduledAt\":\"ISO-8601\"}. For recurring reminders, put recurrence details inside schedule.kind and its required fields.",
+    "Do not use legacy reminder keys like \"text\", \"due\", \"when\", or free-form date fields outside schedule.",
     "For reminders, include only fields you are confident about. Timezone is mainly for fixed appointments, not routine local-time habits.",
     "Non-text output is also allowed.",
   ];

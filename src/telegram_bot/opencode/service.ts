@@ -177,6 +177,9 @@ export class OpenCodeService {
     if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.message === (rawText || "Done.")) {
       await logger.warn("opencode prompt did not return valid JSON; using plain-text fallback");
     }
+    if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
+      await logger.warn("opencode prompt included a reminders field, but no valid reminder objects were parsed");
+    }
     await logger.info(`opencode prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     return parsed;
   }
@@ -269,7 +272,11 @@ export class OpenCodeService {
     if (!result) {
       throw new Error("OpenCode did not return a response message");
     }
+    const rawText = extractText(result).trim();
     const parsed = extractPromptResult(result);
+    if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
+      await logger.warn("opencode temporary prompt included a reminders field, but no valid reminder objects were parsed");
+    }
     await logger.info(`opencode temporary prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
     return parsed;
   }
