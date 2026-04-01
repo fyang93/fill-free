@@ -376,6 +376,28 @@ export async function deleteReminderEvent(config: AppConfig, id: string): Promis
   return changed;
 }
 
+export async function pruneInactiveReminderEvents(config: AppConfig): Promise<{ removed: number; removedIds: string[] }> {
+  const events = await readReminderEvents(config);
+  const now = await getAccurateNow();
+  const removedIds: string[] = [];
+  const next = events.filter((event) => {
+    if (event.status === "deleted") {
+      removedIds.push(event.id);
+      return false;
+    }
+    if (event.status === "paused" && event.schedule.kind === "once") {
+      const scheduledAt = Date.parse(event.schedule.scheduledAt);
+      if (Number.isFinite(scheduledAt) && scheduledAt <= now.getTime()) {
+        removedIds.push(event.id);
+        return false;
+      }
+    }
+    return true;
+  });
+  if (removedIds.length > 0) await writeReminderEvents(config, next);
+  return { removed: removedIds.length, removedIds };
+}
+
 // Temporary legacy wrappers while schedule/ui/delivery are still on the old reminder model.
 export async function readReminders(config: AppConfig): Promise<Reminder[]> {
   const events = await readReminderEvents(config);

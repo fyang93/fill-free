@@ -1,5 +1,6 @@
 import { Bot } from "grammy";
 import { loadConfig } from "./config";
+import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "./config_runtime";
 import { configureLogger, logger } from "./logger";
 import { OpenCodeService } from "./opencode";
 import { currentModel, loadPersistentState, persistState, state } from "./state";
@@ -17,7 +18,8 @@ import { handleModelCallback } from "./model_callback";
 import { PromptController } from "./prompt_controller";
 import { startDreamLoop } from "./dreaming";
 
-const config = loadConfig();
+const configPath = DEFAULT_CONFIG_PATH;
+const config = loadConfig(configPath);
 await loadPersistentState(config.paths.stateFile);
 configureLogger(config.paths.logFile);
 const bot = new Bot(config.telegram.botToken);
@@ -30,6 +32,7 @@ const promptController = new PromptController({
   bot,
   opencode,
   isTrustedUserId: (userId) => isTrustedUserId(config, userId),
+  isAdminUserId: (userId) => isAdminUser(userId),
   isAddressedToBot: (ctx) => isAddressedToBot(ctx, botUsername, botUserId),
 });
 
@@ -145,8 +148,16 @@ bot.catch(async (error) => {
   }
 });
 
+async function syncBotCommands(): Promise<void> {
+  await bot.api.setMyCommands([
+    { command: "help", description: t(config, "command_help") },
+    { command: "new", description: t(config, "command_new") },
+    { command: "model", description: t(config, "command_model") },
+  ]);
+}
+
 await logger.info("Telegram bot starting");
-const reminderLoop = await startReminderLoop(config, bot, async (event, _instance, fallback) => {
+let reminderLoop = await startReminderLoop(config, bot, async (event, _instance, fallback) => {
   try {
     const recurrence = reminderEventScheduleSummary(config, event);
     const message = await opencode.generateReminderMessage(
@@ -161,17 +172,34 @@ const reminderLoop = await startReminderLoop(config, bot, async (event, _instanc
     return fallback;
   }
 });
-const dreamLoop = startDreamLoop(config, opencode, {
+let dreamLoop = startDreamLoop(config, opencode, {
   isBusy: () => promptController.hasActiveTask(),
 });
+const configWatcher = startConfigWatcher(configPath, config, async (_reloadedConfig, result) => {
+  configureLogger(config.paths.logFile);
+  opencode.reloadConfig(config);
+  if (dreamLoop) clearInterval(dreamLoop);
+  dreamLoop = startDreamLoop(config, opencode, {
+    isBusy: () => promptController.hasActiveTask(),
+  });
+  await syncBotCommands();
+  if (config.telegram.adminUserId && (result.reloadedKeys.length > 0 || result.restartRequiredKeys.length > 0)) {
+    const lines = ["config 已热重载。"];
+    if (result.reloadedKeys.length > 0) {
+      lines.push(`已生效: ${result.reloadedKeys.join(", ")}`);
+    }
+    if (result.restartRequiredKeys.length > 0) {
+      lines.push(`需重启: ${result.restartRequiredKeys.join(", ")}`);
+      lines.push("这些项本次已保留当前运行值；详情见日志。");
+    }
+    await sendMessageFormatted(bot, config.telegram.adminUserId, lines.join("\n"));
+  }
+});
+
 await bot.start({
   drop_pending_updates: true,
   onStart: async (botInfo) => {
-    await bot.api.setMyCommands([
-      { command: "help", description: t(config, "command_help") },
-      { command: "new", description: t(config, "command_new") },
-      { command: "model", description: t(config, "command_model") },
-    ]);
+    await syncBotCommands();
     botUsername = botInfo.username || null;
     botUserId = botInfo.id;
     await logger.info(`Telegram bot started as @${botInfo.username}`);
@@ -181,12 +209,14 @@ await bot.start({
 
 process.on("SIGINT", () => {
   clearInterval(reminderLoop);
+  configWatcher.close();
   if (dreamLoop) clearInterval(dreamLoop);
   opencode.stop();
   bot.stop();
 });
 process.on("SIGTERM", () => {
   clearInterval(reminderLoop);
+  configWatcher.close();
   if (dreamLoop) clearInterval(dreamLoop);
   opencode.stop();
   bot.stop();

@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { UploadedFile } from "../types";
 
+export type PromptAccessRole = "admin" | "trusted" | "allowed";
+
 export const STARTUP_GREETING_REQUEST = [
   "The Telegram bot has just started.",
   "There are no pending user messages waiting to be handled right now.",
@@ -20,7 +22,7 @@ export function loadAgentsPrompt(repoRoot: string): string {
   }
 }
 
-export function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string, isTrustedUser = false): string {
+export function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string, accessRole: PromptAccessRole = "allowed"): string {
   const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the repository note workflow.";
 
   const common: string[] = [
@@ -33,9 +35,17 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     "Non-text output is also allowed.",
   ];
 
-  if (isTrustedUser) {
+  if (accessRole === "admin") {
+    common.push(
+      "Admin user: you may read and modify repository memory/files when needed.",
+      "Admin-only exception: config.toml and runtime configuration may be changed, but only when the admin explicitly asks for it.",
+      "Use AGENTS.md for memory or file changes.",
+      personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
+    );
+  } else if (accessRole === "trusted") {
     common.push(
       "Trusted user: you may read and modify repository memory/files when needed.",
+      "Never modify config.toml or runtime configuration for a trusted user; treat config as read-only unless the requester is the admin user.",
       "Use AGENTS.md for memory or file changes.",
       personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
     );
@@ -43,6 +53,7 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     common.push(
       "Allowed user: treat the repository as read-only unless the request is clearly informational.",
       "Do not modify files or long-term memory.",
+      "Never modify config.toml or runtime configuration.",
       personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
     );
   }

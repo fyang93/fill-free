@@ -3,7 +3,7 @@ import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
 import { logger } from "../logger";
 import { replyLanguageName } from "../i18n";
 import { state, touchActivity } from "../state";
-import { STARTUP_GREETING_REQUEST, buildPrompt, loadAgentsPrompt } from "./prompt";
+import { STARTUP_GREETING_REQUEST, buildPrompt, loadAgentsPrompt, type PromptAccessRole } from "./prompt";
 import { extractPromptResult, extractText, parseModel, summarizeParts } from "./response";
 import type { OpenCodeMessage, OpenCodePromptBody, PromptResult } from "./types";
 
@@ -34,11 +34,21 @@ function getPromptMessage(response: PromptResponse): OpenCodeMessage | null {
 }
 
 export class OpenCodeService {
-  private readonly config: AppConfig;
-  private readonly client;
-  private readonly agentsPrompt: string;
+  private config: AppConfig;
+  private client;
+  private agentsPrompt: string;
 
   constructor(config: AppConfig) {
+    this.config = config;
+    this.client = createOpencodeClient({
+      baseUrl: config.opencode.baseUrl,
+      throwOnError: true,
+      responseStyle: "data",
+    });
+    this.agentsPrompt = loadAgentsPrompt(config.paths.repoRoot);
+  }
+
+  reloadConfig(config: AppConfig): void {
     this.config = config;
     this.client = createOpencodeClient({
       baseUrl: config.opencode.baseUrl,
@@ -104,7 +114,7 @@ export class OpenCodeService {
     uploadedFiles: UploadedFile[] = [],
     attachments: PromptAttachment[] = [],
     telegramMessageTime?: string,
-    isTrustedUser = false,
+    accessRole: PromptAccessRole = "allowed",
   ): Promise<PromptResult> {
     await this.ensureReady();
     if (!state.sessionId) {
@@ -115,7 +125,7 @@ export class OpenCodeService {
 
     const body: OpenCodePromptBody = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, isTrustedUser) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, accessRole) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -182,7 +192,7 @@ export class OpenCodeService {
   }
 
   async runMemoryDream(request: string): Promise<string> {
-    const result = await this.promptInTemporarySession(request, [], [], true);
+    const result = await this.promptInTemporarySession(request, [], [], "trusted");
     return result.message.trim();
   }
 
@@ -199,7 +209,7 @@ export class OpenCodeService {
     }
   }
 
-  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = [], isTrustedUser = false): Promise<PromptResult> {
+  private async promptInTemporarySession(text: string, uploadedFiles: UploadedFile[] = [], attachments: PromptAttachment[] = [], accessRole: PromptAccessRole = "allowed"): Promise<PromptResult> {
     await this.ensureReady();
     const createResponse = await this.client.session.create({
       body: {
@@ -213,7 +223,7 @@ export class OpenCodeService {
 
     const body: OpenCodePromptBody = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), undefined, isTrustedUser) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), undefined, accessRole) }],
     };
     for (const attachment of attachments) {
       body.parts.push({

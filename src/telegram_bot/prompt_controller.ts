@@ -36,12 +36,21 @@ type PromptControllerDeps = {
   bot: Bot<Context>;
   opencode: OpenCodeService;
   isTrustedUserId: (userId: number | undefined) => boolean;
+  isAdminUserId: (userId: number | undefined) => boolean;
   isAddressedToBot: (ctx: Context) => boolean;
 };
 
 type ReactionCapableApi = Bot<Context>["api"] & {
   setMessageReaction?: (chatId: number, messageId: number, reaction: Array<{ type: "emoji"; emoji: string }>, isBig?: boolean) => Promise<unknown>;
 };
+
+function isConfigMutationRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  const targets = ["config.toml", " config ", "配置", "设定", "settings", "runtime config", "bot config"];
+  const actions = ["修改", "更改", "改", "调整", "更新", "设置", "set ", "change ", "update ", "edit ", "rewrite ", "patch ", "tweak "];
+  return targets.some((item) => normalized.includes(item)) && actions.some((item) => normalized.includes(item));
+}
 
 export class PromptController {
   private activeTask: ActiveTask | null = null;
@@ -104,6 +113,12 @@ export class PromptController {
       if (!text || text.startsWith("/")) return;
       if (!this.deps.isAddressedToBot(ctx)) return;
 
+      if (isConfigMutationRequest(text) && !this.deps.isAdminUserId(ctx.from?.id)) {
+        await replyFormatted(ctx, "只有 admin 可以要求修改 config.toml 或运行时配置。trusted user 也不行。");
+        await this.setReactionSafe(ctx, "😞");
+        return;
+      }
+
       touchActivity();
       const recentUploads = getRecentUploads();
       const { files: validRecentUploads, attachments } = await this.buildRecentAttachments(recentUploads);
@@ -131,6 +146,12 @@ export class PromptController {
     }
 
     try {
+      if (caption && isConfigMutationRequest(caption) && !this.deps.isAdminUserId(ctx.from?.id)) {
+        await replyFormatted(ctx, "只有 admin 可以要求修改 config.toml 或运行时配置。trusted user 也不行。");
+        await this.setReactionSafe(ctx, "😞");
+        return;
+      }
+
       const uploaded = await saveTelegramFile(ctx, this.deps.config);
       if (!uploaded) return;
 
@@ -392,7 +413,8 @@ export class PromptController {
     this.startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
 
     try {
-      const answer = await this.deps.opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, this.deps.isTrustedUserId(ctx.from?.id));
+      const accessRole = this.deps.isAdminUserId(ctx.from?.id) ? "admin" : this.deps.isTrustedUserId(ctx.from?.id) ? "trusted" : "allowed";
+      const answer = await this.deps.opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, accessRole);
       if (task.cancelled || this.activeTask?.id !== task.id) {
         await logger.warn(`discarding stale prompt result for task ${task.id}`);
         return;

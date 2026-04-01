@@ -39,6 +39,7 @@ export {
   getReminder,
   getReminderEvent,
   listPendingReminders,
+  pruneInactiveReminderEvents,
   readReminderEvents,
   readReminders,
   resolveReminderTimezone,

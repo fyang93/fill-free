@@ -1,6 +1,7 @@
-import { appendFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rmdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { OpenCodeService } from "./opencode";
+import { pruneInactiveReminderEvents } from "./reminders";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
 import { state } from "./state";
@@ -115,6 +116,36 @@ async function appendDreamLog(config: AppConfig, entry: string): Promise<void> {
   await appendFile(logPath, entry, "utf8");
 }
 
+async function removeEmptyDirsUnder(root: string, dir = root): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(dir, entry.name);
+    removed.push(...await removeEmptyDirsUnder(root, fullPath));
+  }
+
+  if (dir === root) return removed;
+
+  try {
+    const remaining = await readdir(dir);
+    if (remaining.length === 0) {
+      await rmdir(dir);
+      removed.push(path.relative(root, dir) || ".");
+    }
+  } catch {
+    // ignore concurrent or permission failures
+  }
+
+  return removed.sort((a, b) => a.localeCompare(b));
+}
+
 export function startDreamLoop(
   config: AppConfig,
   opencode: OpenCodeService,
@@ -134,6 +165,30 @@ export function startDreamLoop(
 
     const idleMs = Date.now() - new Date(lastActivityAt).getTime();
     if (!Number.isFinite(idleMs) || idleMs < config.dreaming.idleAfterMs) return;
+
+    const reminderCleanup = await pruneInactiveReminderEvents(config);
+    if (reminderCleanup.removed > 0) {
+      await logger.info(`dream loop pruned ${reminderCleanup.removed} inactive reminders`);
+      await appendDreamLog(config, [
+        `## ${new Date().toISOString()}`,
+        `trigger: idle ${Math.round(idleMs / 1000)}s + reminder cleanup`,
+        `summary: pruned ${reminderCleanup.removed} inactive reminders`,
+        `deleted: ${reminderCleanup.removedIds.join(", ")}`,
+        "",
+      ].join("\n"));
+    }
+
+    const removedEmptyTmpDirs = await removeEmptyDirsUnder(config.paths.tmpDir);
+    if (removedEmptyTmpDirs.length > 0) {
+      await logger.info(`dream loop removed ${removedEmptyTmpDirs.length} empty tmp directories`);
+      await appendDreamLog(config, [
+        `## ${new Date().toISOString()}`,
+        `trigger: idle ${Math.round(idleMs / 1000)}s + tmp cleanup`,
+        `summary: removed ${removedEmptyTmpDirs.length} empty tmp directories`,
+        `deleted: ${removedEmptyTmpDirs.map((item) => path.join(path.relative(config.paths.repoRoot, config.paths.tmpDir), item)).join(", ")}`,
+        "",
+      ].join("\n"));
+    }
 
     const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
     const currentFingerprint = snapshotFingerprint(beforeSnapshot);
