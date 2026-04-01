@@ -84,6 +84,8 @@ export type ReminderEvent = {
   createdAt: string;
   updatedAt?: string;
   ownerUserId?: number;
+  targetUserId?: number;
+  targetDisplayName?: string;
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
   deliveryPreparedNotificationId?: string;

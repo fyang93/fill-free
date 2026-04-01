@@ -67,6 +67,7 @@ function advanceOccurrence(event: ReminderEvent, now: Date): void {
 }
 
 function reminderRecipients(config: AppConfig, event: ReminderEvent): number[] {
+  if (typeof event.targetUserId === "number" && Number.isInteger(event.targetUserId)) return [event.targetUserId];
   if (typeof event.ownerUserId === "number" && Number.isInteger(event.ownerUserId)) return [event.ownerUserId];
   return config.telegram.allowedUserIds;
 }

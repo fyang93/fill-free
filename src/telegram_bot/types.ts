@@ -50,6 +50,8 @@ export type PromptAttachment = {
 export type SessionState = {
   model: string | null;
   lastActivityAt: string | null;
+  lastDreamedAt: string | null;
   recentUploadsByScope: Record<string, { files: UploadedFile[]; recentUploadsAt: string | null }>;
   userTimezones: Record<string, { timezone: string; updatedAt: string }>;
+  telegramUsers: Record<string, { username?: string; firstName?: string; lastName?: string; displayName: string; lastSeenAt: string }>;
 };

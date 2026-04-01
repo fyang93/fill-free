@@ -10,7 +10,6 @@ import {
   getRecentUploads,
   hasRecentUploads,
   rememberUploads,
-  rememberUserTimezone,
   persistState,
   retainRecentUploads,
   touchActivity,
@@ -18,7 +17,8 @@ import {
 import { t } from "./i18n";
 import { accessLevelForUserId } from "./access";
 import type { OpenCodeService } from "./opencode";
-import { createReminderEventWithDefaults, normalizeRecurrence, normalizeScheduledAt, prepareReminderDeliveryText, reminderEventScheduleSummary, resolveReminderTimezone, isValidReminderTimezone, updateReminderEvent, type ReminderNotification, type ReminderSchedule } from "./reminders";
+import { buildReminderPromptContext, rememberTelegramParticipants } from "./telegram_identity";
+import { createStructuredReminders } from "./reminder_intent";
 
 export const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
 
@@ -117,9 +117,7 @@ export class PromptController {
       await editMessageTextFormatted(ctx, chatId, messageId, text, options as Parameters<typeof editMessageTextFormatted>[4]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/message is not modified|400: Bad Request/i.test(message)) {
-        return;
-      }
+      if (/message is not modified|400: Bad Request/i.test(message)) return;
       throw error;
     }
   }
@@ -137,7 +135,9 @@ export class PromptController {
       }
 
       touchActivity();
-      const userId = ctx.from?.id;
+      if (rememberTelegramParticipants(this.deps.config, ctx)) {
+        await persistState(this.deps.config.paths.stateFile);
+      }
       const scope = this.conversationScope(ctx);
       const recentUploads = getRecentUploads(scope.key);
       const { files: validRecentUploads, attachments } = await this.buildRecentAttachments(scope.key, recentUploads);
@@ -175,6 +175,9 @@ export class PromptController {
       if (!uploaded) return;
 
       touchActivity();
+      if (rememberTelegramParticipants(this.deps.config, ctx)) {
+        await persistState(this.deps.config.paths.stateFile);
+      }
       await logger.info(`saved telegram file ${uploaded.savedPath}`);
       const scope = this.conversationScope(ctx);
       rememberUploads(scope.key, [uploaded]);
@@ -209,9 +212,7 @@ export class PromptController {
 
   private async messageReferenceTime(ctx: Context): Promise<string> {
     const unixSeconds = ctx.message?.date;
-    if (typeof unixSeconds === "number") {
-      return new Date(unixSeconds * 1000).toISOString();
-    }
+    if (typeof unixSeconds === "number") return new Date(unixSeconds * 1000).toISOString();
     return getAccurateNowIso();
   }
 
@@ -234,138 +235,27 @@ export class PromptController {
       await logger.warn(`skipping missing recent upload: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
     }
 
-    if (validFiles.length !== files.length) {
-      retainRecentUploads(scopeKey, validFiles);
-    }
-
+    if (validFiles.length !== files.length) retainRecentUploads(scopeKey, validFiles);
     return { files: validFiles, attachments };
   }
 
   private async pruneRecentUploads(scopeKey: string): Promise<void> {
     if (!hasRecentUploads(scopeKey)) return;
     const recentUploads = getRecentUploads(scopeKey);
-    const settled = await Promise.allSettled(
-      recentUploads.map(async (file) => {
-        await stat(file.absolutePath);
-        return file;
-      }),
-    );
+    const settled = await Promise.allSettled(recentUploads.map(async (file) => {
+      await stat(file.absolutePath);
+      return file;
+    }));
 
     const validFiles: UploadedFile[] = [];
     for (const result of settled) {
-      if (result.status === "fulfilled") {
-        validFiles.push(result.value);
-      }
+      if (result.status === "fulfilled") validFiles.push(result.value);
     }
 
     if (validFiles.length !== recentUploads.length) {
       retainRecentUploads(scopeKey, validFiles);
       await logger.info(`pruned stale recent uploads: ${recentUploads.length - validFiles.length} removed`);
     }
-  }
-
-  private buildReminderSchedule(raw: Record<string, unknown>): ReminderSchedule {
-    const kind = typeof raw.kind === "string" ? raw.kind : "once";
-    if (kind === "once") {
-      return { kind: "once", scheduledAt: normalizeScheduledAt(String(raw.scheduledAt || "")) };
-    }
-    if (kind === "interval") {
-      const recurrence = normalizeRecurrence(raw);
-      if (recurrence.kind !== "interval") throw new Error("Invalid interval reminder schedule");
-      return { kind: "interval", unit: recurrence.unit, every: recurrence.every, anchorAt: normalizeScheduledAt(String(raw.anchorAt || raw.scheduledAt || "")) };
-    }
-    if (kind === "weekly") {
-      const recurrence = normalizeRecurrence(raw);
-      const time = raw.time && typeof raw.time === "object" ? raw.time as Record<string, unknown> : {};
-      if (recurrence.kind !== "weekly") throw new Error("Invalid weekly reminder schedule");
-      return {
-        kind: "weekly",
-        every: recurrence.every,
-        daysOfWeek: recurrence.daysOfWeek,
-        time: { hour: Number(time.hour), minute: Number(time.minute) },
-        anchorDate: typeof raw.anchorDate === "string" ? raw.anchorDate : undefined,
-      };
-    }
-    if (kind === "monthly") {
-      const recurrence = normalizeRecurrence(raw);
-      const time = raw.time && typeof raw.time === "object" ? raw.time as Record<string, unknown> : {};
-      if (recurrence.kind !== "monthly") throw new Error("Invalid monthly reminder schedule");
-      if (recurrence.mode === "dayOfMonth") {
-        return { kind: "monthly", every: recurrence.every, mode: recurrence.mode, dayOfMonth: recurrence.dayOfMonth, time: { hour: Number(time.hour), minute: Number(time.minute) }, anchorDate: typeof raw.anchorDate === "string" ? raw.anchorDate : undefined };
-      }
-      return { kind: "monthly", every: recurrence.every, mode: recurrence.mode, weekOfMonth: recurrence.weekOfMonth, dayOfWeek: recurrence.dayOfWeek, time: { hour: Number(time.hour), minute: Number(time.minute) }, anchorDate: typeof raw.anchorDate === "string" ? raw.anchorDate : undefined };
-    }
-    if (kind === "yearly") {
-      const recurrence = normalizeRecurrence(raw);
-      const time = raw.time && typeof raw.time === "object" ? raw.time as Record<string, unknown> : {};
-      if (recurrence.kind !== "yearly") throw new Error("Invalid yearly reminder schedule");
-      return { kind: "yearly", every: recurrence.every, month: recurrence.month, day: recurrence.day, time: { hour: Number(time.hour), minute: Number(time.minute) } };
-    }
-    if (kind === "lunarYearly") {
-      const recurrence = normalizeRecurrence(raw);
-      const time = raw.time && typeof raw.time === "object" ? raw.time as Record<string, unknown> : {};
-      if (recurrence.kind !== "lunarYearly") throw new Error("Invalid lunar reminder schedule");
-      return { kind: "lunarYearly", month: recurrence.month, day: recurrence.day, isLeapMonth: recurrence.isLeapMonth, leapMonthPolicy: recurrence.leapMonthPolicy, time: { hour: Number(time.hour), minute: Number(time.minute) } };
-    }
-    throw new Error(`Unsupported reminder schedule kind: ${kind}`);
-  }
-
-  private buildReminderNotifications(raw: unknown): ReminderNotification[] | undefined {
-    if (!Array.isArray(raw)) return undefined;
-    const notifications: ReminderNotification[] = [];
-    raw.forEach((item, index) => {
-      if (!item || typeof item !== "object") return;
-      const record = item as Record<string, unknown>;
-      const offsetMinutes = Number(record.offsetMinutes);
-      if (!Number.isInteger(offsetMinutes)) return;
-      notifications.push({
-        id: typeof record.id === "string" && record.id.trim() ? record.id.trim() : `n${index + 1}`,
-        offsetMinutes,
-        enabled: record.enabled !== false,
-        label: typeof record.label === "string" && record.label.trim() ? record.label.trim() : undefined,
-      });
-    });
-    return notifications.length > 0 ? notifications : undefined;
-  }
-
-  private async createStructuredReminders(rawReminders: Array<Record<string, unknown>>, userId?: number, telegramMessageTime?: string): Promise<string[]> {
-    const created: string[] = [];
-    let timezoneChanged = false;
-    for (const raw of rawReminders) {
-      const title = typeof raw.title === "string" ? raw.title.trim() : "";
-      const scheduleRaw = raw.schedule;
-      if (!title || !scheduleRaw || typeof scheduleRaw !== "object") continue;
-      const explicitTimezone = typeof raw.timezone === "string" && raw.timezone.trim() ? raw.timezone.trim() : undefined;
-      const timeSemantics = raw.timeSemantics === "absolute" || raw.timeSemantics === "local" ? raw.timeSemantics : undefined;
-      const event = await createReminderEventWithDefaults(this.deps.config, {
-        title,
-        note: typeof raw.note === "string" ? raw.note.trim() || undefined : undefined,
-        schedule: this.buildReminderSchedule(scheduleRaw as Record<string, unknown>),
-        category: raw.category === "special" ? "special" : raw.category === "routine" ? "routine" : undefined,
-        specialKind: raw.specialKind === "birthday" || raw.specialKind === "festival" || raw.specialKind === "anniversary" || raw.specialKind === "memorial" ? raw.specialKind : undefined,
-        kind: raw.kind === "routine" || raw.kind === "meeting" || raw.kind === "birthday" || raw.kind === "anniversary" || raw.kind === "festival" || raw.kind === "memorial" || raw.kind === "task" || raw.kind === "custom" ? raw.kind : undefined,
-        timeSemantics,
-        timezone: resolveReminderTimezone(this.deps.config, { explicitTimezone, telegramMessageTime, timeSemantics, userId }),
-        ownerUserId: userId,
-        notifications: this.buildReminderNotifications(raw.notifications),
-      });
-      try {
-        if (await prepareReminderDeliveryText(this.deps.config, this.deps.opencode, event)) {
-          await updateReminderEvent(this.deps.config, event);
-        }
-      } catch (error) {
-        await logger.warn(`failed to pre-generate reminder message for ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      if (explicitTimezone && isValidReminderTimezone(explicitTimezone)) {
-        rememberUserTimezone(userId, explicitTimezone);
-        timezoneChanged = true;
-      }
-      created.push(t(this.deps.config, "reminder_created", { schedule: reminderEventScheduleSummary(this.deps.config, event), text: event.title }));
-    }
-    if (timezoneChanged) {
-      await persistState(this.deps.config.paths.stateFile);
-    }
-    return created;
   }
 
   private renderWaitingText(template: string, waitingMessage: string): string {
@@ -448,29 +338,31 @@ export class PromptController {
 
     try {
       const accessRole = this.deps.isAdminUserId(userId) ? "admin" : this.deps.isTrustedUserId(userId) ? "trusted" : "allowed";
-      const answer = await this.deps.opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole);
+      const reminderPromptContext = buildReminderPromptContext(this.deps.config, ctx);
+      const effectivePromptText = reminderPromptContext ? `${promptText}\n\n${reminderPromptContext}` : promptText;
+      const answer = await this.deps.opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole);
       if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
         await logger.warn(`discarding stale prompt result for task ${task.id}`);
         return;
       }
 
       this.stopWaitingMessageRotation(task);
-      const reminderMessages = await this.createStructuredReminders(answer.reminders as Array<Record<string, unknown>>, userId, telegramMessageTime);
+      const reminderResult = await createStructuredReminders(this.deps.config, this.deps.opencode, answer.reminders, ctx, userId, telegramMessageTime);
+      const reminderSummary = reminderResult.created.length === 1
+        ? reminderResult.created[0]
+        : reminderResult.created.length > 1
+          ? t(this.deps.config, "reminder_created_batch", { count: reminderResult.created.length, items: reminderResult.created.map((item) => `- ${item}`).join("\n") })
+          : "";
       const finalMessage = [
         answer.message || t(this.deps.config, "generic_done"),
-        reminderMessages.length === 1
-          ? reminderMessages[0]
-          : reminderMessages.length > 1
-            ? t(this.deps.config, "reminder_created_batch", { count: reminderMessages.length, items: reminderMessages.map((item) => `- ${item}`).join("\n") })
-            : "",
+        reminderSummary,
+        ...reminderResult.clarifications,
       ].filter(Boolean).join("\n\n");
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, finalMessage);
 
       if (answer.attachments.length > 0) {
         const sentAttachments = await sendPromptAttachments(ctx, this.deps.config, answer.attachments);
-        if (sentAttachments > 0) {
-          await logger.info(`sent ${sentAttachments} direct attachments back to telegram`);
-        }
+        if (sentAttachments > 0) await logger.info(`sent ${sentAttachments} direct attachments back to telegram`);
       }
 
       if (answer.files.length > 0) {
@@ -498,9 +390,7 @@ export class PromptController {
       await this.setReactionSafe(ctx, "😞");
     } finally {
       this.stopWaitingMessageRotation(task);
-      if (this.activeTasks.get(scope.key)?.id === task.id) {
-        this.activeTasks.delete(scope.key);
-      }
+      if (this.activeTasks.get(scope.key)?.id === task.id) this.activeTasks.delete(scope.key);
     }
   }
 }

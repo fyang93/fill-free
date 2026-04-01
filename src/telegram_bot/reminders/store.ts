@@ -19,6 +19,8 @@ export type ReminderEventDraft = {
   createdAt?: string;
   updatedAt?: string;
   ownerUserId?: number;
+  targetUserId?: number;
+  targetDisplayName?: string;
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
   deliveryPreparedNotificationId?: string;
@@ -171,6 +173,8 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
   const category = record.category === "special" ? "special" : "routine";
   const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial" ? record.specialKind : undefined;
   const ownerUserId = typeof record.ownerUserId === "number" && Number.isInteger(record.ownerUserId) ? record.ownerUserId : undefined;
+  const targetUserId = typeof record.targetUserId === "number" && Number.isInteger(record.targetUserId) ? record.targetUserId : undefined;
+  const targetDisplayName = typeof record.targetDisplayName === "string" && record.targetDisplayName.trim() ? record.targetDisplayName.trim() : undefined;
   const deliveryText = typeof record.deliveryText === "string" && record.deliveryText.trim() ? record.deliveryText.trim() : undefined;
   const deliveryTextGeneratedAt = typeof record.deliveryTextGeneratedAt === "string" && record.deliveryTextGeneratedAt.trim() ? record.deliveryTextGeneratedAt.trim() : undefined;
   const deliveryPreparedNotificationId = typeof record.deliveryPreparedNotificationId === "string" && record.deliveryPreparedNotificationId.trim() ? record.deliveryPreparedNotificationId.trim() : undefined;
@@ -192,6 +196,8 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
     createdAt,
     updatedAt,
     ownerUserId,
+    targetUserId,
+    targetDisplayName,
     deliveryText,
     deliveryTextGeneratedAt,
     deliveryPreparedNotificationId,
@@ -353,6 +359,8 @@ export function buildReminderEvent(draft: ReminderEventDraft): ReminderEvent {
     createdAt: draft.createdAt || new Date().toISOString(),
     updatedAt: draft.updatedAt,
     ownerUserId: draft.ownerUserId,
+    targetUserId: draft.targetUserId,
+    targetDisplayName: draft.targetDisplayName,
     deliveryText: draft.deliveryText,
     deliveryTextGeneratedAt: draft.deliveryTextGeneratedAt,
     deliveryPreparedNotificationId: draft.deliveryPreparedNotificationId,
@@ -460,6 +468,8 @@ export async function createReminder(
     timeSemantics?: ReminderTimeSemantics;
     timezone?: string;
     ownerUserId?: number;
+    targetUserId?: number;
+    targetDisplayName?: string;
     notifications?: ReminderNotification[];
   },
 ): Promise<Reminder> {
@@ -493,6 +503,8 @@ export async function createReminder(
     createdAt: reminder.createdAt,
     updatedAt: reminder.sentAt,
     ownerUserId: metadata?.ownerUserId ?? reminder.ownerUserId,
+    targetUserId: metadata?.targetUserId,
+    targetDisplayName: metadata?.targetDisplayName,
     status: baseEvent.status,
   });
   event.id = reminder.id;

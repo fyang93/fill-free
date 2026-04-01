@@ -4,7 +4,7 @@ import type { OpenCodeService } from "./opencode";
 import { pruneInactiveReminderEvents } from "./reminders";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
-import { state } from "./state";
+import { persistState, state } from "./state";
 
 const MEMORY_AGENT_SKILL_PATH = path.join(process.cwd(), ".agents/skills/memory-agent/SKILL.md");
 
@@ -30,16 +30,39 @@ async function loadMemoryAgentRules(): Promise<string> {
   }
 }
 
-async function buildDreamRequest(): Promise<string> {
+function recentlyChangedFiles(snapshot: MemorySnapshot, lastDreamedAt: string | null): string[] {
+  if (!lastDreamedAt) return [...snapshot.keys()].sort((a, b) => a.localeCompare(b));
+  const since = Date.parse(lastDreamedAt);
+  if (!Number.isFinite(since)) return [...snapshot.keys()].sort((a, b) => a.localeCompare(b));
+  return [...snapshot.entries()]
+    .filter(([, info]) => info.mtimeMs > since)
+    .map(([filePath]) => filePath)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+async function buildDreamRequest(lastDreamedAt: string | null, changedFiles: string[]): Promise<string> {
   const memoryAgentRules = await loadMemoryAgentRules();
+  const conciseRules = memoryAgentRules
+    ? [
+        "Follow memory-agent rules, especially:",
+        "- keep long-term markdown under memory/",
+        "- keep long-term files under assets/",
+        "- keep memory links pointing to real asset paths",
+        "- merge into existing topic notes when it clearly fits",
+        "- preserve uncertainty instead of inventing",
+        "- do not treat other repository areas as general memory",
+        "- do not claim changes unless the repository was actually updated",
+      ].join("\n")
+    : "";
   return [
-    "The bot is idle. Reorganize long-term memory in this repository, mainly under memory/.",
-    "Follow the repository memory workflow and the memory-agent rules below.",
-    memoryAgentRules ? `Memory-agent rules:\n\n${memoryAgentRules}` : "",
-    "You may create, merge, split, rename, or delete old note files during reorganization, but do not lose information.",
-    "If something is uncertain, preserve the uncertainty instead of inventing a resolution.",
-    "If no meaningful reorganization is needed, leave the repository unchanged.",
-    "After finishing, reply with a short summary of what changed, or say that no cleanup was needed.",
+    "Idle memory maintenance.",
+    lastDreamedAt ? `Last dreaming: ${lastDreamedAt}` : "Last dreaming: none",
+    changedFiles.length > 0
+      ? `Files changed since last dreaming:\n${changedFiles.map((filePath) => `- ${filePath}`).join("\n")}`
+      : "Files changed since last dreaming: none",
+    "Focus on changed files first. Inspect other memory files only if needed for merging or consistency.",
+    conciseRules,
+    "Reply with a short summary of repository changes, or say no change.",
   ].filter(Boolean).join("\n\n");
 }
 
@@ -196,15 +219,17 @@ export function startDreamLoop(
 
     const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
     const currentFingerprint = snapshotFingerprint(beforeSnapshot);
-    if (!currentFingerprint) {
+    const changedFiles = recentlyChangedFiles(beforeSnapshot, state.lastDreamedAt);
+    if (!currentFingerprint || (changedFiles.length === 0 && lastDreamedFingerprint === currentFingerprint)) {
       if (deps.onChange && preChanges.length > 0) {
-        await deps.onChange(["🧠 Dreaming 完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
+        await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
       }
       return;
     }
-    if (lastDreamedFingerprint === currentFingerprint) {
+    if (changedFiles.length === 0) {
+      lastDreamedFingerprint = currentFingerprint;
       if (deps.onChange && preChanges.length > 0) {
-        await deps.onChange(["🧠 Dreaming 完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
+        await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
       }
       return;
     }
@@ -212,13 +237,15 @@ export function startDreamLoop(
     running = true;
     const startedAt = new Date().toISOString();
     try {
-      await logger.info(`dream loop starting after ${idleMs}ms idle`);
-      const request = await buildDreamRequest();
+      await logger.info(`dream loop starting after ${idleMs}ms idle changedFiles=${changedFiles.length}`);
+      const request = await buildDreamRequest(state.lastDreamedAt, changedFiles);
       const summary = await withTimeout(opencode.runMemoryDream(request), config.dreaming.timeoutMs, "dream loop");
       const afterSnapshot = await memorySnapshot(config.paths.repoRoot);
       const afterFingerprint = snapshotFingerprint(afterSnapshot);
       const changes = diffSnapshots(beforeSnapshot, afterSnapshot);
       lastDreamedFingerprint = afterFingerprint;
+      state.lastDreamedAt = startedAt;
+      await persistState(config.paths.stateFile);
       await logger.info(`dream loop finished: ${summary || "(empty summary)"}`);
       await appendDreamLog(config, [
         `## ${startedAt}`,
@@ -231,7 +258,7 @@ export function startDreamLoop(
       ].join("\n"));
       const memoryChanged = changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0;
       if (deps.onChange && (preChanges.length > 0 || memoryChanged)) {
-        const lines = ["🧠 Dreaming 完成"];
+        const lines = ["🧠 入梦完成"];
         if (preChanges.length > 0) lines.push(...preChanges.map((item) => `- ${item}`));
         if (memoryChanged) {
           lines.push(`- 记忆整理摘要：${summary || "已完成整理"}`);

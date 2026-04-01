@@ -96,6 +96,7 @@ function eventDetailText(config: AppConfig, event: ReminderEvent): string {
   return [
     `⏰ ${event.title}`,
     `时间：${reminderEventScheduleSummary(config, event)}`,
+    `对象：${event.targetDisplayName || (typeof event.targetUserId === "number" ? String(event.targetUserId) : "自己")}`,
     `时间语义：${timeSemanticsLabel(event)}`,
     ...(event.timeSemantics === "absolute" ? [`时区：${event.timezone}`] : []),
     `提醒：`,

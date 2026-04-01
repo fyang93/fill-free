@@ -24,6 +24,13 @@ export type OpenCodeMessage = {
   info?: { structured_output?: unknown };
 };
 
+export type PromptReminderTarget = {
+  id?: number;
+  username?: string;
+  displayName?: string;
+  role?: string;
+};
+
 export type PromptReminderDraft = {
   title: string;
   note?: string;
@@ -34,6 +41,7 @@ export type PromptReminderDraft = {
   timeSemantics?: "absolute" | "local";
   timezone?: string;
   notifications?: Array<{ id?: string; offsetMinutes: number; enabled?: boolean; label?: string }>;
+  targetUser?: PromptReminderTarget;
 };
 
 export type PromptResult = {

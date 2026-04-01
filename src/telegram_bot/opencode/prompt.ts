@@ -22,67 +22,46 @@ export function loadAgentsPrompt(repoRoot: string): string {
 }
 
 export function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, telegramMessageTime?: string, accessRole: PromptAccessRole = "allowed"): string {
-  const userRequest = text.trim() || "Handle the attached Telegram input according to AGENTS.md and the repository note workflow.";
+  const userRequest = text.trim() || "Handle the Telegram input according to AGENTS.md.";
 
-  const common: string[] = [
+  const common = [
     "Follow AGENTS.md.",
     telegramMessageTime ? `Telegram message time: ${telegramMessageTime}` : "",
     `Reply in ${replyLanguage}.`,
-    "If you need the bot to send repository files back or create reminders, reply with JSON only: {\"message\": string, \"files\": string[], \"reminders\": [] }.",
-    "Keep the JSON minimal.",
-    "Reminder objects must use the current schema only: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\" }.",
-    "For a one-time reminder, use schedule={\"kind\":\"once\",\"scheduledAt\":\"ISO-8601\"}. For recurring reminders, put recurrence details inside schedule.kind and its required fields.",
-    "Do not use legacy reminder keys like \"text\", \"due\", \"when\", or free-form date fields outside schedule.",
-    "For reminders, include only fields you are confident about. Timezone is mainly for fixed appointments, not routine local-time habits.",
-    "Non-text output is also allowed.",
-  ];
+    "If you need files or reminders, reply with JSON only: {\"message\": string, \"files\": string[], \"reminders\": []}.",
+    "Use the current reminder schema only: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", \"targetUser\" }.",
+    "Use targetUser only when the user clearly wants another recipient.",
+    personaStyle ? `Telegram reply style: ${personaStyle}` : "",
+  ].filter(Boolean);
 
-  if (accessRole === "admin") {
-    common.push(
-      "Admin user: you may read and modify repository memory/files when needed.",
-      "Admin-only exception: config.toml and runtime configuration may be changed, but only when the admin explicitly asks for it.",
-      "Use AGENTS.md for memory or file changes.",
-      personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
-    );
-  } else if (accessRole === "trusted") {
-    common.push(
-      "Trusted user: you may read and modify repository memory/files when needed, including private long-term memory, reminders, and personal repository data.",
-      "Never modify config.toml or runtime configuration for a trusted user; treat config as read-only unless the requester is the admin user.",
-      "Use AGENTS.md for memory or file changes.",
-      personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
-    );
-  } else {
-    common.push(
-      "Allowed user: treat the repository as read-only for non-sensitive informational requests only.",
-      "Do not reveal or summarize private long-term memory, reminders, personal files, secrets, or other sensitive repository data.",
-      "Do not modify files or long-term memory.",
-      "Never modify config.toml or runtime configuration.",
-      personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
-    );
-  }
+  const access = accessRole === "admin"
+    ? [
+        "Requester role: admin.",
+        "Repository memory and files may be updated when needed.",
+        "config.toml or runtime configuration may change only on explicit admin request.",
+      ]
+    : accessRole === "trusted"
+      ? [
+          "Requester role: trusted.",
+          "Repository memory, reminders, and files may be updated when needed.",
+          "Do not modify config.toml or runtime configuration.",
+        ]
+      : [
+          "Requester role: allowed.",
+          "Treat repository memory and files as read-only.",
+          "Do not reveal private repository data.",
+          "Do not modify config.toml or runtime configuration.",
+        ];
 
-  const effectiveCommon = common.filter(Boolean);
+  const lines = ["User request:", userRequest, "", ...common, ...access];
 
-  if (uploadedFiles.length === 0) {
-    return [
-      "User request:",
-      userRequest,
+  if (uploadedFiles.length > 0) {
+    lines.splice(0, 0,
+      "Saved Telegram files:",
+      ...uploadedFiles.map((file) => `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB, source=${file.source})`),
       "",
-      ...effectiveCommon,
-    ].join("\n");
+    );
   }
 
-  const fileBlock = uploadedFiles
-    .map((file) => `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB, source=${file.source})`)
-    .join("\n");
-  return [
-    "The user uploaded files through Telegram.",
-    "Saved files:",
-    fileBlock,
-    "",
-    "User request:",
-    userRequest,
-    "",
-    ...effectiveCommon,
-  ].join("\n");
+  return lines.join("\n");
 }
