@@ -15,8 +15,8 @@ A local-first Telegram bot for managing personal information, organizing materia
 
 The bot has three practical permission levels:
 
-- `allowed user`: may chat with the bot and ask informational questions. Repository content should be treated as read-only. Cannot modify long-term memory, files, reminders-as-data, or runtime config.
-- `trusted user`: may ask the bot to modify repository memory/files and other persistent data, including reminder data. Still cannot request changes to `config.toml` or runtime configuration.
+- `allowed user`: may chat with the bot and ask non-sensitive informational questions. Repository content should be treated as read-only and privacy-restricted. Cannot read or extract private long-term memory, reminders, personal files, secrets, or other sensitive repository data. Cannot modify long-term memory, files, reminders-as-data, or runtime config.
+- `trusted user`: may read and modify repository memory/files and other persistent data, including private long-term memory and reminder data. Still cannot request changes to `config.toml` or runtime configuration.
 - `admin user`: effectively a trusted user plus admin-only operations. The admin can request `config.toml` / runtime config changes, receives startup and config-reload notices, and can use admin-only commands like `/new` and `/model`.
 
 Notes:
@@ -76,8 +76,8 @@ If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
 ### `[telegram]`
 
 - `bot_token`: your Telegram bot token from BotFather.
-- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in read-only mode.
-- `trusted_user_ids`: users allowed to modify memory, files, reminders, and other persistent repository data.
+- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in privacy-restricted read-only mode. They may ask general questions, but should not be allowed to read private memory, reminders, personal files, or secrets.
+- `trusted_user_ids`: users allowed to read and modify memory, files, reminders, and other persistent repository data.
 - `admin_user_id`: optional admin user ID. The admin is treated as trusted automatically, receives startup/config-reload notices, can change runtime config, and can use admin-only commands like `/new` and `/model`.
 - `max_file_size_mb`: max upload size accepted by the bot.
 - `persona_style`: optional reply style instruction for the assistant.

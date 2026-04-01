@@ -15,8 +15,8 @@
 
 这个 bot 实际上有三档权限：
 
-- `allowed user`：可以和 bot 对话、提问、查询信息；仓库应视为只读。不能修改长期记忆、文件、提醒数据或运行时配置。
-- `trusted user`：可以要求 bot 修改仓库里的记忆、文件、提醒和其他持久化数据；但仍然不能要求修改 `config.toml` 或运行时配置。
+- `allowed user`：可以和 bot 对话、提问、查询非敏感信息；仓库应视为只读，而且要受隐私限制。不能读取或导出长期私密记忆、提醒详情、个人文件、密钥等敏感仓库数据，也不能修改长期记忆、文件、提醒数据或运行时配置。
+- `trusted user`：可以读取和修改仓库里的记忆、文件、提醒和其他持久化数据，包括私密的长期记忆和提醒数据；但仍然不能要求修改 `config.toml` 或运行时配置。
 - `admin user`：相当于 trusted user 再加管理权限。admin 可以要求修改 `config.toml` / 运行时配置，会收到启动问候和配置热重载通知，还可以使用 `/new`、`/model` 这类管理命令。
 
 补充说明：
@@ -76,8 +76,8 @@ just serve
 ### `[telegram]`
 
 - `bot_token`：从 BotFather 获取的 Telegram Bot Token。
-- `allowed_user_ids`：允许和 bot 对话、但默认只能只读使用的 Telegram 用户 ID 列表。
-- `trusted_user_ids`：允许修改记忆、文件、提醒和其他持久化仓库数据的用户 ID 列表。
+- `allowed_user_ids`：允许和 bot 对话、但属于“受隐私限制的只读”权限的 Telegram 用户 ID 列表。可以问一般问题，但不应读取私密记忆、提醒详情、个人文件或密钥等敏感数据。
+- `trusted_user_ids`：允许读取和修改记忆、文件、提醒和其他持久化仓库数据的用户 ID 列表。
 - `admin_user_id`：可选管理员用户 ID。admin 会自动被视为 trusted；此外还会收到启动 / 配置热重载通知，可以修改运行时配置，并能使用 `/new`、`/model` 这类管理命令。
 - `max_file_size_mb`：bot 接受的上传文件大小上限。
 - `persona_style`：可选的人设 / 回复风格说明。

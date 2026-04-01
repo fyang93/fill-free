@@ -44,14 +44,15 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     );
   } else if (accessRole === "trusted") {
     common.push(
-      "Trusted user: you may read and modify repository memory/files when needed.",
+      "Trusted user: you may read and modify repository memory/files when needed, including private long-term memory, reminders, and personal repository data.",
       "Never modify config.toml or runtime configuration for a trusted user; treat config as read-only unless the requester is the admin user.",
       "Use AGENTS.md for memory or file changes.",
       personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
     );
   } else {
     common.push(
-      "Allowed user: treat the repository as read-only unless the request is clearly informational.",
+      "Allowed user: treat the repository as read-only for non-sensitive informational requests only.",
+      "Do not reveal or summarize private long-term memory, reminders, personal files, secrets, or other sensitive repository data.",
       "Do not modify files or long-term memory.",
       "Never modify config.toml or runtime configuration.",
       personaStyle ? `Style for Telegram replies: ${personaStyle}` : "",
