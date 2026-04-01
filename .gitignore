@@ -9,15 +9,10 @@ build/
 node_modules/
 config.toml
 logs/
-
-.local/*
-!.local/.gitignore
+.telegram-state.json
 
 tmp/*
 !tmp/.gitkeep
-
-index/*
-!index/.gitkeep
 
 memory/**
 !memory/**/

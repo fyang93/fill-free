@@ -4,10 +4,8 @@ bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 allowed_user_ids = [123456789]
 # Users with full trusted access (can modify memory, files, etc.)
 trusted_user_ids = [123456789]
-# Optional main user ID; only this user receives startup greetings
-main_user_id = 123456789
-polling_timeout_sec = 20
-polling_interval_ms = 300
+# Optional admin user ID; only this user receives startup greetings
+admin_user_id = 123456789
 max_file_size_mb = 200
 persona_style = "Speak like the Defect from Slay the Spire."
 language = "zh"
@@ -22,6 +20,13 @@ repo_root = "."
 tmp_dir = "tmp"
 upload_subdir = "telegram"
 log_file = "logs/telegram-bot.log"
+state_file = ".telegram-state.json"
 
 [opencode]
 base_url = "http://127.0.0.1:4096"
+
+[dreaming]
+enabled = true
+idle_after_ms = 900000
+check_interval_ms = 60000
+timeout_ms = 300000

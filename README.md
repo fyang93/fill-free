@@ -2,112 +2,98 @@
 
 [中文说明](README.zh-CN.md)
 
-The Defect Bot is a local-first personal memory repo with a Telegram bot interface powered by OpenCode. It's not perfect, but free.
+A local-first Telegram bot for managing personal information, organizing materials, helping fill forms from memory, and reminders.
 
-## How You Use It
+## What it does
 
-You usually do not write notes in `memory/` by hand.
-
-- tell AI to remember or update reusable personal facts
-- put files in `tmp/` and ask AI to organize them
-- let AI move long-term files into `assets/` and link them from notes
-- ask AI to retrieve existing information when you need it again
-
-## Typical Requests
-
-```text
-Please remember that my birthday is 2000-01-01.
-Update my profile: my current phone number is 13800000000.
-I put my diploma in tmp/. Please organize it into memory.
-These two files are my ID card front and back. Store them and link them in my profile.
-Please organize the materials I need for this visa application.
-```
-
-By default, AI organizes files using filenames and your instructions. It does not read document contents unless you explicitly ask it to.
-
-## What The Repo Stores
-
-- `memory/`: committed AI-safe Markdown notes
-- `assets/`: long-term stored files and attachments
-- `tmp/`: temporary drop zone for files and intermediate outputs
-- `index/`: Telegram bot runtime state
+- manage and retrieve personal information
+- organize materials and files
+- help fill forms using remembered facts
+- create and manage reminders
 
 ## Setup
 
-Requirements:
+Use Nix or install dependencies manually.
+
+### Option 1: Nix
+
+If you use `direnv`, entering the repository will automatically activate the development environment.
+In that case, you can usually run:
+
+```bash
+just install
+```
+
+If you do not use `direnv`, enter the Nix shell manually:
+
+```bash
+nix develop
+just install
+```
+
+### Option 2: Manual
+
+Install:
 
 - `bun`
 - `just`
 - `fd`
 - `ripgrep`
 
-Install dependencies:
+Then:
 
 ```bash
-bun install
+just install
 ```
 
-## OpenCode + Telegram Bot
-
-Quick start:
+## Usage
 
 1. Copy `config.toml.example` to `config.toml`
 2. Fill in your Telegram bot config
-3. Start the bot:
+3. Start the bot
 
 ```bash
 just serve
 ```
 
-If OpenCode is already running on `127.0.0.1:4096`, the command reuses it.
+If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
 
-Useful config:
+## `config.toml` fields
 
-- `telegram.allowed_user_ids`: list of Telegram user IDs allowed to access the bot; these users are read-only by default (they can chat and query memory but cannot modify repo content)
-- `telegram.trusted_user_ids`: list of trusted Telegram user IDs with full privileges to modify notes, organize files, and update memory according to AGENTS.md
-- `telegram.main_user_id`: optional main Telegram user ID; only this user receives the startup greeting
-- `telegram.language`: controls both UI text and conversation reply language (`zh` or `en`)
-- `telegram.waiting_message`: initial in-progress message shown while a task is running
-- `telegram.waiting_message_candidates`: optional list of replacement waiting messages rotated using the configured interval
-- `telegram.waiting_message_rotation_ms`: rotation interval for waiting messages, defaults to `5000`
-- `telegram.persona_style`: tune the bot's reply tone
+### `[telegram]`
 
-## Telegram Bot
+- `bot_token`: your Telegram bot token from BotFather.
+- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot.
+- `trusted_user_ids`: users allowed to modify memory, files, and other persistent repository data.
+- `admin_user_id`: optional admin user ID. Only this user receives startup greetings and can use admin-only commands like `/new` and `/model`.
+- `max_file_size_mb`: max upload size accepted by the bot.
+- `persona_style`: optional reply style instruction for the assistant.
+- `language`: default reply language, `zh` or `en`.
+- `waiting_message`: temporary message shown while the bot is working.
+- `waiting_message_candidates`: optional alternative waiting messages used for rotation.
+- `waiting_message_rotation_ms`: how often to rotate waiting messages.
+- `reminder_message_timeout_ms`: timeout for generated reminder wording.
+- `menu_page_size`: number of items shown per Telegram menu page.
 
-Commands:
+### `[paths]`
 
-- `/help`
-- `/new`
-- `/model`
+- `repo_root`: repository root used by the bot.
+- `tmp_dir`: temporary working directory for uploaded files.
+- `upload_subdir`: subdirectory under `tmp_dir` for Telegram uploads.
+- `log_file`: main bot log file.
+- `state_file`: local state file path, usually `.telegram-state.json`.
 
-Usage:
+### `[opencode]`
 
-- send normal text to chat with the repo
-- upload files to save them under `tmp/telegram/<date>/`
-- add a caption to process uploaded files immediately
-- ask for an existing repo file or image and the bot can send it back
+- `base_url`: OpenCode server URL.
 
-## Commands
+### `[dreaming]`
 
-The top-level `justfile` is intentionally minimal:
+These are internal tuning fields. For normal use, keep the defaults.
 
-```bash
-just serve
-```
+## Typical uses
 
-For retrieval, prefer standard shell tools directly:
-
-```bash
-fd . memory
-rg -n "樱桃|郭旸" memory
-rg -n -C 2 "三井住友|SMBC" memory
-```
-
-In normal use, ask AI first. The repo now follows a minimal-tool philosophy similar to pi itself: keep the default surface area small, and rely on `fd`, `rg`, and direct file reads for most retrieval work. Frontmatter is still useful as lightweight structure, aliases, and summaries, but concrete answers should usually come from body search rather than a separate metadata index.
-
-For lower-noise retrieval, keep each markdown note topic-focused and keep tags sparse. A good default is at most 3 tags per note, with separate notes such as `memory/profile.md` and `memory/banking.md` instead of a single catch-all file. Prefer semantic scope over fixed length limits: split notes when they start covering multiple stable retrieval domains, not just because they became longer.
-
-## Sensitive Data
-
-Normal personal facts can be stored when you explicitly ask. Passwords can also be stored when you explicitly ask. For highly sensitive values such as API keys, private keys, recovery codes, credit card numbers, or CVV, AI should warn before storing them.
-
+- “Remember my passport number / address / bank info.”
+- “Organize these materials for me.”
+- “Use my saved info to help fill this form.”
+- “Remind me tomorrow at 9am to submit this application.”

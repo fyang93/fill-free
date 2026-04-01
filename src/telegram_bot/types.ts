@@ -3,9 +3,7 @@ export type AppConfig = {
     botToken: string;
     allowedUserIds: number[];
     trustedUserIds: number[];
-    mainUserId: number | null;
-    pollingTimeoutSec: number;
-    pollingIntervalMs: number;
+    adminUserId: number | null;
     maxFileSizeMb: number;
     personaStyle: string;
     language: "zh" | "en";
@@ -20,9 +18,16 @@ export type AppConfig = {
     tmpDir: string;
     uploadSubdir: string;
     logFile: string;
+    stateFile: string;
   };
   opencode: {
     baseUrl: string;
+  };
+  dreaming: {
+    enabled: boolean;
+    idleAfterMs: number;
+    checkIntervalMs: number;
+    timeoutMs: number;
   };
 };
 
@@ -42,17 +47,11 @@ export type PromptAttachment = {
   url: string;
 };
 
-export type PendingReminderConfirmation = {
-  originalRequest: string;
-  referenceTimeIso: string;
-  createdAt: string;
-};
-
 export type SessionState = {
   sessionId: string | null;
   model: string | null;
   lastActivityAt: string | null;
   recentUploads: UploadedFile[];
   recentUploadsAt: string | null;
-  pendingReminderConfirmation: PendingReminderConfirmation | null;
+  userTimezones: Record<string, { timezone: string; updatedAt: string }>;
 };

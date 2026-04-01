@@ -1,9 +1,14 @@
 import type { Bot, Context, InlineKeyboard } from "grammy";
 
+type TelegramFormatOptions = {
+  reply_markup?: InlineKeyboard;
+  parse_mode?: "Markdown";
+};
+
 async function withMarkdownFallback<T>(
-  send: (text: string, options?: Record<string, unknown>) => Promise<T>,
+  send: (text: string, options?: TelegramFormatOptions) => Promise<T>,
   text: string,
-  options?: Record<string, unknown>,
+  options?: Omit<TelegramFormatOptions, "parse_mode">,
 ): Promise<T> {
   try {
     return await send(text, { ...(options || {}), parse_mode: "Markdown" });
@@ -17,7 +22,7 @@ export async function replyFormatted(
   text: string,
   options?: { reply_markup?: InlineKeyboard },
 ): Promise<unknown> {
-  return withMarkdownFallback((nextText, nextOptions) => ctx.reply(nextText, nextOptions as any), text, options as Record<string, unknown> | undefined);
+  return withMarkdownFallback((nextText, nextOptions) => ctx.reply(nextText, nextOptions), text, options);
 }
 
 export async function editMessageTextFormatted(
@@ -28,9 +33,9 @@ export async function editMessageTextFormatted(
   options?: { reply_markup?: InlineKeyboard },
 ): Promise<unknown> {
   return withMarkdownFallback(
-    (nextText, nextOptions) => ctx.api.editMessageText(chatId, messageId, nextText, nextOptions as any),
+    (nextText, nextOptions) => ctx.api.editMessageText(chatId, messageId, nextText, nextOptions),
     text,
-    options as Record<string, unknown> | undefined,
+    options,
   );
 }
 
@@ -41,8 +46,8 @@ export async function sendMessageFormatted(
   options?: { reply_markup?: InlineKeyboard },
 ): Promise<unknown> {
   return withMarkdownFallback(
-    (nextText, nextOptions) => bot.api.sendMessage(chatId, nextText, nextOptions as any),
+    (nextText, nextOptions) => bot.api.sendMessage(chatId, nextText, nextOptions),
     text,
-    options as Record<string, unknown> | undefined,
+    options,
   );
 }

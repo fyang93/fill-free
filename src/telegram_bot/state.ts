@@ -1,10 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PendingReminderConfirmation, SessionState, UploadedFile } from "./types";
+import type { SessionState, UploadedFile } from "./types";
 
-const STATE_FILE = path.resolve(process.cwd(), "index/telegram-state.json");
 const RECENT_UPLOADS_TTL_MS = 30 * 60 * 1000;
-const PENDING_REMINDER_TTL_MS = 12 * 60 * 60 * 1000;
 
 export const state: SessionState = {
   sessionId: null,
@@ -12,26 +10,37 @@ export const state: SessionState = {
   lastActivityAt: null,
   recentUploads: [],
   recentUploadsAt: null,
-  pendingReminderConfirmation: null,
+  userTimezones: {},
 };
 
-export async function loadPersistentState(): Promise<void> {
+export async function loadPersistentState(filePath: string): Promise<void> {
   try {
-    const raw = await readFile(STATE_FILE, "utf8");
-    const parsed = JSON.parse(raw) as { model?: unknown; pendingReminderConfirmation?: unknown };
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as { model?: unknown; userTimezones?: unknown };
     state.model = typeof parsed.model === "string" && parsed.model.trim() ? parsed.model.trim() : null;
-    state.pendingReminderConfirmation = parsePendingReminderConfirmation(parsed.pendingReminderConfirmation);
+    state.userTimezones = parsed.userTimezones && typeof parsed.userTimezones === "object"
+      ? Object.fromEntries(
+          Object.entries(parsed.userTimezones as Record<string, unknown>)
+            .map(([userId, value]) => {
+              const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+              const timezone = typeof record.timezone === "string" && record.timezone.trim() ? record.timezone.trim() : "";
+              const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : new Date().toISOString();
+              return timezone ? [userId, { timezone, updatedAt }] : null;
+            })
+            .filter((item): item is [string, { timezone: string; updatedAt: string }] => Boolean(item)),
+        )
+      : {};
   } catch {
     state.model = null;
-    state.pendingReminderConfirmation = null;
+    state.userTimezones = {};
   }
 }
 
-export async function persistState(): Promise<void> {
-  await mkdir(path.dirname(STATE_FILE), { recursive: true });
+export async function persistState(filePath: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(
-    STATE_FILE,
-    JSON.stringify({ model: state.model, pendingReminderConfirmation: state.pendingReminderConfirmation }, null, 2) + "\n",
+    filePath,
+    JSON.stringify({ model: state.model, userTimezones: state.userTimezones }, null, 2) + "\n",
     "utf8",
   );
 }
@@ -42,6 +51,16 @@ export function touchActivity(): void {
 
 export function currentModel(): string {
   return state.model || "project default";
+}
+
+export function getUserTimezone(userId: number | undefined): string | null {
+  if (!userId) return null;
+  return state.userTimezones[String(userId)]?.timezone || null;
+}
+
+export function rememberUserTimezone(userId: number | undefined, timezone: string): void {
+  if (!userId || !timezone.trim()) return;
+  state.userTimezones[String(userId)] = { timezone: timezone.trim(), updatedAt: new Date().toISOString() };
 }
 
 export function rememberUploads(files: UploadedFile[]): void {
@@ -73,36 +92,4 @@ export function getRecentUploads(): UploadedFile[] {
     return [];
   }
   return state.recentUploads;
-}
-
-function parsePendingReminderConfirmation(value: unknown): PendingReminderConfirmation | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const originalRequest = typeof record.originalRequest === "string" ? record.originalRequest.trim() : "";
-  const referenceTimeIso = typeof record.referenceTimeIso === "string" ? record.referenceTimeIso.trim() : "";
-  const createdAt = typeof record.createdAt === "string" ? record.createdAt.trim() : "";
-  if (!originalRequest || !referenceTimeIso || !createdAt) return null;
-  return { originalRequest, referenceTimeIso, createdAt };
-}
-
-export function getPendingReminderConfirmation(): PendingReminderConfirmation | null {
-  const pending = state.pendingReminderConfirmation;
-  if (!pending) return null;
-  const ageMs = Date.now() - new Date(pending.createdAt).getTime();
-  if (!Number.isFinite(ageMs) || ageMs > PENDING_REMINDER_TTL_MS) {
-    state.pendingReminderConfirmation = null;
-    void persistState();
-    return null;
-  }
-  return pending;
-}
-
-export async function setPendingReminderConfirmation(pending: PendingReminderConfirmation): Promise<void> {
-  state.pendingReminderConfirmation = pending;
-  await persistState();
-}
-
-export async function clearPendingReminderConfirmation(): Promise<void> {
-  state.pendingReminderConfirmation = null;
-  await persistState();
 }

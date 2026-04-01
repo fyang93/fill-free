@@ -19,8 +19,14 @@ Use this skill when the user:
 - Wants reminder behavior changed, simplified, debugged, or reviewed
 - Gives a mixed request where reminders may be only part of the intended outcome
 
-## Notes
+## Operating Principles
 
-- For birthdays and anniversaries, prefer creating multiple reminders around one month before, one week before, one day before, and on the day itself.
-- Reminders are stored as JSON in `memory/reminders.json`.
-- `jq` is available in this environment for inspecting or transforming reminder JSON when needed.
+- Let the model do intent extraction and ambiguity handling: identify event kind, schedule shape, user-requested reminder offsets, timezone clues, and whether a follow-up question is necessary.
+- Let code own defaults, validation, normalization, timezone memory, and persistence. Do not invent complex reminder structures in prompt text when deterministic code can derive them.
+- Apply product defaults only when the user did not specify reminders:
+  - meetings: default to 1 hour before
+  - birthday / anniversary / festival / memorial: default to 2 weeks, 1 week, 1 day, and same day
+  - routine daily/weekly/monthly reminders: default to same-time only
+- Prefer the smallest sufficient clarification. Ask only when a reminder cannot be safely represented yet.
+- Only inspect raw reminder storage when debugging or low-level reminder maintenance truly requires it.
+- `jq` is available when raw reminder JSON inspection is necessary.

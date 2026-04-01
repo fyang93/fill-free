@@ -35,6 +35,16 @@ function asNumberArray(value: unknown): number[] {
     .filter((item) => Number.isFinite(item) && item > 0);
 }
 
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 function asLanguage(value: unknown): "zh" | "en" {
   const normalized = asString(value, "zh").trim().toLowerCase();
   return normalized === "en" ? "en" : "zh";
@@ -47,25 +57,25 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   const telegram = asRecord(parsed.telegram);
   const paths = asRecord(parsed.paths);
   const opencode = asRecord(parsed.opencode);
+  const dreaming = asRecord(parsed.dreaming);
   const repoRoot = path.resolve(process.cwd(), asString(paths.repo_root, "."));
   const tmpDirValue = asString(paths.tmp_dir, asString(paths.workspace_dir, "tmp"));
   const tmpDir = path.resolve(repoRoot, tmpDirValue);
   const uploadSubdir = asString(paths.upload_subdir, "telegram");
   const logFile = path.resolve(repoRoot, asString(paths.log_file, "logs/telegram-bot.log"));
+  const stateFile = path.resolve(repoRoot, asString(paths.state_file, ".telegram-state.json"));
 
   const allowedUserIds = asNumberArray(telegram.allowed_user_ids);
   const trustedUserIds = asNumberArray(telegram.trusted_user_ids);
-  const mainUserIdValue = asNumber(telegram.main_user_id, NaN);
-  const mainUserId = Number.isFinite(mainUserIdValue) && mainUserIdValue > 0 ? mainUserIdValue : null;
+  const adminUserIdValue = asNumber(telegram.admin_user_id, NaN);
+  const adminUserId = Number.isFinite(adminUserIdValue) && adminUserIdValue > 0 ? adminUserIdValue : null;
 
   const config: AppConfig = {
     telegram: {
       botToken: asString(telegram.bot_token),
       allowedUserIds,
       trustedUserIds,
-      mainUserId,
-      pollingTimeoutSec: asNumber(telegram.polling_timeout_sec, 20),
-      pollingIntervalMs: asNumber(telegram.polling_interval_ms, 300),
+      adminUserId,
       maxFileSizeMb: asNumber(telegram.max_file_size_mb, 20),
       personaStyle: asString(telegram.persona_style),
       language: asLanguage(telegram.language),
@@ -80,9 +90,16 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       tmpDir,
       uploadSubdir,
       logFile,
+      stateFile,
     },
     opencode: {
       baseUrl: asString(opencode.base_url, "http://127.0.0.1:4096"),
+    },
+    dreaming: {
+      enabled: asBoolean(dreaming.enabled, true),
+      idleAfterMs: asNumber(dreaming.idle_after_ms, 15 * 60 * 1000),
+      checkIntervalMs: asNumber(dreaming.check_interval_ms, 60 * 1000),
+      timeoutMs: asNumber(dreaming.timeout_ms, 5 * 60 * 1000),
     },
   };
 

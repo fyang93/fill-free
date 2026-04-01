@@ -185,6 +185,7 @@ export async function sendLocalFiles(ctx: Context, config: AppConfig, candidates
     const absPath = path.isAbsolute(candidate) ? candidate : path.resolve(config.paths.repoRoot, candidate);
     const relPath = path.relative(config.paths.repoRoot, absPath);
     if (relPath.startsWith("..")) continue;
+    if (relPath === path.join("memory", "reminders.json") || relPath === path.join("index", "reminders.json")) continue;
     try {
       const info = await stat(absPath);
       if (!info.isFile()) continue;
@@ -206,9 +207,9 @@ export async function sendLocalFiles(ctx: Context, config: AppConfig, candidates
   return sent;
 }
 
-export async function sendPromptAttachments(ctx: Context, attachments: PromptAttachment[]): Promise<number> {
+export async function sendPromptAttachments(ctx: Context, config: AppConfig, attachments: PromptAttachment[]): Promise<number> {
   let sent = 0;
-  const tempDir = path.join(process.cwd(), "tmp", "telegram", "outgoing");
+  const tempDir = path.join(config.paths.tmpDir, config.paths.uploadSubdir, "outgoing");
   await mkdir(tempDir, { recursive: true });
 
   for (const attachment of attachments) {

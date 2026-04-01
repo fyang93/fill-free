@@ -8,6 +8,13 @@ opencode_addr := opencode_host + ":" + opencode_port
 default:
     @just --list
 
+alias i := install
+alias s := serve
+
+# Install project dependencies.
+install:
+    bun install
+
 # Start OpenCode serve and the Telegram bot together. Usage: `just serve`.
 serve:
     #!/usr/bin/env bash

@@ -1,0 +1,68 @@
+import type { Context } from "grammy";
+import type { AppConfig } from "./types";
+import { logger } from "./logger";
+import { touchActivity } from "./state";
+
+export type AccessLevel = "trusted" | "allowed" | "none";
+
+type TelegramEntity = { type?: string; offset?: number; length?: number };
+
+export function accessLevelForUserId(config: AppConfig, userId: number | undefined): AccessLevel {
+  if (typeof userId !== "number") return "none";
+  if (config.telegram.trustedUserIds.includes(userId)) return "trusted";
+  if (config.telegram.allowedUserIds.includes(userId)) return "allowed";
+  return "none";
+}
+
+export function isTrustedUserId(config: AppConfig, userId: number | undefined): boolean {
+  return accessLevelForUserId(config, userId) === "trusted";
+}
+
+export async function unauthorizedGuard(config: AppConfig, ctx: Context, next: () => Promise<void>): Promise<void> {
+  const userId = ctx.from?.id;
+  const accessLevel = accessLevelForUserId(config, userId);
+  if (accessLevel === "none") {
+    await logger.warn(`Telegram access denied level=none user=${userId ?? "unknown"}`);
+    return;
+  }
+  await logger.info(`Telegram access granted level=${accessLevel} user=${userId ?? "unknown"}`);
+  touchActivity();
+  await next();
+}
+
+export function requiresDirectMention(ctx: Context): boolean {
+  return ctx.chat?.type === "group" || ctx.chat?.type === "supergroup";
+}
+
+function entityMentionsBot(text: string | undefined, entities: TelegramEntity[] | undefined, botUsername: string | null): boolean {
+  if (!text || !entities || !botUsername) return false;
+  const expectedMention = `@${botUsername.toLowerCase()}`;
+  return entities.some((entity) => {
+    if (entity.type !== "mention") return false;
+    if (typeof entity.offset !== "number" || typeof entity.length !== "number") return false;
+    const mention = text.slice(entity.offset, entity.offset + entity.length).toLowerCase();
+    return mention === expectedMention;
+  });
+}
+
+function isReplyingToBot(message: Context["message"], botUserId: number | null): boolean {
+  if (!message || botUserId == null) return false;
+  const repliedMessage = "reply_to_message" in message ? message.reply_to_message : undefined;
+  return repliedMessage?.from?.id === botUserId;
+}
+
+export function isAddressedToBot(ctx: Context, botUsername: string | null, botUserId: number | null): boolean {
+  if (!requiresDirectMention(ctx)) return true;
+  const message = ctx.message;
+  if (!message) return false;
+
+  if (isReplyingToBot(message, botUserId)) return true;
+
+  const text = "text" in message ? message.text : undefined;
+  const textEntities = "entities" in message ? (message.entities as TelegramEntity[] | undefined) : undefined;
+  if (entityMentionsBot(text, textEntities, botUsername)) return true;
+
+  const caption = "caption" in message ? message.caption : undefined;
+  const captionEntities = "caption_entities" in message ? (message.caption_entities as TelegramEntity[] | undefined) : undefined;
+  return entityMentionsBot(caption, captionEntities, botUsername);
+}
