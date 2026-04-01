@@ -73,6 +73,27 @@ function repliedMessageSummary(ctx: Context): string {
   return ` replyToMessage=${repliedMessage.message_id ?? "unknown"} replyToUser=${repliedMessage.from?.id ?? "unknown"} replyToText=${JSON.stringify(summary)}`;
 }
 
+function contactPromptText(ctx: Context): string {
+  const contact = ctx.message && "contact" in ctx.message ? ctx.message.contact : undefined;
+  if (!contact) return "";
+  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
+  const repliedText = repliedMessage && "text" in repliedMessage
+    ? repliedMessage.text
+    : repliedMessage && "caption" in repliedMessage
+      ? repliedMessage.caption
+      : undefined;
+  return [
+    "The user shared a Telegram contact card.",
+    repliedText ? `Reply context: ${repliedText}` : "",
+    `First name: ${contact.first_name}`,
+    contact.last_name ? `Last name: ${contact.last_name}` : "",
+    `Phone number: ${contact.phone_number}`,
+    typeof contact.user_id === "number" ? `Telegram user id: ${contact.user_id}` : "",
+    contact.vcard ? `vCard: ${contact.vcard}` : "",
+    "Use this contact information and any reply context when answering or updating memory.",
+  ].filter(Boolean).join("\n");
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | null = null;
   return Promise.race([
@@ -185,6 +206,28 @@ export class PromptController {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await logger.error(`text handling failed: ${message}`);
+      await replyFormatted(ctx, t(this.deps.config, "task_failed", { error: message }));
+      await this.setReactionSafe(ctx, "😞");
+    }
+  }
+
+  async handleIncomingContact(ctx: Context): Promise<void> {
+    if (this.deps.isAddressedToBot && !this.deps.isAddressedToBot(ctx) && ctx.chat && (ctx.chat.type === "group" || ctx.chat.type === "supergroup")) return;
+
+    try {
+      const promptText = contactPromptText(ctx);
+      if (!promptText) return;
+      touchActivity();
+      if (rememberTelegramParticipants(this.deps.config, ctx)) {
+        await persistState(this.deps.config.paths.stateFile);
+      }
+      const telegramMessageTime = await this.messageReferenceTime(ctx);
+      const contact = ctx.message && "contact" in ctx.message ? ctx.message.contact : undefined;
+      await logger.info(`received contact message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} firstName=${JSON.stringify(contact?.first_name || "")} lastName=${JSON.stringify(contact?.last_name || "")} phoneNumber=${JSON.stringify(contact?.phone_number || "")} contactUserId=${contact?.user_id ?? "unknown"}${repliedMessageSummary(ctx)}`);
+      this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, promptText, [], [], telegramMessageTime);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await logger.error(`contact handling failed: ${message}`);
       await replyFormatted(ctx, t(this.deps.config, "task_failed", { error: message }));
       await this.setReactionSafe(ctx, "😞");
     }

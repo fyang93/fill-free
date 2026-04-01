@@ -158,6 +158,7 @@ bot.on("message:document", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:photo", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:voice", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:audio", (ctx) => promptController.handleIncomingFile(ctx));
+bot.on("message:contact", (ctx) => promptController.handleIncomingContact(ctx));
 
 bot.catch(async (error) => {
   const message = error.error instanceof Error ? error.error.stack || error.error.message : String(error.error);
