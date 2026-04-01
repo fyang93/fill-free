@@ -53,6 +53,11 @@ trusted_user_ids = [222222222]
 admin_user_id = 333333333
 ```
 
+Useful optional settings:
+
+- `reminder_message_timeout_ms`: timeout for reminder message generation, default `60000`
+- `prompt_task_timeout_ms`: timeout for normal Telegram prompt handling, default `60000`
+
 ### 3. Start
 
 ```bash

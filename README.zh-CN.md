@@ -53,6 +53,11 @@ trusted_user_ids = [222222222]
 admin_user_id = 333333333
 ```
 
+一些常用的可选项：
+
+- `reminder_message_timeout_ms`：提醒消息生成超时时间，默认 `60000`
+- `prompt_task_timeout_ms`：普通 Telegram 消息处理超时时间，默认 `60000`
+
 ### 3. 启动
 
 ```bash
