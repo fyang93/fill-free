@@ -7,8 +7,13 @@ export type AccessLevel = "trusted" | "allowed" | "none";
 
 type TelegramEntity = { type?: string; offset?: number; length?: number };
 
+export function isAdminUserId(config: AppConfig, userId: number | undefined): boolean {
+  return typeof userId === "number" && config.telegram.adminUserId === userId;
+}
+
 export function accessLevelForUserId(config: AppConfig, userId: number | undefined): AccessLevel {
   if (typeof userId !== "number") return "none";
+  if (isAdminUserId(config, userId)) return "trusted";
   if (config.telegram.trustedUserIds.includes(userId)) return "trusted";
   if (config.telegram.allowedUserIds.includes(userId)) return "allowed";
   return "none";

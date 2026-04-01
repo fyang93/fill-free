@@ -114,7 +114,7 @@ export class PromptController {
       if (!this.deps.isAddressedToBot(ctx)) return;
 
       if (isConfigMutationRequest(text) && !this.deps.isAdminUserId(ctx.from?.id)) {
-        await replyFormatted(ctx, "只有 admin 可以要求修改 config.toml 或运行时配置。trusted user 也不行。");
+        await replyFormatted(ctx, t(this.deps.config, "config_mutation_admin_only"));
         await this.setReactionSafe(ctx, "😞");
         return;
       }
@@ -147,7 +147,7 @@ export class PromptController {
 
     try {
       if (caption && isConfigMutationRequest(caption) && !this.deps.isAdminUserId(ctx.from?.id)) {
-        await replyFormatted(ctx, "只有 admin 可以要求修改 config.toml 或运行时配置。trusted user 也不行。");
+        await replyFormatted(ctx, t(this.deps.config, "config_mutation_admin_only"));
         await this.setReactionSafe(ctx, "😞");
         return;
       }

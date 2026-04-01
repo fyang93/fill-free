@@ -11,6 +11,19 @@ A local-first Telegram bot for managing personal information, organizing materia
 - help fill forms using remembered facts
 - create and manage reminders
 
+## Access levels
+
+The bot has three practical permission levels:
+
+- `allowed user`: may chat with the bot and ask informational questions. Repository content should be treated as read-only. Cannot modify long-term memory, files, reminders-as-data, or runtime config.
+- `trusted user`: may ask the bot to modify repository memory/files and other persistent data, including reminder data. Still cannot request changes to `config.toml` or runtime configuration.
+- `admin user`: effectively a trusted user plus admin-only operations. The admin can request `config.toml` / runtime config changes, receives startup and config-reload notices, and can use admin-only commands like `/new` and `/model`.
+
+Notes:
+
+- `admin_user_id` is treated as trusted automatically at runtime, even if it is not repeated in `trusted_user_ids`.
+- Users not listed in `allowed_user_ids`, `trusted_user_ids`, or as `admin_user_id` cannot access the bot.
+
 ## Setup
 
 Use Nix or install dependencies manually.
@@ -63,9 +76,9 @@ If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
 ### `[telegram]`
 
 - `bot_token`: your Telegram bot token from BotFather.
-- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot.
-- `trusted_user_ids`: users allowed to modify memory, files, and other persistent repository data.
-- `admin_user_id`: optional admin user ID. Only this user receives startup greetings and can use admin-only commands like `/new` and `/model`.
+- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in read-only mode.
+- `trusted_user_ids`: users allowed to modify memory, files, reminders, and other persistent repository data.
+- `admin_user_id`: optional admin user ID. The admin is treated as trusted automatically, receives startup/config-reload notices, can change runtime config, and can use admin-only commands like `/new` and `/model`.
 - `max_file_size_mb`: max upload size accepted by the bot.
 - `persona_style`: optional reply style instruction for the assistant.
 - `language`: default reply language, `zh` or `en`.
@@ -77,11 +90,14 @@ If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
 
 ### `[paths]`
 
-- `repo_root`: repository root used by the bot.
-- `tmp_dir`: temporary working directory for uploaded files.
-- `upload_subdir`: subdirectory under `tmp_dir` for Telegram uploads.
+- `upload_subdir`: subdirectory under the repository `tmp/` directory for Telegram uploads.
 - `log_file`: main bot log file.
 - `state_file`: local state file path, usually `.telegram-state.json`.
+
+Notes:
+
+- The repository root is always the current repository root.
+- The temporary working directory is always `tmp/` under the repository root.
 
 ### `[opencode]`
 

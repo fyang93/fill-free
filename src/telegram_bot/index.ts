@@ -13,7 +13,7 @@ import {
 } from "./model_menu";
 import { t } from "./i18n";
 import { replyFormatted, sendMessageFormatted } from "./telegram_format";
-import { isAddressedToBot, isTrustedUserId, unauthorizedGuard } from "./access";
+import { isAddressedToBot, isAdminUserId, isTrustedUserId, unauthorizedGuard } from "./access";
 import { handleModelCallback } from "./model_callback";
 import { PromptController } from "./prompt_controller";
 import { startDreamLoop } from "./dreaming";
@@ -63,7 +63,7 @@ function helpText(): string {
 }
 
 function isAdminUser(userId: number | undefined): boolean {
-  return Boolean(config.telegram.adminUserId && userId === config.telegram.adminUserId);
+  return isAdminUserId(config, userId);
 }
 
 bot.use((ctx, next) => unauthorizedGuard(config, ctx, next));
@@ -184,13 +184,13 @@ const configWatcher = startConfigWatcher(configPath, config, async (_reloadedCon
   });
   await syncBotCommands();
   if (config.telegram.adminUserId && (result.reloadedKeys.length > 0 || result.restartRequiredKeys.length > 0)) {
-    const lines = ["config 已热重载。"];
+    const lines = [t(config, "config_reload_notice")];
     if (result.reloadedKeys.length > 0) {
-      lines.push(`已生效: ${result.reloadedKeys.join(", ")}`);
+      lines.push(t(config, "config_reload_applied", { keys: result.reloadedKeys.join(", ") }));
     }
     if (result.restartRequiredKeys.length > 0) {
-      lines.push(`需重启: ${result.restartRequiredKeys.join(", ")}`);
-      lines.push("这些项本次已保留当前运行值；详情见日志。");
+      lines.push(t(config, "config_reload_restart_required", { keys: result.restartRequiredKeys.join(", ") }));
+      lines.push(t(config, "config_reload_restart_hint"));
     }
     await sendMessageFormatted(bot, config.telegram.adminUserId, lines.join("\n"));
   }

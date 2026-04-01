@@ -1,4 +1,4 @@
-# The Defect Bot
+# 故障机器人
 
 [English README](README.md)
 
@@ -10,6 +10,19 @@
 - 整理资料和文件
 - 根据已记住的信息辅助填表
 - 创建和管理提醒
+
+## 权限级别
+
+这个 bot 实际上有三档权限：
+
+- `allowed user`：可以和 bot 对话、提问、查询信息；仓库应视为只读。不能修改长期记忆、文件、提醒数据或运行时配置。
+- `trusted user`：可以要求 bot 修改仓库里的记忆、文件、提醒和其他持久化数据；但仍然不能要求修改 `config.toml` 或运行时配置。
+- `admin user`：相当于 trusted user 再加管理权限。admin 可以要求修改 `config.toml` / 运行时配置，会收到启动问候和配置热重载通知，还可以使用 `/new`、`/model` 这类管理命令。
+
+补充说明：
+
+- 运行时会自动把 `admin_user_id` 视为 trusted，因此不必再重复写进 `trusted_user_ids`。
+- 不在 `allowed_user_ids`、`trusted_user_ids` 或 `admin_user_id` 中的用户，不能访问 bot。
 
 ## 环境准备
 
@@ -63,9 +76,9 @@ just serve
 ### `[telegram]`
 
 - `bot_token`：从 BotFather 获取的 Telegram Bot Token。
-- `allowed_user_ids`：允许和 bot 对话的 Telegram 用户 ID 列表。
-- `trusted_user_ids`：允许修改记忆、文件和其他持久化仓库数据的用户 ID 列表。
-- `admin_user_id`：可选管理员用户 ID。只有这个用户会收到启动问候，也只有这个用户可以使用 `/new`、`/model` 这类管理命令。
+- `allowed_user_ids`：允许和 bot 对话、但默认只能只读使用的 Telegram 用户 ID 列表。
+- `trusted_user_ids`：允许修改记忆、文件、提醒和其他持久化仓库数据的用户 ID 列表。
+- `admin_user_id`：可选管理员用户 ID。admin 会自动被视为 trusted；此外还会收到启动 / 配置热重载通知，可以修改运行时配置，并能使用 `/new`、`/model` 这类管理命令。
 - `max_file_size_mb`：bot 接受的上传文件大小上限。
 - `persona_style`：可选的人设 / 回复风格说明。
 - `language`：默认回复语言，支持 `zh` 或 `en`。
@@ -77,11 +90,14 @@ just serve
 
 ### `[paths]`
 
-- `repo_root`：bot 使用的仓库根目录。
-- `tmp_dir`：上传文件等临时工作目录。
-- `upload_subdir`：`tmp_dir` 下用于 Telegram 上传文件的子目录。
+- `upload_subdir`：仓库 `tmp/` 目录下用于 Telegram 上传文件的子目录。
 - `log_file`：主日志文件路径。
 - `state_file`：本地状态文件路径，通常是 `.telegram-state.json`。
+
+补充说明：
+
+- 仓库根目录固定为当前仓库根目录。
+- 临时工作目录固定为仓库下的 `tmp/`。
 
 ### `[opencode]`
 
