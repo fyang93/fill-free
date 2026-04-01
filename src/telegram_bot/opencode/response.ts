@@ -1,28 +1,6 @@
 import type { PromptAttachment } from "../types";
 import type { OpenCodeMessage, PromptReminderDraft, PromptResult } from "./types";
 
-function normalizeReminderDraft(raw: unknown): PromptReminderDraft | null {
-  if (!raw || typeof raw !== "object") return null;
-  const record = raw as Record<string, unknown>;
-
-  if (typeof record.title === "string" && record.title.trim() && record.schedule && typeof record.schedule === "object") {
-    return record as PromptReminderDraft;
-  }
-
-  const title = typeof record.text === "string" ? record.text.trim() : "";
-  const due = typeof record.due === "string" ? record.due.trim() : "";
-  if (!title || !due) return null;
-
-  return {
-    title,
-    kind: "task",
-    timeSemantics: "absolute",
-    schedule: { kind: "once", scheduledAt: due },
-    notifications: [{ offsetMinutes: 0 }],
-    category: "routine",
-  };
-}
-
 export function parseModel(model: string | null): { providerID: string; modelID: string } | null {
   if (!model) return null;
   const index = model.indexOf("/");
@@ -94,7 +72,7 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
             : [],
           attachments,
           reminders: Array.isArray(parsed.reminders)
-            ? parsed.reminders.map(normalizeReminderDraft).filter((item): item is PromptReminderDraft => Boolean(item))
+            ? parsed.reminders.filter((item): item is PromptReminderDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).title === "string" && Boolean((item as Record<string, unknown>).title) && typeof (item as Record<string, unknown>).schedule === "object" && Boolean((item as Record<string, unknown>).schedule))
             : [],
         };
       }
