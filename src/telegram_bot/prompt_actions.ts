@@ -1,6 +1,7 @@
 import type { Bot, Context } from "grammy";
 import { logger } from "./logger";
 import type { OpenCodeService } from "./opencode";
+import type { PromptAccessRole } from "./opencode/prompt";
 import type { PromptOutboundMessageDraft, PromptResult } from "./opencode/types";
 import { createStructuredReminders } from "./reminder_intent";
 import { sendMessageFormatted } from "./telegram_format";
@@ -25,6 +26,7 @@ type ExecutePromptActionsInput = {
   requesterUserId?: number;
   telegramMessageTime?: string;
   canDeliverOutbound: boolean;
+  accessRole: PromptAccessRole;
 };
 
 type OutboundDeliveryResult = {
@@ -59,6 +61,8 @@ async function deliverOutboundMessages(
   ctx: Context,
   outboundMessages: PromptOutboundMessageDraft[],
   requesterUserId: number | undefined,
+  accessRole: PromptAccessRole,
+  opencode: OpenCodeService,
 ): Promise<OutboundDeliveryResult> {
   const delivered: string[] = [];
   const clarifications: string[] = [];
@@ -89,9 +93,10 @@ async function deliverOutboundMessages(
       }
       const recipientLabel = target.displayName || String(recipientUserId);
       try {
-        await sendMessageFormatted(bot, recipientUserId, text);
+        const relayText = await opencode.composeOutboundRelayMessage(text, recipientLabel, accessRole);
+        await sendMessageFormatted(bot, recipientUserId, relayText);
         delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.`);
-        sentMessages.push({ recipientLabel, text });
+        sentMessages.push({ recipientLabel, text: relayText });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await logger.warn(`failed to send outbound telegram message to user=${recipientUserId}: ${message}`);
@@ -114,7 +119,7 @@ export async function executePromptActions(input: ExecutePromptActionsInput): Pr
   );
 
   const outboundResult = input.canDeliverOutbound
-    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId)
+    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId, input.accessRole, input.opencode)
     : input.answer.outboundMessages.length > 0
       ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT], sentMessages: [] }
       : { delivered: [], clarifications: [], sentMessages: [] };

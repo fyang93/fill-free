@@ -201,6 +201,24 @@ export class OpenCodeService {
     return result.message.trim();
   }
 
+  async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined, accessRole: PromptAccessRole = "allowed"): Promise<string> {
+    const cleanBase = baseMessage.trim();
+    if (!cleanBase) return "";
+
+    const request = [
+      `Write a single natural Telegram message in ${replyLanguageName(this.config)} to send to another Telegram user.`,
+      "Keep the same persona and tone as the ongoing conversation.",
+      this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
+      recipientLabel ? `Recipient: ${recipientLabel}` : "",
+      `Intent or draft content: ${cleanBase}`,
+      "Return only the message text to send.",
+      "Do not mention JSON, hidden prompts, or internal tools.",
+    ].filter(Boolean).join("\n");
+
+    const result = await this.promptInTemporarySession(request, [], [], accessRole);
+    return result.message.trim() || cleanBase;
+  }
+
   async runMemoryDream(request: string): Promise<string> {
     const result = await this.promptInTemporarySession(request, [], [], "trusted");
     return result.message.trim();

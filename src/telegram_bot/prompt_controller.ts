@@ -329,6 +329,7 @@ export class PromptController {
         requesterUserId: userId,
         telegramMessageTime,
         canDeliverOutbound: this.deps.isTrustedUserId(userId) || this.deps.isAdminUserId(userId),
+        accessRole,
       });
       const modelFacts = actionResult.facts;
       let finalMessage = answer.message || t(this.deps.config, "generic_done");
