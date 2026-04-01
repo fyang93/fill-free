@@ -5,6 +5,7 @@ import { t } from "../i18n";
 import { getAccurateNow } from "../time";
 import { sendMessageFormatted } from "../telegram_format";
 import type { ReminderEvent, ReminderNotificationInstance } from "./types";
+import { isPreparedReminderDeliveryTextUsable } from "./preparation";
 import { allNotificationsSent, getCurrentOccurrence, listNotificationInstances } from "./schedule";
 import { readReminderEvents, writeReminderEvents } from "./store";
 
@@ -65,10 +66,16 @@ function advanceOccurrence(event: ReminderEvent, now: Date): void {
   event.updatedAt = now.toISOString();
 }
 
+function reminderRecipients(config: AppConfig, event: ReminderEvent): number[] {
+  if (typeof event.ownerUserId === "number" && Number.isInteger(event.ownerUserId)) return [event.ownerUserId];
+  return config.telegram.allowedUserIds;
+}
+
 export async function deliverDueReminders(
   config: AppConfig,
   bot: Bot<Context>,
   renderMessage?: (event: ReminderEvent, instance: ReminderNotificationInstance, fallback: string) => Promise<string>,
+  afterDelivery?: (event: ReminderEvent, instance: ReminderNotificationInstance) => Promise<void>,
 ): Promise<number> {
   const events = await readReminderEvents(config);
   const now = await getAccurateNow();
@@ -88,12 +95,26 @@ export async function deliverDueReminders(
 
     for (const instance of dueInstances) {
       const fallbackMessage = fallbackDeliveryMessage(config, activeEvent, instance);
-      const deliveryMessage = renderMessage ? await renderMessage(activeEvent, instance, fallbackMessage) : fallbackMessage;
-      for (const userId of config.telegram.allowedUserIds) {
-        await sendMessageFormatted(bot, userId, deliveryMessage);
+      const preparedMessage = isPreparedReminderDeliveryTextUsable(activeEvent, instance) ? activeEvent.deliveryText : undefined;
+      const deliveryMessage = preparedMessage || (renderMessage ? await renderMessage(activeEvent, instance, fallbackMessage) : fallbackMessage);
+      const recipients = reminderRecipients(config, activeEvent);
+      let delivered = false;
+      for (const userId of recipients) {
+        try {
+          await sendMessageFormatted(bot, userId, deliveryMessage);
+          delivered = true;
+        } catch (error) {
+          await logger.warn(`failed to deliver reminder ${activeEvent.id} to user=${userId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
+      if (!delivered) continue;
       markNotificationSent(activeEvent, instance.notificationId);
       activeEvent.updatedAt = now.toISOString();
+      activeEvent.deliveryText = undefined;
+      activeEvent.deliveryTextGeneratedAt = undefined;
+      activeEvent.deliveryPreparedNotificationId = undefined;
+      activeEvent.deliveryPreparedNotifyAt = undefined;
+      if (afterDelivery) await afterDelivery(activeEvent, instance);
       sent += 1;
       changed = true;
     }
@@ -112,6 +133,7 @@ export async function startReminderLoop(
   config: AppConfig,
   bot: Bot<Context>,
   renderMessage?: (event: ReminderEvent, instance: ReminderNotificationInstance, fallback: string) => Promise<string>,
+  afterDelivery?: (event: ReminderEvent, instance: ReminderNotificationInstance) => Promise<void>,
 ): Promise<NodeJS.Timeout> {
   let running = false;
   return setInterval(async () => {
@@ -121,7 +143,7 @@ export async function startReminderLoop(
     }
     running = true;
     try {
-      const sent = await deliverDueReminders(config, bot, renderMessage);
+      const sent = await deliverDueReminders(config, bot, renderMessage, afterDelivery);
       if (sent > 0) await logger.info(`sent ${sent} reminders`);
     } catch (error) {
       await logger.error(`reminder loop failed: ${error instanceof Error ? error.message : String(error)}`);

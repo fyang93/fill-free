@@ -16,6 +16,8 @@ export type {
 export {
   formatReminder,
   formatReminderEvent,
+  getCurrentOccurrence,
+  listNotificationInstances,
   nextLunarYearlyOccurrence,
   nextReminderOccurrence,
   normalizeRecurrence,
@@ -24,6 +26,15 @@ export {
   reminderRecurrenceText,
   reminderScheduleSummary,
 } from "./schedule";
+
+export {
+  clearPreparedReminderDeliveryText,
+  isPreparedReminderDeliveryTextUsable,
+  nextPendingReminderInstance,
+  prepareReminderDeliveryText,
+  prewarmReminderDeliveryTexts,
+  shouldPrepareReminderDeliveryText,
+} from "./preparation";
 
 export {
   buildDefaultReminderNotifications,
@@ -39,6 +50,7 @@ export {
   getReminder,
   getReminderEvent,
   listPendingReminders,
+  pruneExpiredReminderEvents,
   pruneInactiveReminderEvents,
   readReminderEvents,
   readReminders,

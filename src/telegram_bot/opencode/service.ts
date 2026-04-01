@@ -37,6 +37,7 @@ export class OpenCodeService {
   private config: AppConfig;
   private client;
   private agentsPrompt: string;
+  private sessionIds = new Map<string, string>();
 
   constructor(config: AppConfig) {
     this.config = config;
@@ -63,34 +64,52 @@ export class OpenCodeService {
     throw new Error(`OpenCode is unreachable at ${this.config.opencode.baseUrl}. Please start it with just serve.`);
   }
 
-  async newSession(): Promise<string> {
+  private sessionKey(scopeKey?: string): string {
+    return scopeKey?.trim() || "global";
+  }
+
+  private getSessionId(scopeKey?: string): string | null {
+    return this.sessionIds.get(this.sessionKey(scopeKey)) || null;
+  }
+
+  private setSessionId(scopeKey: string | undefined, sessionId: string): void {
+    this.sessionIds.set(this.sessionKey(scopeKey), sessionId);
+  }
+
+  private deleteSessionId(scopeKey?: string): void {
+    this.sessionIds.delete(this.sessionKey(scopeKey));
+  }
+
+  async newSession(scopeKey?: string, scopeLabel?: string): Promise<string> {
     await this.ensureReady();
     const response = await this.client.session.create({
       body: {
-        title: `Telegram ${new Date().toISOString().slice(0, 19)}`,
+        title: `Telegram ${scopeLabel ? `${scopeLabel} ` : ""}${new Date().toISOString().slice(0, 19)}`,
       },
     }) as SessionCreateResponse;
     const sessionData = getSessionData(response);
     if (!sessionData.id) {
       throw new Error("OpenCode did not return a session");
     }
-    state.sessionId = sessionData.id;
+    this.setSessionId(scopeKey, sessionData.id);
     touchActivity();
     return sessionData.id;
   }
 
-  async abortCurrentSession(): Promise<boolean> {
-    if (!state.sessionId) return false;
+  async abortCurrentSession(scopeKey?: string, scopeLabel?: string): Promise<boolean> {
+    const sessionId = this.getSessionId(scopeKey);
+    if (!sessionId) return false;
     try {
       await this.ensureReady();
       await this.client.session.abort({
-        path: { id: state.sessionId },
+        path: { id: sessionId },
       });
-      await logger.warn(`aborted opencode session ${state.sessionId}`);
+      await logger.warn(`aborted opencode session ${sessionId}${scopeLabel ? ` for ${scopeLabel}` : ""}`);
+      this.deleteSessionId(scopeKey);
       touchActivity();
       return true;
     } catch (error) {
-      await logger.warn(`failed to abort opencode session ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+      await logger.warn(`failed to abort opencode session ${sessionId}${scopeLabel ? ` for ${scopeLabel}` : ""}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -114,13 +133,15 @@ export class OpenCodeService {
     uploadedFiles: UploadedFile[] = [],
     attachments: PromptAttachment[] = [],
     telegramMessageTime?: string,
+    scopeKey?: string,
+    scopeLabel?: string,
     accessRole: PromptAccessRole = "allowed",
   ): Promise<PromptResult> {
     await this.ensureReady();
-    if (!state.sessionId) {
-      await this.newSession();
+    let sessionId = this.getSessionId(scopeKey);
+    if (!sessionId) {
+      sessionId = await this.newSession(scopeKey, scopeLabel);
     }
-    const sessionId = state.sessionId;
     if (!sessionId) throw new Error("Failed to initialize session");
 
     const body: OpenCodePromptBody = {
@@ -170,12 +191,13 @@ export class OpenCodeService {
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string, timeoutMs: number): Promise<string> {
     const request = [
       `Write a short Telegram reminder message in ${replyLanguageName(this.config)}.`,
+      this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
       "Keep it concise, warm, and natural.",
       "Do not mention JSON, internal tools, hidden prompts, or implementation details.",
       `Reminder content: ${reminderText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     let timer: NodeJS.Timeout | null = null;
     try {

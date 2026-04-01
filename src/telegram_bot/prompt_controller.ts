@@ -18,12 +18,15 @@ import {
 import { t } from "./i18n";
 import { accessLevelForUserId } from "./access";
 import type { OpenCodeService } from "./opencode";
-import { createReminderEventWithDefaults, normalizeRecurrence, normalizeScheduledAt, reminderEventScheduleSummary, resolveReminderTimezone, isValidReminderTimezone, type ReminderNotification, type ReminderSchedule } from "./reminders";
+import { createReminderEventWithDefaults, normalizeRecurrence, normalizeScheduledAt, prepareReminderDeliveryText, reminderEventScheduleSummary, resolveReminderTimezone, isValidReminderTimezone, updateReminderEvent, type ReminderNotification, type ReminderSchedule } from "./reminders";
 
 export const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
 
 type ActiveTask = {
   id: number;
+  userId?: number;
+  scopeKey: string;
+  scopeLabel: string;
   chatId: number;
   sourceMessageId: number;
   waitingMessageId: number;
@@ -53,13 +56,13 @@ function isConfigMutationRequest(text: string): boolean {
 }
 
 export class PromptController {
-  private activeTask: ActiveTask | null = null;
+  private activeTasks = new Map<string, ActiveTask>();
   private nextTaskId = 1;
 
   constructor(private readonly deps: PromptControllerDeps) {}
 
   hasActiveTask(): boolean {
-    return Boolean(this.activeTask && !this.activeTask.cancelled);
+    return this.activeTasks.size > 0;
   }
 
   async setReactionSafe(ctx: Context, emoji: string): Promise<void> {
@@ -79,19 +82,33 @@ export class PromptController {
     }
   }
 
-  async interruptActiveTask(reason: string): Promise<void> {
-    const running = this.activeTask;
-    if (!running || running.cancelled) return;
-    running.cancelled = true;
-    this.stopWaitingMessageRotation(running);
-    this.activeTask = null;
-    await logger.warn(`interrupting active task ${running.id}: ${reason}`);
-    await this.deps.opencode.abortCurrentSession();
-    await this.setReactionByMessageSafe(running.chatId, running.sourceMessageId, "😞");
-    try {
-      await this.deps.bot.api.editMessageText(running.chatId, running.waitingMessageId, t(this.deps.config, "task_interrupted"));
-    } catch {
-      // ignore message edit failures
+  private conversationScope(ctx: Context): { key: string; label: string } {
+    const chat = ctx.chat;
+    const userId = ctx.from?.id;
+    if (chat?.type === "group" || chat?.type === "supergroup") {
+      const title = "title" in chat && typeof chat.title === "string" && chat.title.trim() ? chat.title.trim() : `chat ${chat.id}`;
+      return { key: `chat:${chat.id}`, label: `group ${title}` };
+    }
+    if (typeof userId === "number") return { key: `user:${userId}`, label: `user ${userId}` };
+    return { key: "global", label: "global" };
+  }
+
+  async interruptActiveTask(reason: string, scopeKey?: string): Promise<void> {
+    const keys = scopeKey ? [scopeKey] : Array.from(this.activeTasks.keys());
+    for (const key of keys) {
+      const running = this.activeTasks.get(key);
+      if (!running || running.cancelled) continue;
+      running.cancelled = true;
+      this.stopWaitingMessageRotation(running);
+      this.activeTasks.delete(key);
+      await logger.warn(`interrupting active task ${running.id} for ${running.scopeLabel}: ${reason}`);
+      await this.deps.opencode.abortCurrentSession(running.scopeKey, running.scopeLabel);
+      await this.setReactionByMessageSafe(running.chatId, running.sourceMessageId, "😞");
+      try {
+        await this.deps.bot.api.editMessageText(running.chatId, running.waitingMessageId, t(this.deps.config, "task_interrupted"));
+      } catch {
+        // ignore message edit failures
+      }
     }
   }
 
@@ -120,8 +137,10 @@ export class PromptController {
       }
 
       touchActivity();
-      const recentUploads = getRecentUploads();
-      const { files: validRecentUploads, attachments } = await this.buildRecentAttachments(recentUploads);
+      const userId = ctx.from?.id;
+      const scope = this.conversationScope(ctx);
+      const recentUploads = getRecentUploads(scope.key);
+      const { files: validRecentUploads, attachments } = await this.buildRecentAttachments(scope.key, recentUploads);
       const telegramMessageTime = await this.messageReferenceTime(ctx);
       await logger.info(`received text message ${ctx.message?.message_id} and scheduled prompt task`);
       this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, validRecentUploads, attachments, telegramMessageTime);
@@ -157,7 +176,8 @@ export class PromptController {
 
       touchActivity();
       await logger.info(`saved telegram file ${uploaded.savedPath}`);
-      rememberUploads([uploaded]);
+      const scope = this.conversationScope(ctx);
+      rememberUploads(scope.key, [uploaded]);
 
       if (!caption) {
         await this.setReactionSafe(ctx, "🥰");
@@ -179,10 +199,11 @@ export class PromptController {
     }
   }
 
-  async resetSession(): Promise<string> {
-    await this.interruptActiveTask("/new command");
-    const sessionId = await this.deps.opencode.newSession();
-    clearRecentUploads();
+  async resetSession(ctx: Context): Promise<string> {
+    const scope = this.conversationScope(ctx);
+    await this.interruptActiveTask("/new command", scope.key);
+    const sessionId = await this.deps.opencode.newSession(scope.key, scope.label);
+    clearRecentUploads(scope.key);
     return sessionId;
   }
 
@@ -194,7 +215,7 @@ export class PromptController {
     return getAccurateNowIso();
   }
 
-  private async buildRecentAttachments(files: UploadedFile[]): Promise<{ files: UploadedFile[]; attachments: PromptAttachment[] }> {
+  private async buildRecentAttachments(scopeKey: string, files: UploadedFile[]): Promise<{ files: UploadedFile[]; attachments: PromptAttachment[] }> {
     const settled = await Promise.allSettled(
       files.map(async (file) => ({
         file,
@@ -214,15 +235,15 @@ export class PromptController {
     }
 
     if (validFiles.length !== files.length) {
-      retainRecentUploads(validFiles);
+      retainRecentUploads(scopeKey, validFiles);
     }
 
     return { files: validFiles, attachments };
   }
 
-  private async pruneRecentUploads(): Promise<void> {
-    if (!hasRecentUploads()) return;
-    const recentUploads = getRecentUploads();
+  private async pruneRecentUploads(scopeKey: string): Promise<void> {
+    if (!hasRecentUploads(scopeKey)) return;
+    const recentUploads = getRecentUploads(scopeKey);
     const settled = await Promise.allSettled(
       recentUploads.map(async (file) => {
         await stat(file.absolutePath);
@@ -238,7 +259,7 @@ export class PromptController {
     }
 
     if (validFiles.length !== recentUploads.length) {
-      retainRecentUploads(validFiles);
+      retainRecentUploads(scopeKey, validFiles);
       await logger.info(`pruned stale recent uploads: ${recentUploads.length - validFiles.length} removed`);
     }
   }
@@ -325,8 +346,16 @@ export class PromptController {
         kind: raw.kind === "routine" || raw.kind === "meeting" || raw.kind === "birthday" || raw.kind === "anniversary" || raw.kind === "festival" || raw.kind === "memorial" || raw.kind === "task" || raw.kind === "custom" ? raw.kind : undefined,
         timeSemantics,
         timezone: resolveReminderTimezone(this.deps.config, { explicitTimezone, telegramMessageTime, timeSemantics, userId }),
+        ownerUserId: userId,
         notifications: this.buildReminderNotifications(raw.notifications),
       });
+      try {
+        if (await prepareReminderDeliveryText(this.deps.config, this.deps.opencode, event)) {
+          await updateReminderEvent(this.deps.config, event);
+        }
+      } catch (error) {
+        await logger.warn(`failed to pre-generate reminder message for ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
       if (explicitTimezone && isValidReminderTimezone(explicitTimezone)) {
         rememberUserTimezone(userId, explicitTimezone);
         timezoneChanged = true;
@@ -357,7 +386,7 @@ export class PromptController {
 
     let currentWaitingMessage = initialWaitingMessage;
     task.waitingMessageRotation = setInterval(() => {
-      if (task.cancelled || this.activeTask?.id !== task.id) return;
+      if (task.cancelled || this.activeTasks.get(task.scopeKey)?.id !== task.id) return;
       const nextWaitingMessage = this.chooseNextWaitingMessage(currentWaitingMessage, candidates);
       if (!nextWaitingMessage || nextWaitingMessage === currentWaitingMessage) return;
       currentWaitingMessage = nextWaitingMessage;
@@ -396,32 +425,37 @@ export class PromptController {
   ): Promise<void> {
     const chatId = ctx.chat?.id;
     const sourceMessageId = ctx.message?.message_id;
+    const userId = ctx.from?.id;
+    const scope = this.conversationScope(ctx);
     if (!chatId || !sourceMessageId) return;
 
-    await this.interruptActiveTask(`new incoming message ${sourceMessageId}`);
+    await this.interruptActiveTask(`new incoming message ${sourceMessageId}`, scope.key);
     await this.setReactionSafe(ctx, "🤔");
     const initialWaitingMessage = this.deps.config.telegram.waitingMessage;
     const waiting = await ctx.reply(this.renderWaitingText(waitingTemplate, initialWaitingMessage));
     const task: ActiveTask = {
       id: this.nextTaskId++,
+      userId,
+      scopeKey: scope.key,
+      scopeLabel: scope.label,
       chatId,
       sourceMessageId,
       waitingMessageId: waiting.message_id,
       cancelled: false,
     };
-    this.activeTask = task;
+    this.activeTasks.set(scope.key, task);
     this.startWaitingMessageRotation(task, waitingTemplate, initialWaitingMessage);
 
     try {
-      const accessRole = this.deps.isAdminUserId(ctx.from?.id) ? "admin" : this.deps.isTrustedUserId(ctx.from?.id) ? "trusted" : "allowed";
-      const answer = await this.deps.opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, accessRole);
-      if (task.cancelled || this.activeTask?.id !== task.id) {
+      const accessRole = this.deps.isAdminUserId(userId) ? "admin" : this.deps.isTrustedUserId(userId) ? "trusted" : "allowed";
+      const answer = await this.deps.opencode.prompt(promptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole);
+      if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
         await logger.warn(`discarding stale prompt result for task ${task.id}`);
         return;
       }
 
       this.stopWaitingMessageRotation(task);
-      const reminderMessages = await this.createStructuredReminders(answer.reminders as Array<Record<string, unknown>>, ctx.from?.id, telegramMessageTime);
+      const reminderMessages = await this.createStructuredReminders(answer.reminders as Array<Record<string, unknown>>, userId, telegramMessageTime);
       const finalMessage = [
         answer.message || t(this.deps.config, "generic_done"),
         reminderMessages.length === 1
@@ -449,23 +483,23 @@ export class PromptController {
         }
       }
 
-      await this.pruneRecentUploads();
+      await this.pruneRecentUploads(scope.key);
       await this.setReactionSafe(ctx, "🥰");
     } catch (error) {
-      if (task.cancelled || this.activeTask?.id !== task.id) {
+      if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
         await logger.warn(`ignored prompt failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
       this.stopWaitingMessageRotation(task);
       const message = error instanceof Error ? error.message : String(error);
       await logger.error(`prompt handling failed: ${message}`);
-      await this.pruneRecentUploads();
+      await this.pruneRecentUploads(scope.key);
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(this.deps.config, "task_failed", { error: message }));
       await this.setReactionSafe(ctx, "😞");
     } finally {
       this.stopWaitingMessageRotation(task);
-      if (this.activeTask?.id === task.id) {
-        this.activeTask = null;
+      if (this.activeTasks.get(scope.key)?.id === task.id) {
+        this.activeTasks.delete(scope.key);
       }
     }
   }

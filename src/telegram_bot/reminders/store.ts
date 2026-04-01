@@ -18,6 +18,11 @@ export type ReminderEventDraft = {
   status?: ReminderEvent["status"];
   createdAt?: string;
   updatedAt?: string;
+  ownerUserId?: number;
+  deliveryText?: string;
+  deliveryTextGeneratedAt?: string;
+  deliveryPreparedNotificationId?: string;
+  deliveryPreparedNotifyAt?: string;
   deliveryState?: ReminderEvent["deliveryState"];
 };
 import { nextLunarYearlyOccurrence, normalizeRecurrence, normalizeScheduledAt } from "./schedule";
@@ -165,6 +170,11 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
   const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : undefined;
   const category = record.category === "special" ? "special" : "routine";
   const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial" ? record.specialKind : undefined;
+  const ownerUserId = typeof record.ownerUserId === "number" && Number.isInteger(record.ownerUserId) ? record.ownerUserId : undefined;
+  const deliveryText = typeof record.deliveryText === "string" && record.deliveryText.trim() ? record.deliveryText.trim() : undefined;
+  const deliveryTextGeneratedAt = typeof record.deliveryTextGeneratedAt === "string" && record.deliveryTextGeneratedAt.trim() ? record.deliveryTextGeneratedAt.trim() : undefined;
+  const deliveryPreparedNotificationId = typeof record.deliveryPreparedNotificationId === "string" && record.deliveryPreparedNotificationId.trim() ? record.deliveryPreparedNotificationId.trim() : undefined;
+  const deliveryPreparedNotifyAt = typeof record.deliveryPreparedNotifyAt === "string" && record.deliveryPreparedNotifyAt.trim() ? record.deliveryPreparedNotifyAt.trim() : undefined;
   const deliveryState = record.deliveryState && typeof record.deliveryState === "object" ? record.deliveryState as ReminderEvent["deliveryState"] : undefined;
   if (!id || !title || !schedule || !createdAt || notifications.length === 0) return null;
   return {
@@ -181,6 +191,11 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
     status,
     createdAt,
     updatedAt,
+    ownerUserId,
+    deliveryText,
+    deliveryTextGeneratedAt,
+    deliveryPreparedNotificationId,
+    deliveryPreparedNotifyAt,
     deliveryState,
   };
 }
@@ -230,6 +245,7 @@ function legacyReminderToEvent(reminder: Reminder): ReminderEvent {
     status: reminder.status === "deleted" ? "deleted" : reminder.status === "sent" ? "paused" : "active",
     createdAt: reminder.createdAt,
     updatedAt: reminder.sentAt,
+    ownerUserId: reminder.ownerUserId,
   };
 }
 
@@ -281,6 +297,7 @@ function eventToLegacyReminder(event: ReminderEvent): Reminder | null {
     status: event.status === "deleted" ? "deleted" : event.status === "paused" ? "sent" : "pending",
     createdAt: event.createdAt,
     sentAt: event.updatedAt,
+    ownerUserId: event.ownerUserId,
   };
 }
 
@@ -335,6 +352,11 @@ export function buildReminderEvent(draft: ReminderEventDraft): ReminderEvent {
     status: draft.status || "active",
     createdAt: draft.createdAt || new Date().toISOString(),
     updatedAt: draft.updatedAt,
+    ownerUserId: draft.ownerUserId,
+    deliveryText: draft.deliveryText,
+    deliveryTextGeneratedAt: draft.deliveryTextGeneratedAt,
+    deliveryPreparedNotificationId: draft.deliveryPreparedNotificationId,
+    deliveryPreparedNotifyAt: draft.deliveryPreparedNotifyAt,
     deliveryState: draft.deliveryState,
   };
 }
@@ -398,6 +420,21 @@ export async function pruneInactiveReminderEvents(config: AppConfig): Promise<{ 
   return { removed: removedIds.length, removedIds };
 }
 
+export async function pruneExpiredReminderEvents(config: AppConfig): Promise<{ removed: number; removedIds: string[] }> {
+  const events = await readReminderEvents(config);
+  const now = await getAccurateNow();
+  const removedIds: string[] = [];
+  const next = events.filter((event) => {
+    if (event.schedule.kind !== "once") return true;
+    const scheduledAt = Date.parse(event.schedule.scheduledAt);
+    if (!Number.isFinite(scheduledAt) || scheduledAt > now.getTime()) return true;
+    removedIds.push(event.id);
+    return false;
+  });
+  if (removedIds.length > 0) await writeReminderEvents(config, next);
+  return { removed: removedIds.length, removedIds };
+}
+
 // Temporary legacy wrappers while schedule/ui/delivery are still on the old reminder model.
 export async function readReminders(config: AppConfig): Promise<Reminder[]> {
   const events = await readReminderEvents(config);
@@ -422,6 +459,7 @@ export async function createReminder(
     kind?: ReminderEventKind;
     timeSemantics?: ReminderTimeSemantics;
     timezone?: string;
+    ownerUserId?: number;
     notifications?: ReminderNotification[];
   },
 ): Promise<Reminder> {
@@ -454,6 +492,7 @@ export async function createReminder(
     notifications: metadata?.notifications,
     createdAt: reminder.createdAt,
     updatedAt: reminder.sentAt,
+    ownerUserId: metadata?.ownerUserId ?? reminder.ownerUserId,
     status: baseEvent.status,
   });
   event.id = reminder.id;

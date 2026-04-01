@@ -18,6 +18,7 @@ export type Reminder = {
   status: "pending" | "sent" | "deleted";
   createdAt: string;
   sentAt?: string;
+  ownerUserId?: number;
 };
 
 export type ReminderView = "menu" | "upcoming" | "routine" | "special" | "special:birthday" | "special:festival" | "special:anniversary" | "special:memorial" | "all";
@@ -82,6 +83,11 @@ export type ReminderEvent = {
   status: "active" | "paused" | "deleted";
   createdAt: string;
   updatedAt?: string;
+  ownerUserId?: number;
+  deliveryText?: string;
+  deliveryTextGeneratedAt?: string;
+  deliveryPreparedNotificationId?: string;
+  deliveryPreparedNotifyAt?: string;
   deliveryState?: ReminderDeliveryState;
 };
 

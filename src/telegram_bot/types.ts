@@ -48,10 +48,8 @@ export type PromptAttachment = {
 };
 
 export type SessionState = {
-  sessionId: string | null;
   model: string | null;
   lastActivityAt: string | null;
-  recentUploads: UploadedFile[];
-  recentUploadsAt: string | null;
+  recentUploadsByScope: Record<string, { files: UploadedFile[]; recentUploadsAt: string | null }>;
   userTimezones: Record<string, { timezone: string; updatedAt: string }>;
 };

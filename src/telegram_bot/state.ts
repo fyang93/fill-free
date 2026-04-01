@@ -5,11 +5,9 @@ import type { SessionState, UploadedFile } from "./types";
 const RECENT_UPLOADS_TTL_MS = 30 * 60 * 1000;
 
 export const state: SessionState = {
-  sessionId: null,
   model: null,
   lastActivityAt: null,
-  recentUploads: [],
-  recentUploadsAt: null,
+  recentUploadsByScope: {},
   userTimezones: {},
 };
 
@@ -30,9 +28,11 @@ export async function loadPersistentState(filePath: string): Promise<void> {
             .filter((item): item is [string, { timezone: string; updatedAt: string }] => Boolean(item)),
         )
       : {};
+    state.recentUploadsByScope = {};
   } catch {
     state.model = null;
     state.userTimezones = {};
+    state.recentUploadsByScope = {};
   }
 }
 
@@ -63,33 +63,41 @@ export function rememberUserTimezone(userId: number | undefined, timezone: strin
   state.userTimezones[String(userId)] = { timezone: timezone.trim(), updatedAt: new Date().toISOString() };
 }
 
-export function rememberUploads(files: UploadedFile[]): void {
-  state.recentUploads = files;
-  state.recentUploadsAt = new Date().toISOString();
+function uploadsKey(scopeKey: string | undefined): string {
+  return scopeKey?.trim() || "global";
 }
 
-export function retainRecentUploads(files: UploadedFile[]): void {
-  state.recentUploads = files;
-  if (files.length === 0) {
-    state.recentUploadsAt = null;
+export function rememberUploads(scopeKey: string | undefined, files: UploadedFile[]): void {
+  state.recentUploadsByScope[uploadsKey(scopeKey)] = { files, recentUploadsAt: new Date().toISOString() };
+}
+
+export function retainRecentUploads(scopeKey: string | undefined, files: UploadedFile[]): void {
+  const key = uploadsKey(scopeKey);
+  state.recentUploadsByScope[key] = {
+    files,
+    recentUploadsAt: files.length === 0 ? null : (state.recentUploadsByScope[key]?.recentUploadsAt || new Date().toISOString()),
+  };
+}
+
+export function clearRecentUploads(scopeKey?: string): void {
+  if (scopeKey) {
+    delete state.recentUploadsByScope[uploadsKey(scopeKey)];
+    return;
   }
+  state.recentUploadsByScope = {};
 }
 
-export function clearRecentUploads(): void {
-  state.recentUploads = [];
-  state.recentUploadsAt = null;
+export function hasRecentUploads(scopeKey?: string): boolean {
+  return getRecentUploads(scopeKey).length > 0;
 }
 
-export function hasRecentUploads(): boolean {
-  return state.recentUploads.length > 0;
-}
-
-export function getRecentUploads(): UploadedFile[] {
-  if (!state.recentUploadsAt) return [];
-  const ageMs = Date.now() - new Date(state.recentUploadsAt).getTime();
+export function getRecentUploads(scopeKey?: string): UploadedFile[] {
+  const bucket = state.recentUploadsByScope[uploadsKey(scopeKey)];
+  if (!bucket?.recentUploadsAt) return [];
+  const ageMs = Date.now() - new Date(bucket.recentUploadsAt).getTime();
   if (!Number.isFinite(ageMs) || ageMs > RECENT_UPLOADS_TTL_MS) {
-    clearRecentUploads();
+    clearRecentUploads(scopeKey);
     return [];
   }
-  return state.recentUploads;
+  return bucket.files;
 }

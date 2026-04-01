@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "./config_runtime";
 import { configureLogger, logger } from "./logger";
 import { OpenCodeService } from "./opencode";
 import { currentModel, loadPersistentState, persistState, state } from "./state";
-import { handleReminderCallback, reminderEventScheduleSummary, startReminderLoop } from "./reminders";
+import { handleReminderCallback, prepareReminderDeliveryText, prewarmReminderDeliveryTexts, pruneExpiredReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "./reminders";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
@@ -73,18 +73,14 @@ bot.command("help", async (ctx) => {
 });
 
 bot.command("new", async (ctx) => {
-  if (!isAdminUser(ctx.from?.id)) {
-    await replyFormatted(ctx, t(config, "admin_only_command"));
-    return;
-  }
-  const sessionId = await promptController.resetSession();
+  const sessionId = await promptController.resetSession(ctx);
   await persistState(config.paths.stateFile);
   await replyFormatted(ctx, t(config, "new_session", { sessionId }));
 });
 
 bot.command("model", async (ctx) => {
-  if (!isAdminUser(ctx.from?.id)) {
-    await replyFormatted(ctx, t(config, "admin_only_command"));
+  if (!isTrustedUserId(config, ctx.from?.id)) {
+    await replyFormatted(ctx, t(config, "trusted_only_command"));
     return;
   }
   try {
@@ -111,8 +107,8 @@ bot.on("callback_query:data", async (ctx) => {
     return;
   }
 
-  if (!isAdminUser(ctx.from?.id)) {
-    await ctx.answerCallbackQuery({ text: t(config, "admin_only_command"), show_alert: true });
+  if (!isTrustedUserId(config, ctx.from?.id)) {
+    await ctx.answerCallbackQuery({ text: t(config, "trusted_only_command"), show_alert: true });
     return;
   }
 
@@ -157,21 +153,32 @@ async function syncBotCommands(): Promise<void> {
 }
 
 await logger.info("Telegram bot starting");
-let reminderLoop = await startReminderLoop(config, bot, async (event, _instance, fallback) => {
-  try {
-    const recurrence = reminderEventScheduleSummary(config, event);
-    const message = await opencode.generateReminderMessage(
-      event.title,
-      event.deliveryState?.currentOccurrence?.scheduledAt || new Date().toLocaleString(),
-      recurrence,
-      config.telegram.reminderMessageTimeoutMs,
-    );
-    return message || fallback;
-  } catch (error) {
-    await logger.warn(`reminder message fallback: ${error instanceof Error ? error.message : String(error)}`);
-    return fallback;
-  }
-});
+let reminderLoop = await startReminderLoop(
+  config,
+  bot,
+  async (event, _instance, fallback) => {
+    try {
+      const recurrence = reminderEventScheduleSummary(config, event);
+      const message = await opencode.generateReminderMessage(
+        event.title,
+        event.deliveryState?.currentOccurrence?.scheduledAt || new Date().toLocaleString(),
+        recurrence,
+        config.telegram.reminderMessageTimeoutMs,
+      );
+      return message || fallback;
+    } catch (error) {
+      await logger.warn(`reminder message fallback: ${error instanceof Error ? error.message : String(error)}`);
+      return fallback;
+    }
+  },
+  async (event) => {
+    try {
+      await prepareReminderDeliveryText(config, opencode, event);
+    } catch (error) {
+      await logger.warn(`failed to refresh reminder message for ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+);
 let dreamLoop = startDreamLoop(config, opencode, {
   isBusy: () => promptController.hasActiveTask(),
 });
@@ -203,6 +210,11 @@ await bot.start({
     botUsername = botInfo.username || null;
     botUserId = botInfo.id;
     await logger.info(`Telegram bot started as @${botInfo.username}`);
+    const expiredReminderCleanup = await pruneExpiredReminderEvents(config);
+    if (expiredReminderCleanup.removed > 0) {
+      await logger.info(`startup pruned ${expiredReminderCleanup.removed} expired reminders: ${expiredReminderCleanup.removedIds.join(", ")}`);
+    }
+    await prewarmReminderDeliveryTexts(config, opencode);
     await sendStartupGreeting();
   },
 });
