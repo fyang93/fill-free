@@ -67,6 +67,14 @@ just install
 2. 填好 Telegram bot 配置
 3. 启动
 
+一个典型配置是：
+
+- `allowed_user_ids = [111111111]`
+- `trusted_user_ids = [222222222]`
+- `admin_user_id = 333333333`
+
+如果你只使用 trusted/admin，`allowed_user_ids` 也可以留空。
+
 ```bash
 just serve
 ```

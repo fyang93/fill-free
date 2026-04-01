@@ -67,6 +67,14 @@ just install
 2. Fill in your Telegram bot config
 3. Start the bot
 
+A typical setup is:
+
+- `allowed_user_ids = [111111111]`
+- `trusted_user_ids = [222222222]`
+- `admin_user_id = 333333333`
+
+If you only use trusted/admin users, `allowed_user_ids` may be empty.
+
 ```bash
 just serve
 ```
