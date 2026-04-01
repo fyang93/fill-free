@@ -24,7 +24,6 @@ menu_page_size = 8
 # tmp_dir is fixed to tmp/ under the repository root.
 upload_subdir = "telegram"
 log_file = "logs/telegram-bot.log"
-state_file = ".telegram-state.json"
 
 [opencode]
 base_url = "http://127.0.0.1:4096"

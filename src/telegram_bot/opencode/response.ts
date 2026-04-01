@@ -1,6 +1,8 @@
 import type { PromptAttachment } from "../types";
 import type { OpenCodeMessage, PromptOutboundMessageDraft, PromptReminderDraft, PromptResult } from "./types";
 
+const DEFAULT_JSON_MESSAGE = "Done.";
+
 export function parseModel(model: string | null): { providerID: string; modelID: string } | null {
   if (!model) return null;
   const index = model.indexOf("/");
@@ -51,6 +53,32 @@ function extractJsonCandidates(text: string): string[] {
   return Array.from(new Set(candidates));
 }
 
+export function looksLikeStructuredOutputIntent(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /```(?:json)?/i.test(trimmed)
+    || /^\s*\{[\s\S]*\}\s*$/.test(trimmed)
+    || /"(?:message|files|reminders|outboundMessages)"\s*:/i.test(trimmed);
+}
+
+function parseFiles(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function parseReminders(value: unknown): PromptReminderDraft[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is PromptReminderDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).title === "string" && Boolean((item as Record<string, unknown>).title) && typeof (item as Record<string, unknown>).schedule === "object" && Boolean((item as Record<string, unknown>).schedule))
+    : [];
+}
+
+function parseOutboundMessages(value: unknown): PromptOutboundMessageDraft[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is PromptOutboundMessageDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).message === "string" && Boolean(((item as Record<string, unknown>).message as string).trim()))
+    : [];
+}
+
 export function extractPromptResult(message: OpenCodeMessage): PromptResult {
   const plain = extractText(message).trim();
   const attachments: PromptAttachment[] = (message.parts || [])
@@ -64,19 +92,18 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
   for (const candidate of extractJsonCandidates(plain)) {
     try {
       const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown };
-      if (typeof parsed.message === "string") {
+      const files = parseFiles(parsed.files);
+      const reminders = parseReminders(parsed.reminders);
+      const outboundMessages = parseOutboundMessages(parsed.outboundMessages);
+      const messageText = typeof parsed.message === "string" ? parsed.message.trim() : "";
+      const hasStructuredFields = files.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages);
+      if (typeof parsed.message === "string" || hasStructuredFields) {
         return {
-          message: parsed.message.trim() || "Done.",
-          files: Array.isArray(parsed.files)
-            ? parsed.files.filter((item): item is string => typeof item === "string")
-            : [],
+          message: messageText || DEFAULT_JSON_MESSAGE,
+          files,
           attachments,
-          reminders: Array.isArray(parsed.reminders)
-            ? parsed.reminders.filter((item): item is PromptReminderDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).title === "string" && Boolean((item as Record<string, unknown>).title) && typeof (item as Record<string, unknown>).schedule === "object" && Boolean((item as Record<string, unknown>).schedule))
-            : [],
-          outboundMessages: Array.isArray(parsed.outboundMessages)
-            ? parsed.outboundMessages.filter((item): item is PromptOutboundMessageDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).message === "string" && Boolean(((item as Record<string, unknown>).message as string).trim()))
-            : [],
+          reminders,
+          outboundMessages,
         };
       }
     } catch {
@@ -84,5 +111,5 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
     }
   }
 
-  return { message: plain || "Done.", files: [], attachments, reminders: [], outboundMessages: [] };
+  return { message: plain || DEFAULT_JSON_MESSAGE, files: [], attachments, reminders: [], outboundMessages: [] };
 }

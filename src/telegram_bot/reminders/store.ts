@@ -87,7 +87,7 @@ export function buildDefaultReminderNotifications(kind: ReminderEventKind): Remi
 }
 
 function remindersPath(config: AppConfig): string {
-  return path.join(config.paths.repoRoot, "memory", "reminders.json");
+  return path.join(config.paths.repoRoot, "system", "reminders.json");
 }
 
 function normalizeNotification(raw: unknown): ReminderNotification | null {

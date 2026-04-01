@@ -23,3 +23,7 @@ assets/**
 !assets/**/
 !assets/.gitkeep
 !assets/**/.gitkeep
+
+system/**
+!system/
+!system/.gitkeep

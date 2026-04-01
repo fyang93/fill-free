@@ -4,7 +4,7 @@ import { logger } from "../logger";
 import { replyLanguageName } from "../i18n";
 import { state, touchActivity } from "../state";
 import { STARTUP_GREETING_REQUEST, buildPrompt, loadAgentsPrompt, type PromptAccessRole } from "./prompt";
-import { extractPromptResult, extractText, parseModel, summarizeParts } from "./response";
+import { extractPromptResult, extractText, looksLikeStructuredOutputIntent, parseModel, summarizeParts } from "./response";
 import type { OpenCodeMessage, OpenCodePromptBody, PromptResult } from "./types";
 
 export type { PromptResult } from "./types";
@@ -144,47 +144,9 @@ export class OpenCodeService {
     }
     if (!sessionId) throw new Error("Failed to initialize session");
 
-    const body: OpenCodePromptBody = {
-      system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, accessRole) }],
-    };
-    for (const attachment of attachments) {
-      body.parts.push({
-        type: "file",
-        mime: attachment.mimeType,
-        filename: attachment.filename,
-        url: attachment.url,
-      });
-    }
-    await logger.info(`opencode prompt request attachments=${JSON.stringify(attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename, urlScheme: item.url.startsWith("data:") ? "data" : "remote" })))}`);
-    const model = parseModel(state.model);
-    if (model) {
-      body.model = model;
-    }
-
-    const response = await this.client.session.prompt({
-      path: { id: sessionId },
-      body,
-    }) as PromptResponse;
-    const result = getPromptMessage(response);
-    if (!result) {
-      throw new Error("OpenCode did not return a response message");
-    }
-    touchActivity();
-    const rawText = extractText(result).trim();
-    await logger.info(`opencode prompt raw=${JSON.stringify(rawText)}`);
-    const parsed = extractPromptResult(result);
-    if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.outboundMessages.length === 0 && parsed.message === (rawText || "Done.")) {
-      await logger.warn("opencode prompt did not return valid JSON; using plain-text fallback");
-    }
-    if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
-      await logger.warn("opencode prompt included a reminders field, but no valid reminder objects were parsed");
-    }
-    if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText)) {
-      await logger.warn("opencode prompt included an outboundMessages field, but no valid outbound message objects were parsed");
-    }
-    await logger.info(`opencode prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
-    return parsed;
+    const body = this.buildPromptBody(text, uploadedFiles, attachments, telegramMessageTime, accessRole);
+    await logger.info(`opencode prompt request attachments=${JSON.stringify(this.attachmentLogSummary(attachments))}`);
+    return this.promptAndParse(sessionId, body, false);
   }
 
   async generateStartupGreeting(): Promise<string | null> {
@@ -269,9 +231,21 @@ export class OpenCodeService {
       throw new Error("OpenCode did not return a temporary session");
     }
 
+    const body = this.buildPromptBody(text, uploadedFiles, attachments, undefined, accessRole);
+    await logger.info(`opencode temporary prompt request attachments=${JSON.stringify(this.attachmentLogSummary(attachments))}`);
+    return this.promptAndParse(sessionData.id, body, true);
+  }
+
+  private buildPromptBody(
+    text: string,
+    uploadedFiles: UploadedFile[],
+    attachments: PromptAttachment[],
+    telegramMessageTime: string | undefined,
+    accessRole: PromptAccessRole,
+  ): OpenCodePromptBody {
     const body: OpenCodePromptBody = {
       system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), undefined, accessRole) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, accessRole) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -281,29 +255,92 @@ export class OpenCodeService {
         url: attachment.url,
       });
     }
-    await logger.info(`opencode temporary prompt request attachments=${JSON.stringify(attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename, urlScheme: item.url.startsWith("data:") ? "data" : "remote" })))}`);
     const model = parseModel(state.model);
-    if (model) {
-      body.model = model;
-    }
+    if (model) body.model = model;
+    return body;
+  }
 
-    const promptResponse = await this.client.session.prompt({
-      path: { id: sessionData.id },
+  private attachmentLogSummary(attachments: PromptAttachment[]): Array<{ mimeType: string; filename?: string; urlScheme: string }> {
+    return attachments.map((item) => ({
+      mimeType: item.mimeType,
+      filename: item.filename,
+      urlScheme: item.url.startsWith("data:") ? "data" : "remote",
+    }));
+  }
+
+  private async promptAndParse(sessionId: string, body: OpenCodePromptBody, temporary: boolean): Promise<PromptResult> {
+    const response = await this.client.session.prompt({
+      path: { id: sessionId },
       body,
     }) as PromptResponse;
-    const result = getPromptMessage(promptResponse);
+    const result = getPromptMessage(response);
     if (!result) {
       throw new Error("OpenCode did not return a response message");
     }
+    touchActivity();
     const rawText = extractText(result).trim();
     const parsed = extractPromptResult(result);
+    await this.logParsedPromptResult(result, rawText, parsed, temporary, false);
+
+    if (!this.shouldRepairStructuredOutput(rawText, parsed)) {
+      return parsed;
+    }
+
+    await logger.warn(`${temporary ? "opencode temporary prompt" : "opencode prompt"} returned malformed structured output; requesting one repair pass`);
+    return this.requestStructuredOutputRepair(sessionId, rawText, temporary);
+  }
+
+  private shouldRepairStructuredOutput(rawText: string, parsed: PromptResult): boolean {
+    if (!looksLikeStructuredOutputIntent(rawText)) return false;
+    const hasStructuredData = parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0;
+    if (hasStructuredData) return false;
+    return parsed.message === (rawText || "Done.");
+  }
+
+  private async requestStructuredOutputRepair(sessionId: string, previousRawText: string, temporary: boolean): Promise<PromptResult> {
+    const repairInstruction = [
+      "Your previous reply was intended to be structured output, but it did not match the required schema.",
+      "Rewrite it now as exactly one valid JSON object and nothing else.",
+      "Do not use Markdown code fences.",
+      "Include all top-level fields exactly: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": []}.",
+      "Use empty string or empty arrays for fields with no content.",
+      "Preserve the original intent and content.",
+      `Previous reply: ${previousRawText}`,
+    ].join("\n");
+
+    const response = await this.client.session.prompt({
+      path: { id: sessionId },
+      body: {
+        system: this.agentsPrompt,
+        parts: [{ type: "text", text: repairInstruction }],
+      },
+    }) as PromptResponse;
+    const result = getPromptMessage(response);
+    if (!result) {
+      throw new Error("OpenCode did not return a response message during repair");
+    }
+    touchActivity();
+    const rawText = extractText(result).trim();
+    const parsed = extractPromptResult(result);
+    await this.logParsedPromptResult(result, rawText, parsed, temporary, true);
+    return parsed;
+  }
+
+  private async logParsedPromptResult(result: OpenCodeMessage, rawText: string, parsed: PromptResult, temporary: boolean, repaired: boolean): Promise<void> {
+    const label = temporary ? "opencode temporary prompt" : "opencode prompt";
+    await logger.info(`${label}${repaired ? " repair" : ""} raw=${JSON.stringify(rawText)}`);
+    if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.outboundMessages.length === 0 && parsed.message === (rawText || "Done.")) {
+      await logger.warn(`${label}${repaired ? " repair" : ""} did not return valid JSON; using plain-text fallback`);
+    }
     if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText)) {
-      await logger.warn("opencode temporary prompt included a reminders field, but no valid reminder objects were parsed");
+      await logger.warn(`${label}${repaired ? " repair" : ""} included a reminders field, but no valid reminder objects were parsed`);
     }
     if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText)) {
-      await logger.warn("opencode temporary prompt included an outboundMessages field, but no valid outbound message objects were parsed");
+      await logger.warn(`${label}${repaired ? " repair" : ""} included an outboundMessages field, but no valid outbound message objects were parsed`);
     }
-    await logger.info(`opencode temporary prompt result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
-    return parsed;
+    await logger.info(`${label}${repaired ? " repair" : ""} result parts=${JSON.stringify(summarizeParts(result))} message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))}`);
+    if (repaired && this.shouldRepairStructuredOutput(rawText, parsed)) {
+      await logger.warn(`${label} repair still did not satisfy the structured output schema`);
+    }
   }
 }

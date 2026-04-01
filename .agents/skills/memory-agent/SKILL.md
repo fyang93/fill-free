@@ -15,6 +15,7 @@ Use this skill when the user asks to remember, save, update, organize, merge, li
 ## Note Routing
 
 - All long-term markdown notes must live under `memory/`.
+- Treat `system/` as code-managed persistent data rather than general-purpose notes. Do not move ordinary memory there or casually rewrite files there unless the task is explicitly about system-managed data.
 - Merge related information into an existing topic note whenever it clearly fits. Keep each markdown file focused on one stable topic.
 - Use existing topic notes when possible: identity/documents -> `memory/profile.md`, banking/financial details -> `memory/banking.md`, people/contact details -> `memory/contacts.md`, family relationships -> `memory/family.md`, pets -> `memory/pets.md`.
 - Create a new note only when the information represents a distinct long-lived topic that does not fit an existing note.

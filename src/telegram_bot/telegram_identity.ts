@@ -2,6 +2,7 @@ import type { Context } from "grammy";
 import { t } from "./i18n";
 import type { AppConfig } from "./types";
 import { findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramUsers, rememberTelegramUser } from "./state";
+import { describeTelegramIdentityBinding } from "./telegram_bindings";
 
 export type TelegramTargetResolution = {
   status: "self" | "resolved" | "ambiguous" | "not_found";
@@ -38,11 +39,15 @@ export function buildTelegramPromptContext(config: AppConfig, ctx: Context): str
   const requester = ctx.from;
   if (requester?.id) {
     lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: [requester.first_name, requester.last_name].filter(Boolean).join(" ").trim() || requester.username || String(requester.id) })}`);
+    const requesterBinding = describeTelegramIdentityBinding(config, requester.id);
+    if (requesterBinding) lines.push(`Requester identity: ${requesterBinding}`);
   }
 
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
   if (repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
     lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: [repliedMessage.from.first_name, repliedMessage.from.last_name].filter(Boolean).join(" ").trim() || repliedMessage.from.username || String(repliedMessage.from.id) })}`);
+    const replyBinding = describeTelegramIdentityBinding(config, repliedMessage.from.id);
+    if (replyBinding) lines.push(`Reply target identity: ${replyBinding}`);
   }
 
   const adminUserId = config.telegram.adminUserId;

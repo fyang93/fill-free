@@ -2,145 +2,112 @@
 
 [中文说明](README.zh-CN.md)
 
-A local-first Telegram bot for managing personal information, organizing materials, helping fill forms from memory, and reminders.
+A local-first Telegram bot for personal memory, files, and reminders.
 
 ## What it does
 
-- manage and retrieve personal information
-- organize materials and files
-- help fill forms using remembered facts
+- remember and retrieve personal information
+- organize uploaded materials
+- help with forms using saved facts
 - create and manage reminders
+- relay messages between authorized Telegram users
 
-## Access levels
+## Quick start
 
-The bot has three practical permission levels:
+### 1. Install dependencies
 
-- `allowed user`: may chat with the bot, ask non-sensitive informational questions, and ask the bot to create reminders for that user. Repository memory/files should still be treated as privacy-restricted and effectively read-only. They must not read or extract private long-term memory, existing reminder details, personal files, secrets, or other sensitive repository data. They also cannot upload/process files, modify long-term memory or repository files, or change runtime config.
-- `trusted user`: may read and modify repository memory/files and other persistent data, including private long-term memory and reminder data. Still cannot request changes to `config.toml` or runtime configuration.
-- `admin user`: effectively a trusted user plus admin-only operations. The admin can request `config.toml` / runtime config changes, receives startup and config-reload notices, and can use all commands.
-
-Notes:
-
-- `admin_user_id` is treated as trusted automatically at runtime, even if it is not repeated in `trusted_user_ids`.
-- A `trusted user` does not need to also appear in `allowed_user_ids`.
-- An `admin user` does not need to also appear in `trusted_user_ids` or `allowed_user_ids`.
-- Users not listed in `allowed_user_ids`, `trusted_user_ids`, or as `admin_user_id` cannot access the bot.
-
-## Setup
-
-Use Nix or install dependencies manually.
-
-### Option 1: Nix
-
-If you use `direnv`, entering the repository will automatically activate the development environment.
-In that case, you can usually run:
-
-```bash
-just install
-```
-
-If you do not use `direnv`, enter the Nix shell manually:
-
-```bash
-nix develop
-just install
-```
-
-### Option 2: Manual
-
-Install:
+Use Nix, or install these manually:
 
 - `bun`
 - `just`
 - `fd`
 - `ripgrep`
 
-Then:
+Then run:
 
 ```bash
 just install
 ```
 
-## Usage
+### 2. Configure the bot
 
-1. Copy `config.toml.example` to `config.toml`
-2. Fill in your Telegram bot config
-3. Start the bot
+Copy the example config:
 
-A typical setup is:
+```bash
+cp config.toml.example config.toml
+```
 
-- `allowed_user_ids = [111111111]`
-- `trusted_user_ids = [222222222]`
-- `admin_user_id = 333333333`
+Fill in at least:
 
-If you only use trusted/admin users, `allowed_user_ids` may be empty.
+- `bot_token`
+- `allowed_user_ids` and/or `trusted_user_ids`
+- optional `admin_user_id`
+
+Typical setup:
+
+```toml
+[telegram]
+bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
+allowed_user_ids = [111111111]
+trusted_user_ids = [222222222]
+admin_user_id = 333333333
+```
+
+### 3. Start
 
 ```bash
 just serve
 ```
 
-If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
+## Telegram setup notes
 
-## `config.toml` fields
+- Every user who should receive direct bot messages must have started a private chat with the bot at least once.
+- If you want to use the bot in group chats, open **BotFather** and turn **Group Privacy** off for the bot.
 
-### `[telegram]`
+## Access levels
 
-- `bot_token`: your Telegram bot token from BotFather.
-- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in privacy-restricted mode. They may ask general questions and request reminders for themselves, but should not be allowed to read private memory, existing reminder details, personal files, or secrets. They also cannot upload/process files or modify repository data. May be empty if you only use trusted/admin users.
-- `trusted_user_ids`: users allowed to read and modify memory, files, reminders, and other persistent repository data. Users listed here do not need to also appear in `allowed_user_ids`.
-- `admin_user_id`: optional admin user ID. The admin is treated as trusted automatically, receives startup/config-reload notices, can change runtime config, and can use all commands. The admin does not need to also appear in `trusted_user_ids` or `allowed_user_ids`.
-- `max_file_size_mb`: max upload size accepted by the bot.
-- `persona_style`: optional reply style instruction for the assistant.
-- `language`: default reply language, `zh` or `en`.
-- `waiting_message`: temporary message shown while the bot is working.
-- `waiting_message_candidates`: optional alternative waiting messages used for rotation.
-- `waiting_message_rotation_ms`: how often to rotate waiting messages.
-- `reminder_message_timeout_ms`: timeout for generated reminder wording.
-- `menu_page_size`: number of items shown per Telegram menu page.
+- `allowed user`: may chat with the bot and request reminders for themselves, but should not read or modify private long-term data
+- `trusted user`: may read and modify memory, files, reminders, and other persistent data
+- `admin user`: trusted user plus admin-only operations
 
-### `[paths]`
+Users not listed in `allowed_user_ids`, `trusted_user_ids`, or `admin_user_id` cannot access the bot.
 
-- `upload_subdir`: subdirectory under the repository `tmp/` directory for Telegram uploads.
-- `log_file`: main bot log file.
-- `state_file`: local state file path, usually `.telegram-state.json`.
+## Main directories
 
-Notes:
+- `memory/`: human-readable long-term notes
+- `assets/`: files kept long-term
+- `system/`: code-managed persistent data such as reminders and Telegram identity/state
+- `tmp/`: temporary uploads and working files
 
-- The repository root is always the current repository root.
-- The temporary working directory is always `tmp/` under the repository root.
+## Basic usage examples
 
-### `[opencode]`
+### Personal memory
 
-- `base_url`: OpenCode server URL.
-
-### `[dreaming]`
-
-These are internal tuning fields. For normal use, keep the defaults.
-
-## Commands and session behavior
-
-- `/help`: available to all authorized users.
-- `/new`: available to allowed, trusted, and admin users. In private chats it resets that user's private session; in groups it resets the shared session for that group.
-- `/model`: available to trusted and admin users.
-
-Session isolation:
-
-- private chats use one session per user;
-- group and supergroup chats use one shared session per chat;
-- recent-upload context follows the same scope as sessions.
-
-Reminder delivery behavior:
-
-- reminders store the owner user ID when applicable and deliver to that owner instead of broadcasting to all allowed users;
-- expired one-time reminders are pruned on startup;
-- when the idle dreaming loop actually changes reminders, tmp cleanup, or memory files, the admin receives a Telegram summary; if nothing changed, no dreaming notification is sent;
-- reminder wording is generated with the configured persona style;
-- one-time reminders pre-generate delivery text when created;
-- recurring reminders only pre-generate the next pending delivery text, and only when the next notification is within a 24-hour prewarm window.
-
-## Typical uses
-
-- “Remember my passport number / address / bank info.”
-- “Organize these materials for me.”
+- “Remember my passport number.”
+- “What is my home address?”
 - “Use my saved info to help fill this form.”
-- “Remind me tomorrow at 9am to submit this application.”
+
+### Reminders
+
+- “Remind me tomorrow at 9am to submit the application.”
+- “Create a birthday reminder for my wife with reminders 2 weeks before, 1 week before, 1 day before, and same day.”
+
+### Multi-user usage
+
+Assume:
+
+- `111111111` is an allowed user
+- `222222222` is a trusted user
+- `333333333` is the admin
+
+Examples:
+
+- trusted/admin user: “Send this to @kyogokuame: dinner is ready.”
+- trusted/admin user: “Remind @kyogokuame tomorrow at 8pm to take medicine.”
+- in a group chat, reply to someone’s message and say: “Tell them I’ll arrive in 10 minutes.”
+
+## Commands
+
+- `/help`
+- `/new`
+- `/model` (trusted/admin)

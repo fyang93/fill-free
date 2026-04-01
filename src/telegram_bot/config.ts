@@ -62,7 +62,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   const tmpDir = path.resolve(repoRoot, "tmp");
   const uploadSubdir = asString(paths.upload_subdir, "telegram");
   const logFile = path.resolve(repoRoot, asString(paths.log_file, "logs/telegram-bot.log"));
-  const stateFile = path.resolve(repoRoot, asString(paths.state_file, ".telegram-state.json"));
+  const stateFile = path.resolve(repoRoot, "system", "telegram-state.json");
 
   const allowedUserIds = asNumberArray(telegram.allowed_user_ids);
   const trustedUserIds = asNumberArray(telegram.trusted_user_ids);

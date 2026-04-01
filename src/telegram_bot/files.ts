@@ -185,7 +185,12 @@ export async function sendLocalFiles(ctx: Context, config: AppConfig, candidates
     const absPath = path.isAbsolute(candidate) ? candidate : path.resolve(config.paths.repoRoot, candidate);
     const relPath = path.relative(config.paths.repoRoot, absPath);
     if (relPath.startsWith("..")) continue;
-    if (relPath === path.join("memory", "reminders.json") || relPath === path.join("index", "reminders.json")) continue;
+    if (
+      relPath === path.join("system", "reminders.json")
+      || relPath === path.join("system", "telegram-state.json")
+      || relPath === path.join("system", "telegram-links.json")
+      || relPath === path.join("index", "reminders.json")
+    ) continue;
     try {
       const info = await stat(absPath);
       if (!info.isFile()) continue;

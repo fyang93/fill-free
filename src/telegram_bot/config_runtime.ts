@@ -38,7 +38,6 @@ function diffConfigKeys(before: AppConfig, after: AppConfig): string[] {
   if (before.paths.tmpDir !== after.paths.tmpDir) changed.push("paths.tmp_dir");
   if (before.paths.uploadSubdir !== after.paths.uploadSubdir) changed.push("paths.upload_subdir");
   if (before.paths.logFile !== after.paths.logFile) changed.push("paths.log_file");
-  if (before.paths.stateFile !== after.paths.stateFile) changed.push("paths.state_file");
   if (before.opencode.baseUrl !== after.opencode.baseUrl) changed.push("opencode.base_url");
   if (before.dreaming.enabled !== after.dreaming.enabled) changed.push("dreaming.enabled");
   if (before.dreaming.idleAfterMs !== after.dreaming.idleAfterMs) changed.push("dreaming.idle_after_ms");
@@ -61,11 +60,6 @@ export function applyReloadedConfig(target: AppConfig, next: AppConfig): ConfigR
     warnings.push("paths.repo_root changed but requires process restart; keeping the current runtime repo root");
     restartRequiredKeys.push("paths.repo_root");
     next.paths.repoRoot = target.paths.repoRoot;
-  }
-  if (target.paths.stateFile !== next.paths.stateFile) {
-    warnings.push("paths.state_file changed but requires process restart; keeping the current runtime state file");
-    restartRequiredKeys.push("paths.state_file");
-    next.paths.stateFile = target.paths.stateFile;
   }
 
   target.telegram = { ...next.telegram };

@@ -28,30 +28,27 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     "Follow AGENTS.md.",
     telegramMessageTime ? `Telegram message time: ${telegramMessageTime}` : "",
     `Reply in ${replyLanguage}.`,
-    "If the best response needs files, reminders, or relaying a message to another known Telegram user, reply with JSON only: {\"message\": string, \"files\": string[], \"reminders\": [], optional \"outboundMessages\": []}.",
-    "Reminder items use {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", \"targetUser\" }.",
-    "Outbound messages use {\"message\": string, optional \"targetUser\": { optional \"id\", \"username\", \"displayName\", \"role\" }}.",
-    "Use targetUser only when another recipient is actually intended.",
+    "Reply with plain text unless files, reminders, or relaying to another known Telegram user are needed.",
+    "For structured output, return exactly one JSON object with no Markdown fences or extra commentary.",
+    "Structured output schema: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": []}. Keep all top-level fields present; use \"\" or [] when empty.",
+    "Reminder item schema: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", \"targetUser\" }.",
+    "Outbound message schema: {\"message\": string, optional \"targetUser\": { optional \"id\", \"username\", \"displayName\", \"role\" }}. Use targetUser only for another recipient.",
     personaStyle ? `Telegram reply style: ${personaStyle}` : "",
   ].filter(Boolean);
 
   const access = accessRole === "admin"
     ? [
         "Requester role: admin.",
-        "Repository memory and files may be updated when needed.",
-        "config.toml or runtime configuration may change only on explicit admin request.",
+        "Repository memory and files may be updated when needed; config changes require explicit admin request.",
       ]
     : accessRole === "trusted"
       ? [
           "Requester role: trusted.",
-          "Repository memory, reminders, and files may be updated when needed.",
-          "Do not modify config.toml or runtime configuration.",
+          "Repository memory, reminders, and files may be updated when needed; do not modify config.toml or runtime configuration.",
         ]
       : [
           "Requester role: allowed.",
-          "Treat repository memory and files as read-only.",
-          "Do not reveal private repository data.",
-          "Do not modify config.toml or runtime configuration.",
+          "Treat repository memory and files as read-only, do not reveal private repository data, and do not modify config.toml or runtime configuration.",
         ];
 
   const lines = ["User request:", userRequest, "", ...common, ...access];
