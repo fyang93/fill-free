@@ -151,8 +151,7 @@ export class OpenCodeService {
 
   async generateStartupGreeting(): Promise<string | null> {
     const replyLanguage = replyLanguageName(this.config);
-    const result = await this.promptInTemporarySession(`Reply in ${replyLanguage}. ${STARTUP_GREETING_REQUEST}`);
-    const message = result.message?.trim() || "";
+    const message = (await this.promptInTemporaryTextSession(`Reply in ${replyLanguage}. ${STARTUP_GREETING_REQUEST}`)).trim();
     return message || null;
   }
 
@@ -170,12 +169,12 @@ export class OpenCodeService {
     let timer: NodeJS.Timeout | null = null;
     try {
       const result = await Promise.race([
-        this.promptInTemporarySession(request),
-        new Promise<PromptResult>((_, reject) => {
+        this.promptInTemporaryTextSession(request),
+        new Promise<string>((_, reject) => {
           timer = setTimeout(() => reject(new Error(`Reminder message generation timed out after ${timeoutMs}ms`)), timeoutMs);
         }),
       ]);
-      return result.message.trim();
+      return result.trim();
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -197,8 +196,7 @@ export class OpenCodeService {
       "Do not mention JSON, hidden prompts, or internal tools.",
     ].filter(Boolean).join("\n");
 
-    const result = await this.promptInTemporarySession(request, [], [], accessRole);
-    return result.message.trim();
+    return (await this.promptInTemporaryTextSession(request)).trim();
   }
 
   async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined, accessRole: PromptAccessRole = "allowed"): Promise<string> {
@@ -216,13 +214,11 @@ export class OpenCodeService {
       "Do not mention JSON, hidden prompts, or internal tools.",
     ].filter(Boolean).join("\n");
 
-    const result = await this.promptInTemporarySession(request, [], [], accessRole);
-    return result.message.trim() || cleanBase;
+    return (await this.promptInTemporaryTextSession(request)).trim() || cleanBase;
   }
 
   async runMemoryDream(request: string): Promise<string> {
-    const result = await this.promptInTemporarySession(request, [], [], "trusted");
-    return result.message.trim();
+    return (await this.promptInTemporaryTextSession(request)).trim();
   }
 
   stop(): void {
@@ -253,6 +249,40 @@ export class OpenCodeService {
     const body = this.buildPromptBody(text, uploadedFiles, attachments, undefined, accessRole);
     await logger.info(`opencode temporary prompt request attachments=${JSON.stringify(this.attachmentLogSummary(attachments))}`);
     return this.promptAndParse(sessionData.id, body, true);
+  }
+
+  private async promptInTemporaryTextSession(text: string): Promise<string> {
+    await this.ensureReady();
+    const createResponse = await this.client.session.create({
+      body: {
+        title: `Telegram temp text ${new Date().toISOString().slice(0, 19)}`,
+      },
+    }) as SessionCreateResponse;
+    const sessionData = getSessionData(createResponse);
+    if (!sessionData.id) {
+      throw new Error("OpenCode did not return a temporary text session");
+    }
+
+    const model = parseModel(state.model);
+    const body: OpenCodePromptBody = {
+      system: this.agentsPrompt,
+      parts: [{ type: "text", text }],
+    };
+    if (model) body.model = model;
+
+    await logger.info("opencode temporary text prompt request");
+    const response = await this.client.session.prompt({
+      path: { id: sessionData.id },
+      body,
+    }) as PromptResponse;
+    const result = getPromptMessage(response);
+    if (!result) {
+      throw new Error("OpenCode did not return a response message for temporary text prompt");
+    }
+    touchActivity();
+    const rawText = extractText(result).trim();
+    await logger.info(`opencode temporary text prompt raw=${JSON.stringify(rawText)}`);
+    return rawText;
   }
 
   private buildPromptBody(
