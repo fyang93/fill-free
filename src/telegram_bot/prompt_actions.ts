@@ -6,12 +6,14 @@ import { createStructuredReminders } from "./reminder_intent";
 import { sendMessageFormatted } from "./telegram_format";
 import { resolveTelegramTargetUsers } from "./telegram_identity";
 import type { AppConfig } from "./types";
+import { t } from "./i18n";
 
 const OUTBOUND_TARGET_REQUIRED_FACT = "Outbound target is missing. Ask the user to specify the recipient by @mention or by replying to that person's message.";
 const OUTBOUND_TRUST_REQUIRED_FACT = "Outbound relay is not allowed for this requester. Only trusted or admin users may ask the bot to message other Telegram users.";
 
 export type PromptActionExecution = {
   facts: string[];
+  replyAppendix: string;
 };
 
 type ExecutePromptActionsInput = {
@@ -28,12 +30,27 @@ type ExecutePromptActionsInput = {
 type OutboundDeliveryResult = {
   delivered: string[];
   clarifications: string[];
+  sentMessages: Array<{ recipientLabel: string; text: string }>;
 };
 
 function summarizeFactBlock(plural: string, items: string[]): string {
   if (items.length === 0) return "";
   if (items.length === 1) return items[0] || "";
   return `${plural}:\n${items.map((item) => `- ${item}`).join("\n")}`;
+}
+
+function quoteBlock(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => `> ${line || " "}`)
+    .join("\n");
+}
+
+function buildOutboundReplyAppendix(config: AppConfig, sentMessages: Array<{ recipientLabel: string; text: string }>): string {
+  if (sentMessages.length === 0) return "";
+  return sentMessages
+    .map(({ recipientLabel, text }) => `${t(config, "outbound_sent_quote_header", { recipient: recipientLabel })}\n${quoteBlock(text)}`)
+    .join("\n\n");
 }
 
 async function deliverOutboundMessages(
@@ -45,6 +62,7 @@ async function deliverOutboundMessages(
 ): Promise<OutboundDeliveryResult> {
   const delivered: string[] = [];
   const clarifications: string[] = [];
+  const sentMessages: Array<{ recipientLabel: string; text: string }> = [];
 
   for (const outbound of outboundMessages) {
     const text = typeof outbound.message === "string" ? outbound.message.trim() : "";
@@ -72,7 +90,8 @@ async function deliverOutboundMessages(
       const recipientLabel = target.displayName || String(recipientUserId);
       try {
         await sendMessageFormatted(bot, recipientUserId, text);
-        delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.\n> ${text}`);
+        delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.`);
+        sentMessages.push({ recipientLabel, text });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await logger.warn(`failed to send outbound telegram message to user=${recipientUserId}: ${message}`);
@@ -81,7 +100,7 @@ async function deliverOutboundMessages(
     }
   }
 
-  return { delivered, clarifications };
+  return { delivered, clarifications, sentMessages };
 }
 
 export async function executePromptActions(input: ExecutePromptActionsInput): Promise<PromptActionExecution> {
@@ -97,8 +116,8 @@ export async function executePromptActions(input: ExecutePromptActionsInput): Pr
   const outboundResult = input.canDeliverOutbound
     ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId)
     : input.answer.outboundMessages.length > 0
-      ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT] }
-      : { delivered: [], clarifications: [] };
+      ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT], sentMessages: [] }
+      : { delivered: [], clarifications: [], sentMessages: [] };
 
   return {
     facts: [
@@ -107,5 +126,6 @@ export async function executePromptActions(input: ExecutePromptActionsInput): Pr
       ...reminderResult.clarifications,
       ...outboundResult.clarifications,
     ].filter(Boolean),
+    replyAppendix: buildOutboundReplyAppendix(input.config, outboundResult.sentMessages),
   };
 }

@@ -340,6 +340,9 @@ export class PromptController {
           finalMessage = [finalMessage, ...modelFacts].filter(Boolean).join("\n\n");
         }
       }
+      if (actionResult.replyAppendix) {
+        finalMessage = [finalMessage, actionResult.replyAppendix].filter(Boolean).join("\n\n");
+      }
       await editMessageTextFormatted(ctx, chatId, waiting.message_id, finalMessage);
 
       await deliverPromptOutputs(ctx, this.deps.config, answer);

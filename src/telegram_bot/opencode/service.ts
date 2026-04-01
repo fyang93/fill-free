@@ -191,7 +191,6 @@ export class OpenCodeService {
       `Write a single natural Telegram reply in ${replyLanguageName(this.config)}.` ,
       "Keep the same persona and tone as the ongoing conversation.",
       "Use the following facts if relevant, but phrase them naturally and concisely.",
-      "If a fact includes a quoted message block beginning with >, preserve the quoted message content exactly.",
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       "Facts:",
       ...cleanFacts.map((item) => `- ${item}`),
