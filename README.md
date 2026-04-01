@@ -15,7 +15,7 @@ A local-first Telegram bot for managing personal information, organizing materia
 
 The bot has three practical permission levels:
 
-- `allowed user`: may chat with the bot and ask non-sensitive informational questions. Repository content should be treated as read-only and privacy-restricted. Cannot read or extract private long-term memory, reminders, personal files, secrets, or other sensitive repository data. Cannot modify long-term memory, files, reminders-as-data, or runtime config.
+- `allowed user`: may chat with the bot, ask non-sensitive informational questions, and ask the bot to create reminders for that user. Repository memory/files should still be treated as privacy-restricted and effectively read-only. They must not read or extract private long-term memory, existing reminder details, personal files, secrets, or other sensitive repository data. They also cannot upload/process files, modify long-term memory or repository files, or change runtime config.
 - `trusted user`: may read and modify repository memory/files and other persistent data, including private long-term memory and reminder data. Still cannot request changes to `config.toml` or runtime configuration.
 - `admin user`: effectively a trusted user plus admin-only operations. The admin can request `config.toml` / runtime config changes, receives startup and config-reload notices, and can use all commands.
 
@@ -86,7 +86,7 @@ If OpenCode is already running on `127.0.0.1:4096`, it will be reused.
 ### `[telegram]`
 
 - `bot_token`: your Telegram bot token from BotFather.
-- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in privacy-restricted read-only mode. They may ask general questions, but should not be allowed to read private memory, reminders, personal files, or secrets. May be empty if you only use trusted/admin users.
+- `allowed_user_ids`: Telegram user IDs allowed to talk to the bot in privacy-restricted mode. They may ask general questions and request reminders for themselves, but should not be allowed to read private memory, existing reminder details, personal files, or secrets. They also cannot upload/process files or modify repository data. May be empty if you only use trusted/admin users.
 - `trusted_user_ids`: users allowed to read and modify memory, files, reminders, and other persistent repository data. Users listed here do not need to also appear in `allowed_user_ids`.
 - `admin_user_id`: optional admin user ID. The admin is treated as trusted automatically, receives startup/config-reload notices, can change runtime config, and can use all commands. The admin does not need to also appear in `trusted_user_ids` or `allowed_user_ids`.
 - `max_file_size_mb`: max upload size accepted by the bot.
