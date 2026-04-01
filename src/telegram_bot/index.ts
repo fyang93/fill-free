@@ -19,14 +19,13 @@ import {
   state,
   touchActivity,
 } from "./state";
-import { createReminder, handleReminderCallback, showReminderList, startReminderLoop } from "./reminders";
-import { t, uiLocaleTag } from "./i18n";
+import { createAutoEventReminders, createReminder, handleReminderCallback, reminderScheduleSummary, showReminderList, startReminderLoop, summarizeCreatedReminders } from "./reminders";
+import { t } from "./i18n";
 import { editMessageTextFormatted, replyFormatted, sendMessageFormatted } from "./telegram_format";
 import type { PromptAttachment, UploadedFile } from "./types";
 
-const MODEL_LIST_LIMIT = 30;
-const MODEL_CALLBACK_PREFIX = "model:set:";
-const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule)/i;
+const MODEL_CALLBACK_PREFIX = "model:";
+const REMINDER_HINT_RE = /(提醒|remind|reminder|到时候提醒|记得|别忘了|闹钟|alarm|schedule|生日|纪念日|周年|忌日|anniversary|birthday|memorial|春节|中秋|端午|元宵|重阳|清明|festival)/i;
 const WAITING_MESSAGE_PLACEHOLDER = "__WAITING_MESSAGE__";
 const REMINDER_CANCEL_RE = /^(算了|取消|不用了|不需要了|先不用|cancel|never mind)$/i;
 
@@ -113,6 +112,10 @@ function compactModelLabel(model: string): string {
   return model.length > 48 ? `${model.slice(0, 45)}...` : model;
 }
 
+function compactProviderLabel(provider: string): string {
+  return provider.length > 32 ? `${provider.slice(0, 29)}...` : provider;
+}
+
 function resolveDisplayedModel(defaults: Record<string, string>): string {
   if (state.model) return state.model;
   if (defaults.opencode) return `opencode/${defaults.opencode}`;
@@ -121,13 +124,45 @@ function resolveDisplayedModel(defaults: Record<string, string>): string {
   return currentModel();
 }
 
-function buildModelKeyboard(models: string[], activeModel: string | null): InlineKeyboard {
+function providersFromModels(models: string[]): string[] {
+  return Array.from(new Set(models.map((model) => model.split("/", 1)[0]))).sort((a, b) => a.localeCompare(b));
+}
+
+function modelsForProvider(models: string[], provider: string): string[] {
+  return models.filter((model) => model.startsWith(`${provider}/`));
+}
+
+function buildPagedKeyboard(items: Array<{ label: string; data: string }>, pageSize: number, page: number, navPrefix: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  models.slice(0, MODEL_LIST_LIMIT).forEach((model, index) => {
-    const label = model === activeModel ? `✅ ${compactModelLabel(model)}` : compactModelLabel(model);
-    keyboard.text(label, `${MODEL_CALLBACK_PREFIX}${model}`);
-    if (index % 1 === 0) keyboard.row();
-  });
+  const safePageSize = Math.max(1, pageSize);
+  const totalPages = Math.max(1, Math.ceil(items.length / safePageSize));
+  const currentPage = Math.min(Math.max(page, 0), totalPages - 1);
+  const start = currentPage * safePageSize;
+  const pageItems = items.slice(start, start + safePageSize);
+  pageItems.forEach((item) => keyboard.text(item.label, item.data).row());
+  if (totalPages > 1) {
+    if (currentPage > 0) keyboard.text("⬅", `${MODEL_CALLBACK_PREFIX}${navPrefix}:${currentPage - 1}`);
+    if (currentPage < totalPages - 1) keyboard.text("➡", `${MODEL_CALLBACK_PREFIX}${navPrefix}:${currentPage + 1}`);
+  }
+  return keyboard;
+}
+
+function buildProviderKeyboard(models: string[], activeModel: string | null, pageSize: number, page = 0): InlineKeyboard {
+  const activeProvider = activeModel?.split("/", 1)[0] || null;
+  const items = providersFromModels(models).map((provider) => ({
+    label: provider === activeProvider ? `✅ ${compactProviderLabel(provider)}` : compactProviderLabel(provider),
+    data: `${MODEL_CALLBACK_PREFIX}provider:${provider}:0`,
+  }));
+  return buildPagedKeyboard(items, pageSize, page, "providers");
+}
+
+function buildProviderModelKeyboard(provider: string, models: string[], activeModel: string | null, pageSize: number, page = 0): InlineKeyboard {
+  const items = modelsForProvider(models, provider).map((model) => ({
+    label: model === activeModel ? `✅ ${compactModelLabel(model)}` : compactModelLabel(model),
+    data: `${MODEL_CALLBACK_PREFIX}set:${model}`,
+  }));
+  const keyboard = buildPagedKeyboard(items, pageSize, page, `models:${provider}`);
+  keyboard.row().text(t(config, "reminder_back"), `${MODEL_CALLBACK_PREFIX}providers:0`);
   return keyboard;
 }
 
@@ -438,7 +473,7 @@ bot.command("new", async (ctx) => {
 });
 
 bot.command("reminders", async (ctx) => {
-  await showReminderList(config, ctx, 0);
+  await showReminderList(config, ctx);
 });
 
 bot.command("model", async (ctx) => {
@@ -449,9 +484,17 @@ bot.command("model", async (ctx) => {
     try {
       const { defaults, models } = await opencode.listModels();
       const activeModel = resolveDisplayedModel(defaults);
-      await replyFormatted(ctx, t(config, "choose_model"), {
-        reply_markup: buildModelKeyboard(models, activeModel),
-      });
+      const providers = providersFromModels(models);
+      if (providers.length === 1) {
+        const provider = providers[0];
+        await replyFormatted(ctx, t(config, "choose_model_under_provider", { provider }), {
+          reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, 0),
+        });
+      } else {
+        await replyFormatted(ctx, t(config, "choose_provider"), {
+          reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, 0),
+        });
+      }
     } catch (error) {
       await replyFormatted(ctx, t(config, "fetch_models_failed", { error: error instanceof Error ? error.message : String(error) }));
     }
@@ -493,11 +536,36 @@ async function handleIncomingText(ctx: Context): Promise<void> {
       () => opencode.parseReminderFollowup(pendingReminder.originalRequest, text, pendingReminder.referenceTimeIso),
       async (reminder, chatId, waitingMessageId) => {
         await logger.info(`reminder follow-up parse result: ${JSON.stringify(reminder)}`);
+        if (reminder.shouldCreate && reminder.event) {
+          await clearPendingReminderConfirmation();
+          const created = await createAutoEventReminders(config, {
+            kind: reminder.event.kind || "birthday",
+            title: reminder.event.title || reminder.text || pendingReminder.originalRequest,
+            calendar: reminder.event.calendar || "gregorian",
+            month: Number(reminder.event.month || 0),
+            day: Number(reminder.event.day || 0),
+            year: reminder.event.year,
+            isLeapMonth: reminder.event.isLeapMonth,
+            leapMonthPolicy: reminder.event.leapMonthPolicy,
+            reminderTime: {
+              hour: Number(reminder.event.reminderTime?.hour ?? 9),
+              minute: Number(reminder.event.reminderTime?.minute ?? 0),
+            },
+            offsetsDays: reminder.event.offsetsDays,
+          }, pendingReminder.referenceTimeIso);
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created_batch", {
+            count: created.length,
+            items: summarizeCreatedReminders(config, created),
+          }));
+          return;
+        }
         if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
           await clearPendingReminderConfirmation();
-          const created = await createReminder(config, reminder.text, reminder.scheduledAt);
-          const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", { time: displayTime, text: created.text }));
+          const created = await createReminder(config, reminder.text, reminder.scheduledAt, reminder.recurrence);
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", {
+            schedule: reminderScheduleSummary(config, created),
+            text: created.text,
+          }));
           return;
         }
         if (reminder.needsConfirmation && reminder.confirmationText) {
@@ -524,11 +592,36 @@ async function handleIncomingText(ctx: Context): Promise<void> {
       () => opencode.parseReminderRequest(text, referenceTimeIso),
       async (reminder, chatId, waitingMessageId) => {
         await logger.info(`reminder parse result: ${JSON.stringify(reminder)}`);
+        if (reminder.shouldCreate && reminder.event) {
+          await clearPendingReminderConfirmation();
+          const created = await createAutoEventReminders(config, {
+            kind: reminder.event.kind || "birthday",
+            title: reminder.event.title || reminder.text || text,
+            calendar: reminder.event.calendar || "gregorian",
+            month: Number(reminder.event.month || 0),
+            day: Number(reminder.event.day || 0),
+            year: reminder.event.year,
+            isLeapMonth: reminder.event.isLeapMonth,
+            leapMonthPolicy: reminder.event.leapMonthPolicy,
+            reminderTime: {
+              hour: Number(reminder.event.reminderTime?.hour ?? 9),
+              minute: Number(reminder.event.reminderTime?.minute ?? 0),
+            },
+            offsetsDays: reminder.event.offsetsDays,
+          }, referenceTimeIso);
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created_batch", {
+            count: created.length,
+            items: summarizeCreatedReminders(config, created),
+          }));
+          return;
+        }
         if (reminder.shouldCreate && reminder.scheduledAt && reminder.text) {
           await clearPendingReminderConfirmation();
-          const created = await createReminder(config, reminder.text, reminder.scheduledAt);
-          const displayTime = new Date(created.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
-          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", { time: displayTime, text: created.text }));
+          const created = await createReminder(config, reminder.text, reminder.scheduledAt, reminder.recurrence);
+          await editMessageTextFormatted(ctx, chatId, waitingMessageId, t(config, "reminder_created", {
+            schedule: reminderScheduleSummary(config, created),
+            text: created.text,
+          }));
           return;
         }
         if (reminder.needsConfirmation && reminder.confirmationText) {
@@ -601,9 +694,66 @@ bot.on("callback_query:data", async (ctx) => {
     return;
   }
 
-  const model = data.slice(MODEL_CALLBACK_PREFIX.length);
+  const rest = data.slice(MODEL_CALLBACK_PREFIX.length);
   try {
-    const { models } = await opencode.listModels();
+    const { defaults, models } = await opencode.listModels();
+    const activeModel = state.model || resolveDisplayedModel(defaults);
+
+    if (rest.startsWith("providers:")) {
+      const providers = providersFromModels(models);
+      if (providers.length === 1) {
+        const provider = providers[0];
+        if (ctx.chat && ctx.callbackQuery.message?.message_id) {
+          await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+            reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, 0),
+          });
+        }
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      const page = Number(rest.split(":", 2)[1] || 0);
+      if (ctx.chat && ctx.callbackQuery.message?.message_id) {
+        await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_provider"), {
+          reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, page),
+        });
+      }
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (rest.startsWith("provider:")) {
+      const [, provider, pageRaw] = rest.split(":", 3);
+      const providerModels = modelsForProvider(models, provider || "");
+      if (providerModels.length === 0) {
+        await ctx.answerCallbackQuery({ text: t(config, "model_unavailable"), show_alert: true });
+        return;
+      }
+      if (ctx.chat && ctx.callbackQuery.message?.message_id) {
+        await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+          reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, Number(pageRaw || 0)),
+        });
+      }
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (rest.startsWith("models:")) {
+      const [, provider, pageRaw] = rest.split(":", 3);
+      if (ctx.chat && ctx.callbackQuery.message?.message_id) {
+        await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+          reply_markup: buildProviderModelKeyboard(provider || "", models, activeModel, config.telegram.menuPageSize, Number(pageRaw || 0)),
+        });
+      }
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (!rest.startsWith("set:")) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    const model = rest.slice(4);
     if (!models.includes(model)) {
       await ctx.answerCallbackQuery({ text: t(config, "model_unavailable"), show_alert: true });
       return;
@@ -613,8 +763,9 @@ bot.on("callback_query:data", async (ctx) => {
     await persistState();
     await ctx.answerCallbackQuery({ text: t(config, "callback_model_switched", { model: compactModelLabel(model) }) });
     if (ctx.chat && ctx.callbackQuery.message?.message_id) {
-      await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model"), {
-        reply_markup: buildModelKeyboard(models, state.model || model),
+      const provider = model.split("/", 1)[0];
+      await editMessageTextFormatted(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
+        reply_markup: buildProviderModelKeyboard(provider, models, state.model || model, config.telegram.menuPageSize, 0),
       });
     }
   } catch (error) {
@@ -641,7 +792,21 @@ bot.catch(async (error) => {
 });
 
 await logger.info("Telegram bot starting");
-const reminderLoop = await startReminderLoop(config, bot);
+const reminderLoop = await startReminderLoop(config, bot, async (reminder, fallback) => {
+  try {
+    const recurrence = reminderScheduleSummary(config, reminder);
+    const message = await opencode.generateReminderMessage(
+      reminder.text,
+      new Date(reminder.scheduledAt).toLocaleString(),
+      recurrence,
+      config.telegram.reminderMessageTimeoutMs,
+    );
+    return message || fallback;
+  } catch (error) {
+    await logger.warn(`reminder message fallback: ${error instanceof Error ? error.message : String(error)}`);
+    return fallback;
+  }
+});
 await bot.start({
   drop_pending_updates: true,
   onStart: async (botInfo) => {

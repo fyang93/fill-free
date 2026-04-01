@@ -70,6 +70,8 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       waitingMessage: asString(telegram.waiting_message, "机宝启动中..."),
       waitingMessageCandidates: asStringArray(telegram.waiting_message_candidates),
       waitingMessageRotationMs: asNumber(telegram.waiting_message_rotation_ms, 5000),
+      reminderMessageTimeoutMs: asNumber(telegram.reminder_message_timeout_ms, 60000),
+      menuPageSize: asNumber(telegram.menu_page_size, 8),
     },
     paths: {
       repoRoot,

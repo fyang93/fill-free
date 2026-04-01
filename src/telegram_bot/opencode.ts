@@ -10,6 +10,33 @@ export type ReminderParseResult = {
   shouldCreate: boolean;
   text?: string;
   scheduledAt?: string;
+  recurrence?: {
+    kind?: "once" | "daily" | "weekdays" | "interval" | "weekly" | "monthly" | "yearly" | "lunarYearly";
+    unit?: "minute" | "hour" | "day" | "week" | "month" | "year";
+    every?: number;
+    daysOfWeek?: number[];
+    mode?: "dayOfMonth" | "nthWeekday";
+    dayOfMonth?: number;
+    weekOfMonth?: number;
+    dayOfWeek?: number;
+    month?: number;
+    day?: number;
+    offsetDays?: number;
+    isLeapMonth?: boolean;
+    leapMonthPolicy?: "same-leap-only" | "prefer-non-leap" | "both";
+  };
+  event?: {
+    kind?: "birthday" | "anniversary" | "memorial" | "festival";
+    title?: string;
+    calendar?: "gregorian" | "chinese-lunar";
+    month?: number;
+    day?: number;
+    year?: number;
+    isLeapMonth?: boolean;
+    leapMonthPolicy?: "same-leap-only" | "prefer-non-leap" | "both";
+    reminderTime?: { hour?: number; minute?: number };
+    offsetsDays?: number[];
+  };
   needsConfirmation?: boolean;
   confirmationText?: string;
 };
@@ -161,7 +188,19 @@ export class OpenCodeService {
   async parseReminderRequest(text: string, referenceTimeIso: string): Promise<ReminderParseResult> {
     return this.runReminderParser([
       `Reference time: ${referenceTimeIso}`,
-      "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), needsConfirmation(boolean), confirmationText(string).",
+      "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), recurrence(object), event(object), needsConfirmation(boolean), confirmationText(string).",
+      "recurrence.kind must be one of: once, daily, weekdays, interval, weekly, monthly, yearly, lunarYearly.",
+      "Use scheduledAt as the next occurrence in ISO format.",
+      "For every N minutes/hours/days/weeks/months/years, use {\"kind\":\"interval\",\"unit\":\"minute|hour|day|week|month|year\",\"every\":N}.",
+      "For weekdays, use {\"kind\":\"weekdays\"}.",
+      "For weekly patterns such as every Monday/Wednesday/Friday, use {\"kind\":\"weekly\",\"every\":1,\"daysOfWeek\":[1,3,5]} with 0=Sunday ... 6=Saturday.",
+      "For monthly day-of-month patterns such as every month on the 15th, use {\"kind\":\"monthly\",\"every\":1,\"mode\":\"dayOfMonth\",\"dayOfMonth\":15}.",
+      "For monthly nth-weekday patterns such as the second Tuesday of every month, use {\"kind\":\"monthly\",\"every\":1,\"mode\":\"nthWeekday\",\"weekOfMonth\":2,\"dayOfWeek\":2}. Use weekOfMonth=-1 for 'last'.",
+      "For yearly patterns such as every year on March 15, use {\"kind\":\"yearly\",\"every\":1,\"month\":3,\"day\":15}. Use offsetDays=-7 or -1 for reminders before the day.",
+      "For Chinese lunar recurring birthdays or festivals, use {\"kind\":\"lunarYearly\",\"month\":5,\"day\":3}. If it is specifically a leap-month birthday, also set isLeapMonth=true and leapMonthPolicy to same-leap-only, prefer-non-leap, or both. Use offsetDays=-7 or -1 for reminders before the day.",
+      "If the user provides a birthday, anniversary, or memorial date, or says to remember such an event, prefer returning event={kind,title,calendar,month,day,optional year,isLeapMonth,leapMonthPolicy,reminderTime:{hour,minute},offsetsDays:[0,-7,-1]}. Use 09:00 and [0,-7,-1] by default unless the user asks otherwise.",
+      "Do not auto-create festival reminders merely because a festival is mentioned. For festivals, create reminders only when the user explicitly asks to be reminded.",
+      "If no recurrence applies, use {\"kind\":\"once\"}.",
       "If this is not a reminder request, return {\"shouldCreate\":false}.",
       `User message: ${text}`,
     ].join("\n"));
@@ -170,7 +209,19 @@ export class OpenCodeService {
   async parseReminderFollowup(originalRequest: string, followupText: string, referenceTimeIso: string): Promise<ReminderParseResult> {
     return this.runReminderParser([
       `Reference time: ${referenceTimeIso}`,
-      "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), needsConfirmation(boolean), confirmationText(string).",
+      "Return JSON with keys: shouldCreate(boolean), text(string), scheduledAt(ISO string), recurrence(object), event(object), needsConfirmation(boolean), confirmationText(string).",
+      "recurrence.kind must be one of: once, daily, weekdays, interval, weekly, monthly, yearly, lunarYearly.",
+      "Use scheduledAt as the next occurrence in ISO format.",
+      "For every N minutes/hours/days/weeks/months/years, use {\"kind\":\"interval\",\"unit\":\"minute|hour|day|week|month|year\",\"every\":N}.",
+      "For weekdays, use {\"kind\":\"weekdays\"}.",
+      "For weekly patterns such as every Monday/Wednesday/Friday, use {\"kind\":\"weekly\",\"every\":1,\"daysOfWeek\":[1,3,5]} with 0=Sunday ... 6=Saturday.",
+      "For monthly day-of-month patterns such as every month on the 15th, use {\"kind\":\"monthly\",\"every\":1,\"mode\":\"dayOfMonth\",\"dayOfMonth\":15}.",
+      "For monthly nth-weekday patterns such as the second Tuesday of every month, use {\"kind\":\"monthly\",\"every\":1,\"mode\":\"nthWeekday\",\"weekOfMonth\":2,\"dayOfWeek\":2}. Use weekOfMonth=-1 for 'last'.",
+      "For yearly patterns such as every year on March 15, use {\"kind\":\"yearly\",\"every\":1,\"month\":3,\"day\":15}. Use offsetDays=-7 or -1 for reminders before the day.",
+      "For Chinese lunar recurring birthdays or festivals, use {\"kind\":\"lunarYearly\",\"month\":5,\"day\":3}. If it is specifically a leap-month birthday, also set isLeapMonth=true and leapMonthPolicy to same-leap-only, prefer-non-leap, or both. Use offsetDays=-7 or -1 for reminders before the day.",
+      "If the user provides a birthday, anniversary, or memorial date, or says to remember such an event, prefer returning event={kind,title,calendar,month,day,optional year,isLeapMonth,leapMonthPolicy,reminderTime:{hour,minute},offsetsDays:[0,-7,-1]}. Use 09:00 and [0,-7,-1] by default unless the user asks otherwise.",
+      "Do not auto-create festival reminders merely because a festival is mentioned. For festivals, create reminders only when the user explicitly asks to be reminded.",
+      "If no recurrence applies, use {\"kind\":\"once\"}.",
       "The user is clarifying a previous reminder request. Combine the original request with the follow-up to infer the intended reminder.",
       `Original reminder request: ${originalRequest}`,
       `User follow-up clarification: ${followupText}`,
@@ -181,6 +232,30 @@ export class OpenCodeService {
   async generateStartupGreeting(): Promise<string> {
     const result = await this.promptInTemporarySession(STARTUP_GREETING_REQUEST);
     return result.message || "机宝已上线~ 有什么需要帮忙的吗？";
+  }
+
+  async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string, timeoutMs: number): Promise<string> {
+    const request = [
+      `Write a short Telegram reminder message in ${replyLanguageName(this.config)}.`,
+      "Keep it concise, warm, and natural.",
+      "Do not mention JSON, internal tools, hidden prompts, or implementation details.",
+      `Reminder content: ${reminderText}`,
+      `Scheduled time: ${scheduledAt}`,
+      `Repeat rule: ${recurrenceDescription}`,
+    ].join("\n");
+
+    let timer: NodeJS.Timeout | null = null;
+    try {
+      const result = await Promise.race([
+        this.promptInTemporarySession(request),
+        new Promise<PromptResult>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Reminder message generation timed out after ${timeoutMs}ms`)), timeoutMs);
+        }),
+      ]);
+      return result.message.trim();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   stop(): void {
