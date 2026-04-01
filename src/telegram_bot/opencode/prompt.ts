@@ -37,6 +37,7 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     "If notifications are included, each item must use integer \"offsetMinutes\"; omit notifications entirely when defaults are fine.",
     "Outbound message schema: {\"message\": string, optional \"targetUser\", optional \"targetUsers\" }. A target item uses { optional \"id\", \"username\", \"displayName\", \"role\" }. Use targetUsers when more than one recipient is intended.",
     "If the user asks you to tell, inform, relay, forward, or share information with another Telegram user now, use outboundMessages instead of reminders. Use reminders only when the user explicitly wants a future reminder.",
+    "Prefer familiar short names or nicknames for people when known. In multi-user Telegram relays, prefer the recipient's nickname or familiar short name when natural.",
     personaStyle ? `Telegram reply style: ${personaStyle}` : "",
   ].filter(Boolean);
 

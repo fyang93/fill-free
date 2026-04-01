@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
 import type { AppConfig } from "./types";
-import { findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramUsers, rememberTelegramUser } from "./state";
-import { describeTelegramIdentityBinding } from "./telegram_bindings";
+import { findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramUsers, rememberTelegramUser, state } from "./state";
+import { describeTelegramIdentityBinding, getTelegramIdentityBinding } from "./telegram_bindings";
 
 export type TelegramTargetIssue =
   | { kind: "ambiguous"; targetLabel: string; options: string[]; replyTarget?: string }
@@ -14,14 +14,47 @@ export type TelegramTargetResolution = {
   issue?: TelegramTargetIssue;
 };
 
-function telegramUserSummary(user: { id: number; username?: string; displayName: string }): string {
-  return user.username
-    ? `id=${user.id}, username=@${user.username}, displayName=${user.displayName}`
-    : `id=${user.id}, displayName=${user.displayName}`;
+function scoreFriendlyName(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return Number.POSITIVE_INFINITY;
+  let score = trimmed.length;
+  if (trimmed.startsWith("@")) score += 6;
+  if (/\s/.test(trimmed)) score += 4;
+  if (/^[A-Za-z0-9 _.-]+$/.test(trimmed)) score += 2;
+  return score;
 }
 
-function telegramDisplayName(user: { id: number; username?: string; first_name?: string; last_name?: string }, authorizedUserIds: number[]): string {
-  return getTelegramUserDisplayName(user.id, authorizedUserIds)
+function preferredFriendlyName(candidates: Array<string | undefined>): string | undefined {
+  return candidates
+    .map((item) => item?.trim())
+    .filter((item): item is string => Boolean(item))
+    .sort((a, b) => scoreFriendlyName(a) - scoreFriendlyName(b) || a.length - b.length)[0];
+}
+
+function telegramUserSummary(user: { id: number; username?: string; displayName: string; preferredName?: string }): string {
+  const preferred = user.preferredName && user.preferredName !== user.displayName ? `, preferredName=${user.preferredName}` : "";
+  return user.username
+    ? `id=${user.id}, username=@${user.username}, displayName=${user.displayName}${preferred}`
+    : `id=${user.id}, displayName=${user.displayName}${preferred}`;
+}
+
+export function preferredTelegramName(config: AppConfig, userId: number | undefined, fallback?: { username?: string; first_name?: string; last_name?: string }): string | undefined {
+  if (!userId) return undefined;
+  const binding = getTelegramIdentityBinding(config, userId);
+  const known = state.telegramUsers[String(userId)];
+  return preferredFriendlyName([
+    ...(binding?.aliases || []),
+    known?.firstName,
+    fallback?.first_name,
+    known?.displayName,
+    getTelegramUserDisplayName(userId, authorizedTelegramUserIds(config)) || undefined,
+    fallback?.username ? `@${fallback.username}` : undefined,
+  ]);
+}
+
+function telegramDisplayName(config: AppConfig, user: { id: number; username?: string; first_name?: string; last_name?: string }, authorizedUserIds: number[]): string {
+  return preferredTelegramName(config, user.id, user)
+    || getTelegramUserDisplayName(user.id, authorizedUserIds)
     || [user.first_name, user.last_name].filter(Boolean).join(" ").trim()
     || user.username
     || String(user.id);
@@ -32,14 +65,14 @@ function buildTelegramContextLines(config: AppConfig, ctx: Context): string[] {
   const lines: string[] = [];
   const requester = ctx.from;
   if (requester?.id) {
-    lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: telegramDisplayName(requester, authorizedUserIds) })}`);
+    lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: getTelegramUserDisplayName(requester.id, authorizedUserIds) || telegramDisplayName(config, requester, authorizedUserIds), preferredName: preferredTelegramName(config, requester.id, requester) })}`);
     const requesterBinding = describeTelegramIdentityBinding(config, requester.id);
     if (requesterBinding) lines.push(`Requester identity: ${requesterBinding}`);
   }
 
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
   if (repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
-    lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: telegramDisplayName(repliedMessage.from, authorizedUserIds) })}`);
+    lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: getTelegramUserDisplayName(repliedMessage.from.id, authorizedUserIds) || telegramDisplayName(config, repliedMessage.from, authorizedUserIds), preferredName: preferredTelegramName(config, repliedMessage.from.id, repliedMessage.from) })}`);
     const replyBinding = describeTelegramIdentityBinding(config, repliedMessage.from.id);
     if (replyBinding) lines.push(`Reply target identity: ${replyBinding}`);
   }
@@ -57,10 +90,11 @@ function buildTelegramContextLines(config: AppConfig, ctx: Context): string[] {
   return lines;
 }
 
-function replyTargetDisplayName(ctx: Context, authorizedUserIds: number[]): string | undefined {
+function replyTargetDisplayName(config: AppConfig, ctx: Context, authorizedUserIds: number[]): string | undefined {
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
   if (!repliedMessage?.from?.id || !authorizedUserIds.includes(repliedMessage.from.id)) return undefined;
-  return telegramDisplayName(repliedMessage.from, authorizedUserIds);
+  return preferredTelegramName(config, repliedMessage.from.id, repliedMessage.from)
+    || telegramDisplayName(config, repliedMessage.from, authorizedUserIds);
 }
 
 function targetIssueFact(issue: TelegramTargetIssue): string {
@@ -103,7 +137,7 @@ export function resolveTelegramTargetUser(config: AppConfig, rawTarget: unknown,
   const authorizedUserIds = authorizedTelegramUserIds(config);
   if (!rawTarget || typeof rawTarget !== "object") {
     return requesterUserId
-      ? { status: "self", userId: requesterUserId, displayName: getTelegramUserDisplayName(requesterUserId, authorizedUserIds) || undefined }
+      ? { status: "self", userId: requesterUserId, displayName: preferredTelegramName(config, requesterUserId) || getTelegramUserDisplayName(requesterUserId, authorizedUserIds) || undefined }
       : { status: "self" };
   }
 
@@ -119,12 +153,12 @@ export function resolveTelegramTargetUser(config: AppConfig, rawTarget: unknown,
     return {
       status: "resolved",
       userId: adminUserId,
-      displayName: getTelegramUserDisplayName(adminUserId, authorizedUserIds) || displayName || "admin",
+      displayName: preferredTelegramName(config, adminUserId) || getTelegramUserDisplayName(adminUserId, authorizedUserIds) || displayName || "admin",
     };
   }
 
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
-  const repliedDisplayName = replyTargetDisplayName(ctx, authorizedUserIds);
+  const repliedDisplayName = replyTargetDisplayName(config, ctx, authorizedUserIds);
   if (role && ["reply", "reply_target", "replied_user", "被回复的人"].includes(role) && repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
     return {
       status: "resolved",
@@ -139,7 +173,7 @@ export function resolveTelegramTargetUser(config: AppConfig, rawTarget: unknown,
     return {
       status: "resolved",
       userId: matchedUser.id,
-      displayName: matchedUser.username ? `${matchedUser.displayName} (@${matchedUser.username})` : matchedUser.displayName,
+      displayName: preferredFriendlyName([preferredTelegramName(config, matchedUser.id), matchedUser.firstName, matchedUser.displayName]) || (matchedUser.username ? `${matchedUser.displayName} (@${matchedUser.username})` : matchedUser.displayName),
     };
   }
 

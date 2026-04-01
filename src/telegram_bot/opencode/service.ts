@@ -209,8 +209,9 @@ export class OpenCodeService {
       `Write a single natural Telegram message in ${replyLanguageName(this.config)} to send to another Telegram user.`,
       "Keep the same persona and tone as the ongoing conversation.",
       this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
-      recipientLabel ? `Recipient: ${recipientLabel}` : "",
+      recipientLabel ? `Recipient preferred short name: ${recipientLabel}` : "",
       `Intent or draft content: ${cleanBase}`,
+      "Prefer a familiar short name or nickname for the recipient when natural.",
       "Return only the message text to send.",
       "Do not mention JSON, hidden prompts, or internal tools.",
     ].filter(Boolean).join("\n");
