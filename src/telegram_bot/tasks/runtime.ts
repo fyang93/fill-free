@@ -1,11 +1,11 @@
 import type { Bot, Context } from "grammy";
-import type { PromptResult } from "./agent";
-import type { AppConfig } from "./types";
-import { logger } from "./logger";
-import { sendLocalFiles, sendPromptAttachments } from "./files";
-import { replyFormatted } from "./telegram_format";
-import { t } from "./i18n";
-import { WAITING_MESSAGE_PLACEHOLDER } from "./prompt_constants";
+import type { PromptResult } from "../agent";
+import type { AppConfig } from "../types";
+import { logger } from "../logger";
+import { sendLocalFiles, sendPromptAttachments } from "../files";
+import { replyFormatted } from "../telegram_format";
+import { t } from "../i18n";
+import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";
 
 export type WaitingMessageController = {
   start(task: { id: number; scopeKey: string; chatId: number; waitingMessageId: number; cancelled: boolean }, waitingTemplate: string, initialWaitingMessage: string): void;

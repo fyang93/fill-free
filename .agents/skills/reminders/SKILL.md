@@ -1,5 +1,5 @@
 ---
-name: reminder-agent
+name: reminders
 description: Use for reminder planning, reminder extraction from natural language, recurring/event reminder decisions, and cases where one user message may imply both reminders and other follow-up actions.
 ---
 

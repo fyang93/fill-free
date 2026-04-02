@@ -4,10 +4,14 @@ import {
   DefaultResourceLoader,
   ModelRegistry,
   SessionManager,
+  SettingsManager,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
+import { existsSync, readdirSync, watch, type FSWatcher } from "node:fs";
+import path from "node:path";
 import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
 import { logger } from "../logger";
+import { loadAvailableProjectSkills } from "../skills";
 import { replyLanguageName } from "../i18n";
 import { describePromptPreferences } from "../preferences";
 import { state, touchActivity } from "../state";
@@ -22,6 +26,18 @@ type SessionEntry = {
   modelKey: string | null;
 };
 
+function ensureBotMcpConfigArgv(mcpConfigPath: string): void {
+  const flag = "--mcp-config";
+  const index = process.argv.indexOf(flag);
+  if (index >= 0) {
+    if (process.argv[index + 1] !== mcpConfigPath) {
+      process.argv[index + 1] = mcpConfigPath;
+    }
+    return;
+  }
+  process.argv.push(flag, mcpConfigPath);
+}
+
 function parseDataUri(dataUri: string): { mediaType: string; data: string } | null {
   const match = dataUri.match(/^data:([^;,]+)(?:;charset=[^;,]+)?;base64,(.*)$/s);
   if (!match) return null;
@@ -33,34 +49,96 @@ function parseDataUri(dataUri: string): { mediaType: string; data: string } | nu
 
 export class AgentService {
   private config: AppConfig;
+  private readonly agentDir;
   private readonly authStorage;
   private readonly modelRegistry;
+  private readonly settingsManager;
   private readonly resourceLoader;
   private readonly sessions = new Map<string, SessionEntry>();
+  private readonly resourceWatchers: FSWatcher[] = [];
+  private resourceReloadTimer: NodeJS.Timeout | null = null;
   private ready: Promise<void> | null = null;
 
   constructor(config: AppConfig) {
     this.config = config;
-    this.authStorage = AuthStorage.create();
-    this.modelRegistry = ModelRegistry.create(this.authStorage);
+    this.agentDir = path.join(config.paths.repoRoot, ".pi", "bot");
+    ensureBotMcpConfigArgv(path.join(this.agentDir, "mcp.json"));
+    this.authStorage = AuthStorage.create(path.join(this.agentDir, "auth.json"));
+    this.modelRegistry = ModelRegistry.create(this.authStorage, path.join(this.agentDir, "models.json"));
+    this.settingsManager = SettingsManager.create(config.paths.repoRoot, this.agentDir);
     this.resourceLoader = new DefaultResourceLoader({
       cwd: config.paths.repoRoot,
+      agentDir: this.agentDir,
+      settingsManager: this.settingsManager,
+      additionalExtensionPaths: [
+        path.join(config.paths.repoRoot, "node_modules", "pi-web-access", "index.ts"),
+        path.join(config.paths.repoRoot, "node_modules", "pi-mcp-adapter", "index.ts"),
+      ],
+      additionalSkillPaths: [path.join(config.paths.repoRoot, "node_modules", "pi-web-access", "skills")],
       appendSystemPromptOverride: (base) => [...base, buildProjectSystemPrompt()],
     });
+    this.startResourceWatchers();
   }
 
   reloadConfig(config: AppConfig): void {
     this.config = config;
   }
 
+  private async reloadResources(): Promise<void> {
+    this.startResourceWatchers();
+    await this.resourceLoader.reload();
+    const loadedSkills = this.resourceLoader.getSkills().skills;
+    const projectSkills = loadAvailableProjectSkills();
+    await logger.info(`pi resource loader skills loaded=${loadedSkills.length} projectSkillsListed=${projectSkills.length} names=${JSON.stringify(loadedSkills.map((skill) => skill.name))}`);
+  }
+
+  private scheduleResourceReload(reason: string): void {
+    if (this.resourceReloadTimer) clearTimeout(this.resourceReloadTimer);
+    void logger.info(`detected skill change; reloading pi resources path=${reason}`);
+    this.resourceReloadTimer = setTimeout(() => {
+      const pending = this.reloadResources()
+        .then(() => logger.info(`reloaded pi resources after ${reason}`))
+        .catch((error) => logger.warn(`failed to reload pi resources after ${reason}: ${error instanceof Error ? error.message : String(error)}`));
+      this.ready = pending;
+    }, 250);
+  }
+
+  private watchPath(targetPath: string): void {
+    if (!existsSync(targetPath)) return;
+    try {
+      const watcher = watch(targetPath, () => {
+        this.scheduleResourceReload(targetPath);
+      });
+      this.resourceWatchers.push(watcher);
+    } catch {
+      return;
+    }
+  }
+
+  private startResourceWatchers(): void {
+    for (const watcher of this.resourceWatchers) {
+      watcher.close();
+    }
+    this.resourceWatchers.length = 0;
+    const projectSkillsDir = path.join(this.config.paths.repoRoot, ".agents", "skills");
+    this.watchPath(projectSkillsDir);
+    if (existsSync(projectSkillsDir)) {
+      for (const entry of readdirSync(projectSkillsDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          this.watchPath(path.join(projectSkillsDir, entry.name));
+        }
+      }
+    }
+  }
+
   async ensureReady(): Promise<void> {
     if (!this.ready) {
-      this.ready = this.resourceLoader.reload();
+      this.ready = this.reloadResources();
     }
     await this.ready;
     const available = await this.modelRegistry.getAvailable();
     if (available.length > 0) return;
-    throw new Error("No pi models are available. Configure a provider such as OpenRouter in pi and make sure credentials are available.");
+    throw new Error("No pi models are available. Configure .pi/bot/models.json and make sure credentials are available.");
   }
 
   private sessionKey(scopeKey?: string): string {
@@ -73,16 +151,40 @@ export class AgentService {
 
   private async resolveSelectedModel() {
     const available = await this.modelRegistry.getAvailable();
+
+    const matchModel = (providerID: string | undefined, modelID: string | undefined) => {
+      if (!providerID || !modelID) return null;
+      return available.find((model) => model.provider === providerID && model.id === modelID) || null;
+    };
+
     const selected = this.selectedModelKey();
     if (selected) {
       const [providerID, ...rest] = selected.split("/");
       const modelID = rest.join("/").trim();
-      if (providerID && modelID) {
-        const exact = available.find((model) => model.provider === providerID && model.id === modelID);
-        if (exact) return exact;
+      const exact = matchModel(providerID, modelID);
+      if (exact) {
+        await logger.info(`pi model selection source=state model=${providerID}/${modelID}`);
+        return exact;
       }
+      await logger.warn(`pi state model ${selected} is unavailable; falling back to configured defaults`);
     }
-    return available[0] || null;
+
+    const defaultProvider = this.settingsManager.getDefaultProvider()?.trim();
+    const defaultModel = this.settingsManager.getDefaultModel()?.trim();
+    const configuredDefault = matchModel(defaultProvider, defaultModel);
+    if (configuredDefault) {
+      await logger.info(`pi model selection source=settings model=${defaultProvider}/${defaultModel}`);
+      return configuredDefault;
+    }
+    if (defaultProvider || defaultModel) {
+      await logger.warn(`pi configured default model is unavailable provider=${JSON.stringify(defaultProvider || "")} model=${JSON.stringify(defaultModel || "")}; falling back to first available model`);
+    }
+
+    const fallback = available[0] || null;
+    if (fallback) {
+      await logger.warn(`pi model selection source=fallback model=${fallback.provider}/${fallback.id}`);
+    }
+    return fallback;
   }
 
   private async createSession(scopeKey?: string): Promise<SessionEntry> {
@@ -90,12 +192,13 @@ export class AgentService {
     const model = await this.resolveSelectedModel();
     const { session } = await createAgentSession({
       cwd: this.config.paths.repoRoot,
+      agentDir: this.agentDir,
       resourceLoader: this.resourceLoader,
       sessionManager: SessionManager.inMemory(),
+      settingsManager: this.settingsManager,
       authStorage: this.authStorage,
       modelRegistry: this.modelRegistry,
       model: model || undefined,
-      thinkingLevel: "off",
     });
     return {
       session,
@@ -182,6 +285,7 @@ export class AgentService {
       telegramMessageTime,
       accessRole,
     );
+    await logger.info(`pi prompt context skillListIncluded=${promptText.includes("<available_skills>") ? "yes" : "no"} skillListCount=${loadAvailableProjectSkills().length}`);
     await logger.info(`pi prompt request attachments=${JSON.stringify(this.attachmentLogSummary(attachments))}`);
     return this.promptAndParse(entry.session, promptText, attachments, false);
   }
@@ -319,6 +423,14 @@ export class AgentService {
   }
 
   stop(): void {
+    if (this.resourceReloadTimer) {
+      clearTimeout(this.resourceReloadTimer);
+      this.resourceReloadTimer = null;
+    }
+    for (const watcher of this.resourceWatchers) {
+      watcher.close();
+    }
+    this.resourceWatchers.length = 0;
     for (const entry of this.sessions.values()) {
       entry.session.dispose();
     }
@@ -363,8 +475,12 @@ export class AgentService {
     const parsed = extractPromptResultFromText(rawText);
     await this.logParsedPromptResult(rawText, parsed, temporary, false);
 
-    if (!this.shouldRepairStructuredOutput(rawText, parsed)) {
-      return parsed;
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0) {
+      if (!this.shouldRepairStructuredOutput(rawText, parsed)) {
+        return parsed;
+      }
+    } else {
+      throw new Error("Model returned no displayable output.");
     }
 
     await logger.warn(`${temporary ? "pi temporary prompt" : "pi prompt"} returned malformed structured output; requesting one repair pass`);
@@ -374,6 +490,7 @@ export class AgentService {
   private async promptSessionForText(session: AgentSession, text: string, attachments: PromptAttachment[]): Promise<string> {
     let currentText = "";
     let finalText = "";
+    let lastProviderError: string | null = null;
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "message_start") {
         currentText = "";
@@ -385,24 +502,56 @@ export class AgentService {
       }
       if (event.type === "message_end") {
         if (currentText.trim()) finalText = currentText.trim();
+        const message = "message" in event ? event.message as { stopReason?: string; errorMessage?: string } : undefined;
+        if (message?.stopReason === "error" && message.errorMessage?.trim()) {
+          lastProviderError = message.errorMessage.trim();
+          void logger.warn(`pi provider error: ${lastProviderError}`);
+        }
+        return;
+      }
+      if (event.type === "auto_retry_start") {
+        lastProviderError = event.errorMessage;
+        void logger.warn(`pi auto-retry starting attempt=${event.attempt}/${event.maxAttempts} delayMs=${event.delayMs} error=${JSON.stringify(event.errorMessage)}`);
+        return;
+      }
+      if (event.type === "auto_retry_end" && !event.success) {
+        const finalError = event.finalError?.trim();
+        if (finalError) lastProviderError = finalError;
+        void logger.warn(`pi auto-retry failed attempt=${event.attempt} error=${JSON.stringify(finalError || "unknown")}`);
+        return;
+      }
+      if (event.type === "compaction_end" && event.errorMessage?.trim()) {
+        void logger.warn(`pi compaction error: ${event.errorMessage.trim()}`);
       }
     });
 
     try {
       const images = this.imageInputs(attachments);
       await session.prompt(text, images.length > 0 ? { images } as never : undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      await logger.error(`pi session prompt failed: ${message}`);
+      throw error;
     } finally {
       unsubscribe();
     }
 
-    return finalText || currentText.trim();
+    const result = finalText || currentText.trim();
+    if (!result && lastProviderError) {
+      await logger.warn(`pi prompt completed without text output; last provider error=${JSON.stringify(lastProviderError)}`);
+      throw new Error(lastProviderError);
+    }
+    if (!result) {
+      throw new Error("Model returned no text output.");
+    }
+    return result;
   }
 
   private shouldRepairStructuredOutput(rawText: string, parsed: PromptResult): boolean {
     if (!looksLikeStructuredOutputIntent(rawText)) return false;
     const hasStructuredData = parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0;
     if (hasStructuredData) return false;
-    return parsed.message === (rawText.trim() || "Done.");
+    return parsed.message === rawText.trim();
   }
 
   private async requestStructuredOutputRepair(session: AgentSession, previousRawText: string, temporary: boolean): Promise<PromptResult> {

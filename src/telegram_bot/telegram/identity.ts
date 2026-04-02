@@ -2,7 +2,7 @@ export type {
   ReminderTargetResolution,
   TelegramTargetIssue,
   TelegramTargetResolution,
-} from "./telegram_targets";
+} from "./targets";
 
 export {
   authorizedTelegramUserIds,
@@ -13,4 +13,4 @@ export {
   resolveReminderTargetUser,
   resolveTelegramTargetUser,
   resolveTelegramTargetUsers,
-} from "./telegram_targets";
+} from "./targets";

@@ -1,9 +1,9 @@
 ---
-name: nixos-env-agent
+name: flake-env
 description: Use when a repo-level CLI, system tool, or dev-shell dependency should be available through this project's flake.nix, such as install requests, missing local tooling, or environment setup fixes.
 ---
 
-# NixOS Environment Agent
+# Flake Environment
 
 Use this skill when the task is about managing this repository's development environment.
 

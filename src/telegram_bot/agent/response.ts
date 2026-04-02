@@ -1,6 +1,6 @@
 import type { PromptResult, PromptOutboundMessageDraft, PromptPendingAuthorizationDraft, PromptReminderDraft } from "./types";
 
-const DEFAULT_JSON_MESSAGE = "Done.";
+const DEFAULT_JSON_MESSAGE = "";
 
 function extractJsonCandidates(text: string): string[] {
   const candidates: string[] = [];

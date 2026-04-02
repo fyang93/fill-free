@@ -1,15 +1,17 @@
 ---
-name: memory-agent
+name: memory
 description: Use when the task involves retrieving, saving, updating, merging, or organizing long-term repository memory, notes, files, or persistent user information.
 ---
 
-# Memory Agent
+# Memory
 
-Use this skill when the user asks to remember, save, update, organize, merge, link, or retrieve long-term information from this repository.
+Use this skill when the user asks to remember, save, update, organize, merge, link, or retrieve long-term information from this repository. Use it especially for fact questions about what is known, remembered, recorded, or saved about a person, chat, reminder, file, preference, or other persistent repository state.
 
 ## Retrieval
 
 - Prefer repository-local sources first for user memory, reminders, personal facts, files, logs, and project behavior.
+- For fact questions, first check repository-local memory and state before relying on conversation context, rough recollection, or external search.
+- This includes questions about who the current user is, what name is recorded for them, what is remembered about them, whether a fact was saved, and what habits, preferences, reminders, or files are already recorded.
 - Check `memory/`, `assets/`, `system/`, and relevant code/logs before considering external search.
 - For reminder, relay, coordination, naming, or administrator-habit questions, check `memory/preferences.md` early.
 - Use web search only when local sources are insufficient for the question.

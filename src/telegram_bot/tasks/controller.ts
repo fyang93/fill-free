@@ -1,26 +1,26 @@
 import type { Bot, Context } from "grammy";
-import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
-import { logger } from "./logger";
+import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
+import { logger } from "../logger";
 
-import { editMessageTextFormatted, replyFormatted } from "./telegram_format";
-import { getAccurateNowIso } from "./time";
+import { editMessageTextFormatted, replyFormatted } from "../telegram_format";
+import { getAccurateNowIso } from "../time";
 import {
   clearRecentUploads,
   persistState,
   touchActivity,
-} from "./state";
-import { t } from "./i18n";
-import { accessLevelForUserId } from "./access";
-import type { AgentService } from "./agent";
-import { runPromptTask, type ActivePromptTask } from "./prompt_task_runner";
-import { WAITING_MESSAGE_PLACEHOLDER } from "./prompt_constants";
-import { createWaitingMessageController } from "./prompt_task_runtime";
-import { rememberTelegramParticipants } from "./telegram_identity";
-import { buildTelegramReplyContextPrompt, summarizeIncomingText, telegramReplySummary } from "./reply_context";
-import { PendingPromptMerge } from "./pending_prompt_merge";
-import { ingestTelegramFile, logFilePromptScheduling } from "./file_ingress";
-import { ActivePromptTasks } from "./active_prompt_tasks";
-import { buildRecentAttachments, pruneRecentUploads } from "./recent_uploads";
+} from "../state";
+import { t } from "../i18n";
+import { accessLevelForUserId } from "../access";
+import type { AgentService } from "../agent";
+import { runPromptTask, type ActivePromptTask } from "./runner";
+import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";
+import { createWaitingMessageController } from "./runtime";
+import { rememberTelegramParticipants } from "../telegram/identity";
+import { buildTelegramReplyContextPrompt, summarizeIncomingText, telegramReplySummary } from "../telegram/reply_context";
+import { PendingPromptMerge } from "./pending_merge";
+import { ingestTelegramFile, logFilePromptScheduling } from "../file_ingress";
+import { ActivePromptTasks } from "./active";
+import { buildRecentAttachments, pruneRecentUploads } from "../recent_uploads";
 
 type PromptControllerDeps = {
   config: AppConfig;

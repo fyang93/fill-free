@@ -4,6 +4,8 @@
 
 A local-first Telegram bot for personal memory, files, and reminders.
 
+The bot now runs on the pi SDK, with bot-local pi configuration under `.pi/bot/`.
+
 ## Core features
 
 - remember and retrieve personal information
@@ -31,17 +33,19 @@ just install
 
 ### 2. Configure the bot
 
-Copy the example config:
+Copy the example files:
 
 ```bash
 cp config.toml.example config.toml
+cp .env.example .env
 ```
 
 Fill in at least:
 
-- `bot_token`
-- `allowed_user_ids` and/or `trusted_user_ids`
-- optional `admin_user_id`
+- `telegram.bot_token`
+- `telegram.allowed_user_ids` and/or `telegram.trusted_user_ids`
+- optional `telegram.admin_user_id`
+- `OPENROUTER_API_KEY` in `.env`
 
 Typical setup:
 
@@ -66,10 +70,24 @@ Useful optional settings:
 - `bot.prompt_task_timeout_ms`: timeout for normal prompt handling, default `60000`
 - `bot.default_timezone`: fallback timezone used when the user has not explicitly provided one
 
+The bot uses project-local pi files under `.pi/bot/`:
+
+- `.pi/bot/models.json`: bot model/provider definitions
+- `.pi/bot/settings.json`: bot default provider/model
+- `.pi/bot/mcp.json`: bot MCP server configuration
+
+The committed default setup uses OpenRouter via `OPENROUTER_API_KEY`.
+
 ### 3. Start
 
 ```bash
 just serve
+```
+
+For watch mode during development:
+
+```bash
+bun run telegram:dev
 ```
 
 ## Telegram setup notes
@@ -110,3 +128,4 @@ The admin may also temporarily allow a `@username`. In that case, the user must 
 - `/help`
 - `/new`
 - `/model` (trusted/admin)
+- `/dream` (admin)

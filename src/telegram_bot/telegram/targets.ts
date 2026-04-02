@@ -1,7 +1,8 @@
 import type { Context } from "grammy";
-import type { AppConfig } from "./types";
-import { findTelegramChats, findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramChats, listKnownTelegramUsers, rememberTelegramChat, rememberTelegramUser } from "./telegram_registry";
-import { state } from "./state";
+import type { AppConfig } from "../types";
+import { findTelegramChats, findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramChats, listKnownTelegramUsers, rememberTelegramChat, rememberTelegramUser } from "./registry";
+import { buildRequesterMemoryContext } from "./requester_memory_context";
+import { state } from "../state";
 
 export type TelegramTargetIssue =
   | { kind: "ambiguous"; targetLabel: string; options: string[]; replyTarget?: string }
@@ -74,6 +75,7 @@ function buildTelegramContextLines(config: AppConfig, ctx: Context): string[] {
   const requester = ctx.from;
   if (requester?.id) {
     lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: getTelegramUserDisplayName(requester.id, authorizedUserIds) || telegramDisplayName(config, requester, authorizedUserIds), preferredName: preferredTelegramName(config, requester.id, requester) })}`);
+    lines.push(...buildRequesterMemoryContext(config, requester.id, requester));
   }
 
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;

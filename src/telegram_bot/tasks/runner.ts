@@ -1,13 +1,13 @@
 import type { Context } from "grammy";
-import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
-import type { AgentService, PromptResult } from "./agent";
-import { logger } from "./logger";
-import { t } from "./i18n";
-import { editMessageTextFormatted } from "./telegram_format";
-import { executePromptActions, type ExecutePromptActionsInput } from "./prompt_actions";
+import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
+import type { AgentService, PromptResult } from "../agent";
+import { logger } from "../logger";
+import { t } from "../i18n";
+import { editMessageTextFormatted } from "../telegram_format";
+import { executePromptActions, type ExecutePromptActionsInput } from "./actions";
 import type { Bot } from "grammy";
-import { buildTelegramPromptContext } from "./telegram_identity";
-import { deliverPromptOutputs } from "./prompt_task_runtime";
+import { buildTelegramPromptContext } from "../telegram/identity";
+import { deliverPromptOutputs } from "./runtime";
 
 export type ActivePromptTask = {
   id: number;

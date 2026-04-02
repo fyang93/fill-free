@@ -3,8 +3,8 @@ import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
 import { saveTelegramFile, uploadedFileToAttachment } from "./files";
 import { persistState, rememberUploads, touchActivity } from "./state";
-import { rememberTelegramParticipants } from "./telegram_identity";
-import { summarizeIncomingText, telegramReplySummary } from "./reply_context";
+import { rememberTelegramParticipants } from "./telegram/identity";
+import { summarizeIncomingText, telegramReplySummary } from "./telegram/reply_context";
 
 export type SavedFileIngress = {
   uploaded: UploadedFile;

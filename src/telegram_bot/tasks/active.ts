@@ -1,9 +1,9 @@
-import { logger } from "./logger";
-import { t } from "./i18n";
-import type { AppConfig } from "./types";
-import type { AgentService } from "./agent";
+import { logger } from "../logger";
+import { t } from "../i18n";
+import type { AppConfig } from "../types";
+import type { AgentService } from "../agent";
 import type { Bot, Context } from "grammy";
-import type { ActivePromptTask } from "./prompt_task_runner";
+import type { ActivePromptTask } from "./runner";
 
 type ReactionCapableApi = Bot<Context>["api"] & {
   setMessageReaction?: (chatId: number, messageId: number, reaction: Array<{ type: "emoji"; emoji: string }>, isBig?: boolean) => Promise<unknown>;

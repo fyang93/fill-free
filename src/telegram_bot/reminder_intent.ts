@@ -6,7 +6,7 @@ import { persistState, rememberUserTimezone } from "./state";
 import { buildReminderScheduleFromExternal } from "./reminders/schedule_parser";
 import { createReminderEventWithDefaults, formatReminderEvent, isValidReminderTimezone, prepareReminderDeliveryText, resolveReminderTimezone, updateReminderEvent, type ReminderEvent, type ReminderNotification } from "./reminders";
 import type { AppConfig } from "./types";
-import { resolveReminderTargetUser, resolveTelegramTargetUsers, type ReminderTargetResolution } from "./telegram_identity";
+import { resolveReminderTargetUser, resolveTelegramTargetUsers, type ReminderTargetResolution } from "./telegram/identity";
 
 function buildReminderNotifications(raw: unknown): ReminderNotification[] | undefined {
   if (!Array.isArray(raw)) return undefined;

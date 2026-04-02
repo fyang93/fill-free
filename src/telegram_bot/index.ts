@@ -16,7 +16,7 @@ import { t } from "./i18n";
 import { replyFormatted, sendMessageFormatted } from "./telegram_format";
 import { isAddressedToBot, isAdminUserId, isTrustedUserId, unauthorizedGuard } from "./access";
 import { handleModelCallback } from "./model_callback";
-import { PromptController } from "./prompt_controller";
+import { PromptController } from "./tasks/controller";
 import { createDreamRunner } from "./dreaming";
 
 const configPath = DEFAULT_CONFIG_PATH;
