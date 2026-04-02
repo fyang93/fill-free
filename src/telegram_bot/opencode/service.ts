@@ -152,16 +152,13 @@ export class OpenCodeService {
 
   async generateStartupGreeting(): Promise<string | null> {
     const replyLanguage = replyLanguageName(this.config);
-    const request = buildPrompt(
+    const request = [
+      `Reply in ${replyLanguage}.`,
+      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
       STARTUP_GREETING_REQUEST,
-      [],
-      this.config.bot.personaStyle,
-      replyLanguage,
-      this.config.bot.defaultTimezone,
-      describePromptPreferences(this.config, STARTUP_GREETING_REQUEST),
-      undefined,
-      "allowed",
-    );
+      "Use the normal Telegram reply persona consistently.",
+      "Return only the greeting text to send.",
+    ].filter(Boolean).join(" ");
     const message = this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
     return message || null;
   }
@@ -236,6 +233,21 @@ export class OpenCodeService {
 
   private extractDirectTextReply(rawText: string): string {
     const trimmed = rawText.trim();
+    const normalizedQuotes = trimmed
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, '"')
+      .replace(/[，]/g, ',')
+      .replace(/[：]/g, ':');
+
+    try {
+      const parsed = JSON.parse(normalizedQuotes) as Record<string, unknown>;
+      if (typeof parsed.message === "string" && parsed.message.trim()) {
+        return parsed.message.trim();
+      }
+    } catch {
+      // ignore JSON parse failures and fall back to plain text extraction
+    }
+
     const match = trimmed.match(/(?:这会被[^：:\n]*[：:]|启动问候语[：:]|greeting text to send[\s:：]*|message text to send[\s:：]*|reply text to send[\s:：]*)\s*([\s\S]+)$/i);
     return match?.[1]?.trim() || trimmed;
   }

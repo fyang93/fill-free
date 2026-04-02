@@ -28,4 +28,6 @@ assets/**
 system/**
 !system/
 !system/.gitkeep
+!system/schemas/
+!system/schemas/**
 

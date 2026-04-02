@@ -1,38 +1,26 @@
-import { stat } from "node:fs/promises";
 import type { Bot, Context } from "grammy";
 import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
 import { logger } from "./logger";
-import { saveTelegramFile, uploadedFileToAttachment } from "./files";
+
 import { editMessageTextFormatted, replyFormatted } from "./telegram_format";
 import { getAccurateNowIso } from "./time";
 import {
   clearRecentUploads,
-  getRecentUploads,
-  hasRecentUploads,
-  rememberUploads,
   persistState,
-  retainRecentUploads,
   touchActivity,
 } from "./state";
 import { t } from "./i18n";
 import { accessLevelForUserId } from "./access";
 import type { OpenCodeService } from "./opencode";
-import { executePromptActions } from "./prompt_actions";
+import { runPromptTask, type ActivePromptTask } from "./prompt_task_runner";
 import { WAITING_MESSAGE_PLACEHOLDER } from "./prompt_constants";
-import { createWaitingMessageController, deliverPromptOutputs } from "./prompt_task_runtime";
-import { buildTelegramPromptContext, rememberTelegramParticipants } from "./telegram_identity";
-
-type ActiveTask = {
-  id: number;
-  userId?: number;
-  scopeKey: string;
-  scopeLabel: string;
-  chatId: number;
-  sourceMessageId: number;
-  waitingMessageId: number;
-  cancelled: boolean;
-  waitingMessageRotation?: NodeJS.Timeout;
-};
+import { createWaitingMessageController } from "./prompt_task_runtime";
+import { rememberTelegramParticipants } from "./telegram_identity";
+import { buildTelegramReplyContextPrompt, summarizeIncomingText, telegramReplySummary } from "./reply_context";
+import { PendingPromptMerge } from "./pending_prompt_merge";
+import { ingestTelegramFile, logFilePromptScheduling } from "./file_ingress";
+import { ActivePromptTasks } from "./active_prompt_tasks";
+import { buildRecentAttachments, pruneRecentUploads } from "./recent_uploads";
 
 type PromptControllerDeps = {
   config: AppConfig;
@@ -47,6 +35,8 @@ type ReactionCapableApi = Bot<Context>["api"] & {
   setMessageReaction?: (chatId: number, messageId: number, reaction: Array<{ type: "emoji"; emoji: string }>, isBig?: boolean) => Promise<unknown>;
 };
 
+const TEXT_ATTACHMENT_MERGE_WINDOW_MS = 1200;
+
 function isConfigMutationRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
@@ -55,36 +45,13 @@ function isConfigMutationRequest(text: string): boolean {
   return targets.some((item) => normalized.includes(item)) && actions.some((item) => normalized.includes(item));
 }
 
-function summarizeIncomingText(text: string, maxLength = 500): string {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}…` : trimmed;
-}
-
-function repliedMessageSummary(ctx: Context): string {
-  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
-  if (!repliedMessage) return "";
-  const repliedText = "text" in repliedMessage
-    ? repliedMessage.text
-    : "caption" in repliedMessage
-      ? repliedMessage.caption
-      : undefined;
-  const summary = summarizeIncomingText(repliedText || "");
-  return ` replyToMessage=${repliedMessage.message_id ?? "unknown"} replyToUser=${repliedMessage.from?.id ?? "unknown"} replyToText=${JSON.stringify(summary)}`;
-}
-
 function contactPromptText(ctx: Context): string {
   const contact = ctx.message && "contact" in ctx.message ? ctx.message.contact : undefined;
   if (!contact) return "";
-  const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
-  const repliedText = repliedMessage && "text" in repliedMessage
-    ? repliedMessage.text
-    : repliedMessage && "caption" in repliedMessage
-      ? repliedMessage.caption
-      : undefined;
+  const replyContext = buildTelegramReplyContextPrompt(ctx);
   return [
     "The user shared a Telegram contact card.",
-    repliedText ? `Reply context: ${repliedText}` : "",
+    replyContext,
     `First name: ${contact.first_name}`,
     contact.last_name ? `Last name: ${contact.last_name}` : "",
     `Phone number: ${contact.phone_number}`,
@@ -94,34 +61,34 @@ function contactPromptText(ctx: Context): string {
   ].filter(Boolean).join("\n");
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timer: NodeJS.Timeout | null = null;
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
-
 export class PromptController {
-  private activeTasks = new Map<string, ActiveTask>();
   private nextTaskId = 1;
   private readonly waiting;
+  private readonly pendingMerge;
+  private readonly activeTasks;
 
   constructor(private readonly deps: PromptControllerDeps) {
     this.waiting = createWaitingMessageController(
       this.deps.config,
       this.deps.bot,
-      (scopeKey, taskId) => this.activeTasks.get(scopeKey)?.id === taskId,
+      (scopeKey, taskId) => this.activeTasks.isCurrent(scopeKey, taskId),
+    );
+    this.pendingMerge = new PendingPromptMerge(
+      TEXT_ATTACHMENT_MERGE_WINDOW_MS,
+      (ctx, waitingTemplate, promptText, telegramMessageTime) => {
+        this.startPromptTask(ctx, waitingTemplate, promptText, [], [], telegramMessageTime);
+      },
+    );
+    this.activeTasks = new ActivePromptTasks(
+      this.deps.config,
+      this.deps.bot,
+      this.deps.opencode,
+      (task) => this.waiting.stop(task),
     );
   }
 
   hasActiveTask(): boolean {
-    return this.activeTasks.size > 0;
+    return this.activeTasks.hasAny();
   }
 
   async setReactionSafe(ctx: Context, emoji: string): Promise<void> {
@@ -153,22 +120,7 @@ export class PromptController {
   }
 
   async interruptActiveTask(reason: string, scopeKey?: string): Promise<void> {
-    const keys = scopeKey ? [scopeKey] : Array.from(this.activeTasks.keys());
-    for (const key of keys) {
-      const running = this.activeTasks.get(key);
-      if (!running || running.cancelled) continue;
-      running.cancelled = true;
-      this.waiting.stop(running);
-      this.activeTasks.delete(key);
-      await logger.warn(`interrupting active task ${running.id} for ${running.scopeLabel}: ${reason}`);
-      await this.deps.opencode.abortCurrentSession(running.scopeKey, running.scopeLabel);
-      await this.setReactionByMessageSafe(running.chatId, running.sourceMessageId, "😞");
-      try {
-        await this.deps.bot.api.editMessageText(running.chatId, running.waitingMessageId, t(this.deps.config, "task_interrupted"));
-      } catch {
-        // ignore message edit failures
-      }
-    }
+    await this.activeTasks.interrupt(reason, scopeKey);
   }
 
   async editMessageTextFormattedSafe(ctx: Context, chatId: number, messageId: number, text: string, options?: { reply_markup?: unknown }): Promise<void> {
@@ -198,11 +150,23 @@ export class PromptController {
         await persistState(this.deps.config.paths.stateFile);
       }
       const scope = this.conversationScope(ctx);
-      const recentUploads = getRecentUploads(scope.key);
-      const { files: validRecentUploads, attachments } = await this.buildRecentAttachments(scope.key, recentUploads);
+      const { files: validRecentUploads, attachments } = await buildRecentAttachments(scope.key);
       const telegramMessageTime = await this.messageReferenceTime(ctx);
-      await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${repliedMessageSummary(ctx)}`);
-      this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, text, validRecentUploads, attachments, telegramMessageTime);
+      const replyContext = this.repliedMessageContext(ctx);
+      const effectiveText = replyContext
+        ? [
+            "Current user message:",
+            text,
+            "",
+            replyContext,
+          ].join("\n")
+        : text;
+      await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} chatType=${ctx.chat?.type ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${telegramReplySummary(ctx)} replyContextIncluded=${replyContext ? "yes" : "no"}`);
+      if (validRecentUploads.length === 0 && attachments.length === 0) {
+        this.pendingMerge.schedule(scope.key, ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, telegramMessageTime);
+        return;
+      }
+      this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, validRecentUploads, attachments, telegramMessageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await logger.error(`text handling failed: ${message}`);
@@ -223,7 +187,7 @@ export class PromptController {
       }
       const telegramMessageTime = await this.messageReferenceTime(ctx);
       const contact = ctx.message && "contact" in ctx.message ? ctx.message.contact : undefined;
-      await logger.info(`received contact message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} firstName=${JSON.stringify(contact?.first_name || "")} lastName=${JSON.stringify(contact?.last_name || "")} phoneNumber=${JSON.stringify(contact?.phone_number || "")} contactUserId=${contact?.user_id ?? "unknown"}${repliedMessageSummary(ctx)}`);
+      await logger.info(`received contact message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} firstName=${JSON.stringify(contact?.first_name || "")} lastName=${JSON.stringify(contact?.last_name || "")} phoneNumber=${JSON.stringify(contact?.phone_number || "")} contactUserId=${contact?.user_id ?? "unknown"}${telegramReplySummary(ctx)}`);
       this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, promptText, [], [], telegramMessageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -252,28 +216,31 @@ export class PromptController {
         return;
       }
 
-      const uploaded = await saveTelegramFile(ctx, this.deps.config);
-      if (!uploaded) return;
-
-      touchActivity();
-      if (rememberTelegramParticipants(this.deps.config, ctx)) {
-        await persistState(this.deps.config.paths.stateFile);
-      }
-      await logger.info(`saved telegram file ${uploaded.savedPath}`);
       const scope = this.conversationScope(ctx);
-      rememberUploads(scope.key, [uploaded]);
+      const saved = await ingestTelegramFile(ctx, this.deps.config, scope.key);
+      if (!saved) return;
+      const { uploaded, attachment } = saved;
 
       if (!caption) {
+        const mergedPending = this.pendingMerge.consumeForFile(scope.key, ctx, "", await this.messageReferenceTime(ctx), scope.label);
+        if (mergedPending) {
+          this.startPromptTask(ctx, WAITING_MESSAGE_PLACEHOLDER, mergedPending.promptText, [uploaded], [attachment], mergedPending.telegramMessageTime);
+          return;
+        }
         await this.setReactionSafe(ctx, "🥰");
         await replyFormatted(ctx, t(this.deps.config, "file_saved", { path: uploaded.savedPath, waiting_message: this.deps.config.bot.waitingMessage }));
         return;
       }
 
-      const attachment = await uploadedFileToAttachment(uploaded);
-      const waitingTemplate = t(this.deps.config, "file_saved_and_processing", { path: uploaded.savedPath, waiting_message: WAITING_MESSAGE_PLACEHOLDER });
+      const waitingTemplate = WAITING_MESSAGE_PLACEHOLDER;
       const telegramMessageTime = await this.messageReferenceTime(ctx);
 
-      await logger.info(`received ${uploaded.source} message chat=${ctx.chat?.id ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} caption=${JSON.stringify(summarizeIncomingText(caption))}${repliedMessageSummary(ctx)} and scheduled prompt task`);
+      await logFilePromptScheduling(ctx, uploaded, caption);
+      const mergedPending = this.pendingMerge.consumeForFile(scope.key, ctx, caption, telegramMessageTime, scope.label);
+      if (mergedPending) {
+        this.startPromptTask(ctx, waitingTemplate, mergedPending.promptText, [uploaded], [attachment], mergedPending.telegramMessageTime);
+        return;
+      }
       this.startPromptTask(ctx, waitingTemplate, caption, [uploaded], [attachment], telegramMessageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -285,58 +252,21 @@ export class PromptController {
 
   async resetSession(ctx: Context): Promise<string> {
     const scope = this.conversationScope(ctx);
+    this.pendingMerge.clear(scope.key, "/new command");
     await this.interruptActiveTask("/new command", scope.key);
     const sessionId = await this.deps.opencode.newSession(scope.key, scope.label);
     clearRecentUploads(scope.key);
     return sessionId;
   }
 
+  private repliedMessageContext(ctx: Context): string {
+    return buildTelegramReplyContextPrompt(ctx);
+  }
+
   private async messageReferenceTime(ctx: Context): Promise<string> {
     const unixSeconds = ctx.message?.date;
     if (typeof unixSeconds === "number") return new Date(unixSeconds * 1000).toISOString();
     return getAccurateNowIso();
-  }
-
-  private async buildRecentAttachments(scopeKey: string, files: UploadedFile[]): Promise<{ files: UploadedFile[]; attachments: PromptAttachment[] }> {
-    const settled = await Promise.allSettled(
-      files.map(async (file) => ({
-        file,
-        attachment: file.source === "voice" || file.source === "audio" ? null : await uploadedFileToAttachment(file),
-      })),
-    );
-
-    const validFiles: UploadedFile[] = [];
-    const attachments: PromptAttachment[] = [];
-    for (const result of settled) {
-      if (result.status === "fulfilled") {
-        validFiles.push(result.value.file);
-        if (result.value.attachment) attachments.push(result.value.attachment);
-        continue;
-      }
-      await logger.warn(`skipping missing recent upload: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
-    }
-
-    if (validFiles.length !== files.length) retainRecentUploads(scopeKey, validFiles);
-    return { files: validFiles, attachments };
-  }
-
-  private async pruneRecentUploads(scopeKey: string): Promise<void> {
-    if (!hasRecentUploads(scopeKey)) return;
-    const recentUploads = getRecentUploads(scopeKey);
-    const settled = await Promise.allSettled(recentUploads.map(async (file) => {
-      await stat(file.absolutePath);
-      return file;
-    }));
-
-    const validFiles: UploadedFile[] = [];
-    for (const result of settled) {
-      if (result.status === "fulfilled") validFiles.push(result.value);
-    }
-
-    if (validFiles.length !== recentUploads.length) {
-      retainRecentUploads(scopeKey, validFiles);
-      await logger.info(`pruned stale recent uploads: ${recentUploads.length - validFiles.length} removed`);
-    }
   }
 
   private startPromptTask(
@@ -366,11 +296,12 @@ export class PromptController {
     const scope = this.conversationScope(ctx);
     if (!chatId || !sourceMessageId) return;
 
+    this.pendingMerge.clear(scope.key);
     await this.interruptActiveTask(`new incoming message ${sourceMessageId}`, scope.key);
     await this.setReactionSafe(ctx, "🤔");
     const initialWaitingMessage = this.deps.config.bot.waitingMessage;
     const waiting = await ctx.reply(this.waiting.render(waitingTemplate, initialWaitingMessage));
-    const task: ActiveTask = {
+    const task: ActivePromptTask = {
       id: this.nextTaskId++,
       userId,
       scopeKey: scope.key,
@@ -384,70 +315,25 @@ export class PromptController {
     this.waiting.start(task, waitingTemplate, initialWaitingMessage);
 
     try {
-      const accessRole = this.deps.isAdminUserId(userId) ? "admin" : this.deps.isTrustedUserId(userId) ? "trusted" : "allowed";
-      const telegramPromptContext = buildTelegramPromptContext(this.deps.config, ctx);
-      const effectivePromptText = telegramPromptContext ? `${promptText}\n\n${telegramPromptContext}` : promptText;
-      const promptStartedAt = Date.now();
-      const answer = await withTimeout(
-        this.deps.opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole),
-        this.deps.config.bot.promptTaskTimeoutMs,
-        `prompt task ${task.id}`,
-      );
-      await logger.info(`prompt task ${task.id} completed in ${Date.now() - promptStartedAt}ms`);
-      if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
-        await logger.warn(`discarding stale prompt result for task ${task.id}`);
-        return;
-      }
-
-      this.waiting.stop(task);
-      const actionResult = await executePromptActions({
+      await runPromptTask({
         config: this.deps.config,
         bot: this.deps.bot,
-        opencode: this.deps.opencode,
-        answer,
         ctx,
-        requesterUserId: userId,
+        task,
+        promptText,
+        uploadedFiles,
+        attachments,
         telegramMessageTime,
-        canDeliverOutbound: this.deps.isTrustedUserId(userId) || this.deps.isAdminUserId(userId),
-        accessRole,
+        opencode: this.deps.opencode,
+        isAdminUserId: this.deps.isAdminUserId,
+        isTrustedUserId: this.deps.isTrustedUserId,
+        isTaskCurrent: (taskScopeKey, taskId) => this.activeTasks.isCurrent(taskScopeKey, taskId),
+        onPruneRecentUploads: (taskScopeKey) => pruneRecentUploads(taskScopeKey),
+        onStopWaiting: (runningTask) => this.waiting.stop(runningTask),
+        onSetReaction: (reactionCtx, emoji) => this.setReactionSafe(reactionCtx, emoji),
       });
-      const modelFacts = actionResult.facts;
-      let finalMessage = answer.message || t(this.deps.config, "generic_done");
-      if (modelFacts.length > 0) {
-        try {
-          finalMessage = await this.deps.opencode.composeTelegramReply(finalMessage, modelFacts);
-        } catch (error) {
-          await logger.warn(`failed to compose telegram follow-up reply: ${error instanceof Error ? error.message : String(error)}`);
-          finalMessage = [finalMessage, ...modelFacts].filter(Boolean).join("\n\n");
-        }
-      }
-      if (actionResult.replyAppendix) {
-        finalMessage = [finalMessage, actionResult.replyAppendix].filter(Boolean).join("\n\n");
-      }
-      await editMessageTextFormatted(ctx, chatId, waiting.message_id, finalMessage);
-
-      await deliverPromptOutputs(ctx, this.deps.config, answer);
-
-      await this.pruneRecentUploads(scope.key);
-      await this.setReactionSafe(ctx, "🥰");
-    } catch (error) {
-      if (task.cancelled || this.activeTasks.get(scope.key)?.id !== task.id) {
-        await logger.warn(`ignored prompt failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
-        return;
-      }
-      this.waiting.stop(task);
-      const message = error instanceof Error ? error.message : String(error);
-      if (/timed out after/i.test(message)) {
-        await logger.warn(`prompt task ${task.id} timed out; aborting opencode session for ${task.scopeLabel}`);
-        await this.deps.opencode.abortCurrentSession(task.scopeKey, task.scopeLabel);
-      }
-      await logger.error(`prompt handling failed: ${message}`);
-      await this.pruneRecentUploads(scope.key);
-      await editMessageTextFormatted(ctx, chatId, waiting.message_id, t(this.deps.config, "task_failed", { error: message }));
-      await this.setReactionSafe(ctx, "😞");
     } finally {
-      this.waiting.stop(task);
-      if (this.activeTasks.get(scope.key)?.id === task.id) this.activeTasks.delete(scope.key);
+      this.activeTasks.deleteIfCurrent(scope.key, task.id);
     }
   }
 }

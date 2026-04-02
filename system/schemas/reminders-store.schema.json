@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/reminders-store.schema.json",
+  "title": "Reminder Store",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/reminderEvent"
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetKind", "targetId"],
+      "properties": {
+        "targetKind": { "type": "string", "enum": ["user", "chat"] },
+        "targetId": { "type": "integer" },
+        "displayName": { "type": "string" }
+      }
+    },
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "offsetMinutes", "enabled"],
+      "properties": {
+        "id": { "type": "string" },
+        "offsetMinutes": { "type": "integer" },
+        "enabled": { "type": "boolean" },
+        "label": { "type": "string" }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["once", "interval", "weekly", "monthly", "yearly", "lunarYearly"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "reminderEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "timeSemantics",
+        "timezone",
+        "schedule",
+        "notifications",
+        "status",
+        "createdAt",
+        "targets"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "note": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["routine", "meeting", "birthday", "anniversary", "festival", "memorial", "task", "custom"]
+        },
+        "timeSemantics": { "type": "string", "enum": ["absolute", "local"] },
+        "timezone": { "type": "string" },
+        "schedule": { "$ref": "#/$defs/schedule" },
+        "notifications": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/notification" }
+        },
+        "category": { "type": "string", "enum": ["routine", "special"] },
+        "specialKind": { "type": "string", "enum": ["birthday", "festival", "anniversary", "memorial"] },
+        "status": { "type": "string", "enum": ["active", "paused", "deleted"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "targets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "deliveryText": { "type": "string" },
+        "deliveryTextGeneratedAt": { "type": "string", "format": "date-time" },
+        "deliveryPreparedNotificationId": { "type": "string" },
+        "deliveryPreparedNotifyAt": { "type": "string", "format": "date-time" },
+        "deliveryState": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

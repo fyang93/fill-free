@@ -18,7 +18,7 @@ export type PromptActionExecution = {
   replyAppendix: string;
 };
 
-type ExecutePromptActionsInput = {
+export type ExecutePromptActionsInput = {
   config: AppConfig;
   bot: Bot<Context>;
   opencode: OpenCodeService;

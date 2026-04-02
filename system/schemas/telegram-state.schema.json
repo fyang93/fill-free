@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/telegram-state.schema.json",
+  "title": "Telegram Persistent State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model",
+    "lastDreamedAt",
+    "lastDreamedMemoryFingerprint",
+    "userTimezones",
+    "telegramUsers",
+    "telegramChats",
+    "pendingAuthorizations"
+  ],
+  "properties": {
+    "model": {
+      "type": ["string", "null"]
+    },
+    "lastDreamedAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "lastDreamedMemoryFingerprint": {
+      "type": ["string", "null"]
+    },
+    "userTimezones": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/userTimezone"
+      }
+    },
+    "telegramUsers": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/telegramUser"
+      }
+    },
+    "telegramChats": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^-?[0-9]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/telegramChat"
+      }
+    },
+    "pendingAuthorizations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pendingAuthorization"
+      }
+    }
+  },
+  "$defs": {
+    "userTimezone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone", "updatedAt"],
+      "properties": {
+        "timezone": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "telegramUser": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName", "lastSeenAt"],
+      "properties": {
+        "username": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "displayName": { "type": "string" },
+        "lastSeenAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "telegramChat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "lastSeenAt"],
+      "properties": {
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "username": { "type": "string" },
+        "lastSeenAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "pendingAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "username", "createdBy", "createdAt", "expiresAt"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["allowed"] },
+        "username": { "type": "string" },
+        "createdBy": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
