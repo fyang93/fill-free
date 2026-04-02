@@ -1,2 +1,2 @@
-export { OpenCodeService } from "./service";
+export { AgentService } from "./service";
 export type { PromptResult } from "./types";

@@ -1,6 +1,6 @@
 import type { AppConfig } from "../types";
 import { logger } from "../logger";
-import type { OpenCodeService } from "../opencode";
+import type { AgentService } from "../agent";
 import type { ReminderEvent, ReminderNotificationInstance } from "./types";
 import { getCurrentOccurrence, listNotificationInstances, reminderEventScheduleSummary } from "./schedule";
 import { readReminderEvents, writeReminderEvents } from "./store";
@@ -51,7 +51,7 @@ export function shouldPrepareReminderDeliveryText(event: ReminderEvent, now = ne
   return Number.isFinite(notifyAt) && notifyAt - now.getTime() <= PERIODIC_PREWARM_WINDOW_MS;
 }
 
-export async function prepareReminderDeliveryText(config: AppConfig, opencode: OpenCodeService, event: ReminderEvent, now = new Date()): Promise<boolean> {
+export async function prepareReminderDeliveryText(config: AppConfig, agentService: AgentService, event: ReminderEvent, now = new Date()): Promise<boolean> {
   const nextInstance = nextPendingReminderInstance(event, now);
   if (!nextInstance) {
     return clearPreparedReminderDeliveryText(event);
@@ -65,7 +65,7 @@ export async function prepareReminderDeliveryText(config: AppConfig, opencode: O
   if (isPreparedReminderDeliveryTextUsable(event, nextInstance)) {
     return false;
   }
-  const message = await opencode.generateReminderMessage(
+  const message = await agentService.generateReminderMessage(
     event.title,
     nextInstance.notifyAt,
     reminderEventScheduleSummary(config, event),
@@ -80,14 +80,14 @@ export async function prepareReminderDeliveryText(config: AppConfig, opencode: O
   return true;
 }
 
-export async function prewarmReminderDeliveryTexts(config: AppConfig, opencode: OpenCodeService): Promise<void> {
+export async function prewarmReminderDeliveryTexts(config: AppConfig, agentService: AgentService): Promise<void> {
   const events = await readReminderEvents(config);
   let changed = false;
   const now = new Date();
   for (const event of events) {
     if (event.status !== "active") continue;
     try {
-      if (await prepareReminderDeliveryText(config, opencode, event, now)) changed = true;
+      if (await prepareReminderDeliveryText(config, agentService, event, now)) changed = true;
     } catch (error) {
       await logger.warn(`failed to prewarm reminder message for ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
     }

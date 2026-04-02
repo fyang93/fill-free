@@ -1,8 +1,8 @@
 import type { Bot, Context } from "grammy";
 import { logger } from "./logger";
-import type { OpenCodeService } from "./opencode";
-import type { PromptAccessRole } from "./opencode/prompt";
-import type { PromptOutboundMessageDraft, PromptResult } from "./opencode/types";
+import type { AgentService } from "./agent";
+import type { PromptAccessRole } from "./agent/prompt";
+import type { PromptOutboundMessageDraft, PromptResult } from "./agent/types";
 import { createStructuredReminders } from "./reminder_intent";
 import { storePendingAuthorizations } from "./pending_access";
 import { sendMessageFormatted } from "./telegram_format";
@@ -21,7 +21,7 @@ export type PromptActionExecution = {
 export type ExecutePromptActionsInput = {
   config: AppConfig;
   bot: Bot<Context>;
-  opencode: OpenCodeService;
+  agentService: AgentService;
   answer: PromptResult;
   ctx: Context;
   requesterUserId?: number;
@@ -63,7 +63,7 @@ async function deliverOutboundMessages(
   outboundMessages: PromptOutboundMessageDraft[],
   requesterUserId: number | undefined,
   accessRole: PromptAccessRole,
-  opencode: OpenCodeService,
+  agentService: AgentService,
 ): Promise<OutboundDeliveryResult> {
   const delivered: string[] = [];
   const clarifications: string[] = [];
@@ -94,7 +94,7 @@ async function deliverOutboundMessages(
       }
       const recipientLabel = target.displayName || String(recipientId);
       try {
-        const relayText = await opencode.composeOutboundRelayMessage(text, recipientLabel);
+        const relayText = await agentService.composeOutboundRelayMessage(text, recipientLabel);
         await sendMessageFormatted(bot, recipientId, relayText);
         delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.`);
         sentMessages.push({ recipientLabel, text: relayText });
@@ -112,7 +112,7 @@ async function deliverOutboundMessages(
 export async function executePromptActions(input: ExecutePromptActionsInput): Promise<PromptActionExecution> {
   const reminderResult = await createStructuredReminders(
     input.config,
-    input.opencode,
+    input.agentService,
     input.answer.reminders,
     input.ctx,
     input.requesterUserId,
@@ -120,7 +120,7 @@ export async function executePromptActions(input: ExecutePromptActionsInput): Pr
   );
 
   const outboundResult = input.canDeliverOutbound
-    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId, input.accessRole, input.opencode)
+    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId, input.accessRole, input.agentService)
     : input.answer.outboundMessages.length > 0
       ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT], sentMessages: [] }
       : { delivered: [], clarifications: [], sentMessages: [] };

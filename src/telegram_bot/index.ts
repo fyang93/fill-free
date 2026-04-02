@@ -2,7 +2,7 @@ import { Bot } from "grammy";
 import { loadConfig } from "./config";
 import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "./config_runtime";
 import { configureLogger, logger } from "./logger";
-import { OpenCodeService } from "./opencode";
+import { AgentService } from "./agent";
 import { currentModel, loadPersistentState, persistState, state } from "./state";
 import { pruneExpiredPendingAuthorizationsFromState } from "./pending_access";
 import { handleReminderCallback, prepareReminderDeliveryText, prewarmReminderDeliveryTexts, pruneExpiredReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "./reminders";
@@ -25,7 +25,7 @@ await loadPersistentState(config.paths.stateFile);
 configureLogger(config.paths.logFile);
 await logger.info(`telegram bot process starting pid=${process.pid}`);
 const bot = new Bot(config.telegram.botToken);
-const opencode = new OpenCodeService(config);
+const agentService = new AgentService(config);
 let botUsername: string | null = null;
 let botUserId: number | null = null;
 const pendingAuthorizationCleanup = setInterval(() => {
@@ -41,7 +41,7 @@ const pendingAuthorizationCleanup = setInterval(() => {
 const promptController = new PromptController({
   config,
   bot,
-  opencode,
+  agentService,
   isTrustedUserId: (userId) => isTrustedUserId(config, userId),
   isAdminUserId: (userId) => isAdminUser(userId),
   isAddressedToBot: (ctx) => isAddressedToBot(ctx, botUsername, botUserId),
@@ -56,9 +56,9 @@ async function sendAdminMessage(text: string): Promise<void> {
 async function ensureUsableStartupModel(): Promise<void> {
   if (!state.model) return;
   try {
-    const { models } = await opencode.listModels();
+    const { models } = await agentService.listModels();
     if (models.includes(state.model)) return;
-    await logger.warn(`configured model ${state.model} is unavailable; falling back to the OpenCode default model`);
+    await logger.warn(`configured model ${state.model} is unavailable; falling back to the default pi model`);
     state.model = null;
     await persistState(config.paths.stateFile);
   } catch (error) {
@@ -74,7 +74,7 @@ async function sendStartupGreeting(): Promise<void> {
       return;
     }
 
-    const greeting = await opencode.generateStartupGreeting();
+    const greeting = await agentService.generateStartupGreeting();
     if (!greeting) {
       await logger.warn("startup greeting generation returned empty output; skipping greet");
       return;
@@ -88,7 +88,7 @@ async function sendStartupGreeting(): Promise<void> {
 }
 
 function createDreamRunnerWithNotifications() {
-  return createDreamRunner(config, opencode, {
+  return createDreamRunner(config, agentService, {
     isBusy: () => promptController.hasActiveTask(),
     onChange: async (summary) => {
       await sendAdminMessage(summary);
@@ -122,7 +122,7 @@ bot.command("model", async (ctx) => {
     return;
   }
   try {
-    const { defaults, models } = await opencode.listModels();
+    const { defaults, models } = await agentService.listModels();
     const activeModel = resolveDisplayedModel(state.model, defaults, currentModel());
     const providers = providersFromModels(models);
     const activeProvider = activeModel.split("/", 1)[0] || providers[0];
@@ -165,7 +165,7 @@ bot.on("callback_query:data", async (ctx) => {
 
   if (await handleModelCallback(ctx, {
     config,
-    listModels: () => opencode.listModels(),
+    listModels: () => agentService.listModels(),
     currentModelLabel: () => currentModel(),
     persistState: () => persistState(config.paths.stateFile),
     interruptActiveTask: (reason) => promptController.interruptActiveTask(reason),
@@ -182,6 +182,7 @@ bot.on("message:document", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:photo", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:voice", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:audio", (ctx) => promptController.handleIncomingFile(ctx));
+bot.on("message:video", (ctx) => promptController.handleIncomingFile(ctx));
 bot.on("message:contact", (ctx) => promptController.handleIncomingContact(ctx));
 
 bot.catch(async (error) => {
@@ -212,7 +213,7 @@ let reminderLoop = await startReminderLoop(
   async (event, _instance, fallback) => {
     try {
       const recurrence = reminderEventScheduleSummary(config, event);
-      const message = await opencode.generateReminderMessage(
+      const message = await agentService.generateReminderMessage(
         event.title,
         event.deliveryState?.currentOccurrence?.scheduledAt || new Date().toLocaleString(),
         recurrence,
@@ -226,7 +227,7 @@ let reminderLoop = await startReminderLoop(
   },
   async (event) => {
     try {
-      await prepareReminderDeliveryText(config, opencode, event);
+      await prepareReminderDeliveryText(config, agentService, event);
     } catch (error) {
       await logger.warn(`failed to refresh reminder message for ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -235,7 +236,7 @@ let reminderLoop = await startReminderLoop(
 let dreamRunner = createDreamRunnerWithNotifications();
 const configWatcher = startConfigWatcher(configPath, config, async (_reloadedConfig, result) => {
   configureLogger(config.paths.logFile);
-  opencode.reloadConfig(config);
+  agentService.reloadConfig(config);
   if (dreamRunner.timer) clearInterval(dreamRunner.timer);
   dreamRunner = createDreamRunnerWithNotifications();
   await syncBotCommands();
@@ -264,7 +265,7 @@ await bot.start({
     if (expiredReminderCleanup.removed > 0) {
       await logger.info(`startup pruned ${expiredReminderCleanup.removed} expired reminders: ${expiredReminderCleanup.removedIds.join(", ")}`);
     }
-    await prewarmReminderDeliveryTexts(config, opencode);
+    await prewarmReminderDeliveryTexts(config, agentService);
     await sendStartupGreeting();
   },
 });
@@ -273,13 +274,13 @@ process.on("SIGINT", () => {
   clearInterval(reminderLoop);
   configWatcher.close();
   if (dreamRunner.timer) clearInterval(dreamRunner.timer);
-  opencode.stop();
+  agentService.stop();
   bot.stop();
 });
 process.on("SIGTERM", () => {
   clearInterval(reminderLoop);
   configWatcher.close();
   if (dreamRunner.timer) clearInterval(dreamRunner.timer);
-  opencode.stop();
+  agentService.stop();
   bot.stop();
 });

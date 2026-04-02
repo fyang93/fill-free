@@ -28,7 +28,15 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
 
   const lines = [
     uploadedFiles.length > 0 ? "Saved files:" : "",
-    ...uploadedFiles.map((file) => `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB, source=${file.source})`),
+    ...uploadedFiles.map((file) => {
+      const metadata = [
+        `source=${file.source}`,
+        file.audioTitle ? `title=${JSON.stringify(file.audioTitle)}` : "",
+        file.audioPerformer ? `performer=${JSON.stringify(file.audioPerformer)}` : "",
+        typeof file.durationSeconds === "number" ? `duration=${file.durationSeconds}s` : "",
+      ].filter(Boolean).join(", ");
+      return `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB${metadata ? `, ${metadata}` : ""})`;
+    }),
     uploadedFiles.length > 0 ? "" : "",
     "User request:",
     userRequest,

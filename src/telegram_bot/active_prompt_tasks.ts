@@ -1,7 +1,7 @@
 import { logger } from "./logger";
 import { t } from "./i18n";
 import type { AppConfig } from "./types";
-import type { OpenCodeService } from "./opencode";
+import type { AgentService } from "./agent";
 import type { Bot, Context } from "grammy";
 import type { ActivePromptTask } from "./prompt_task_runner";
 
@@ -15,7 +15,7 @@ export class ActivePromptTasks {
   constructor(
     private readonly config: AppConfig,
     private readonly bot: Bot<Context>,
-    private readonly opencode: OpenCodeService,
+    private readonly agentService: AgentService,
     private readonly stopWaiting: (task: ActivePromptTask) => void,
   ) {}
 
@@ -48,7 +48,7 @@ export class ActivePromptTasks {
       this.stopWaiting(running);
       this.tasks.delete(key);
       await logger.warn(`interrupting active task ${running.id} for ${running.scopeLabel}: ${reason}`);
-      await this.opencode.abortCurrentSession(running.scopeKey, running.scopeLabel);
+      await this.agentService.abortCurrentSession(running.scopeKey, running.scopeLabel);
       await this.setReaction(running.chatId, running.sourceMessageId, "😞");
       try {
         await this.bot.api.editMessageText(running.chatId, running.waitingMessageId, t(this.config, "task_interrupted"));

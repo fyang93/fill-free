@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import type { OpenCodeService } from "./opencode";
+import type { AgentService } from "./agent";
 import { pruneInactiveReminderEvents } from "./reminders";
 import { readReminderEvents, writeReminderEvents } from "./reminders/store";
 import { formatAvailableSkills, loadAvailableProjectSkills } from "./skills";
@@ -231,7 +231,7 @@ export type DreamRunner = {
 
 async function runDreamCycle(
   config: AppConfig,
-  opencode: OpenCodeService,
+  agentService: AgentService,
   deps: DreamDeps,
   input: { force: boolean; runningRef: { value: boolean } },
 ): Promise<void> {
@@ -311,7 +311,7 @@ async function runDreamCycle(
   try {
     await logger.info(`dream loop starting${force ? " (forced)" : ""} after ${Number.isFinite(idleMs) ? `${idleMs}ms` : "unknown"} idle changedFiles=${changedFiles.length}`);
     const request = await buildDreamRequest(force ? null : state.lastDreamedAt, changedFiles);
-    const summary = await withTimeout(opencode.runMemoryDream(request), config.dreaming.timeoutMs, "dream loop");
+    const summary = await withTimeout(agentService.runMemoryDream(request), config.dreaming.timeoutMs, "dream loop");
     const afterSnapshot = await memorySnapshot(config.paths.repoRoot);
     const afterFingerprint = snapshotFingerprint(afterSnapshot);
     const changes = diffSnapshots(beforeSnapshot, afterSnapshot);
@@ -356,21 +356,21 @@ async function runDreamCycle(
 
 export function createDreamRunner(
   config: AppConfig,
-  opencode: OpenCodeService,
+  agentService: AgentService,
   deps: DreamDeps,
 ): DreamRunner {
   const runningRef = { value: false };
   const runNow = async (): Promise<void> => {
-    await runDreamCycle(config, opencode, deps, { force: true, runningRef });
+    await runDreamCycle(config, agentService, deps, { force: true, runningRef });
   };
   const timer = !config.dreaming.enabled ? null : setInterval(() => {
-    void runDreamCycle(config, opencode, deps, { force: false, runningRef }).catch(async (error) => {
+    void runDreamCycle(config, agentService, deps, { force: false, runningRef }).catch(async (error) => {
       await logger.warn(`dream loop tick failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   }, config.dreaming.checkIntervalMs);
 
   if (timer) {
-    void runDreamCycle(config, opencode, deps, { force: false, runningRef }).catch(async (error) => {
+    void runDreamCycle(config, agentService, deps, { force: false, runningRef }).catch(async (error) => {
       await logger.warn(`dream loop tick failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   }
@@ -380,8 +380,8 @@ export function createDreamRunner(
 
 export function startDreamLoop(
   config: AppConfig,
-  opencode: OpenCodeService,
+  agentService: AgentService,
   deps: DreamDeps,
 ): NodeJS.Timeout | null {
-  return createDreamRunner(config, opencode, deps).timer;
+  return createDreamRunner(config, agentService, deps).timer;
 }

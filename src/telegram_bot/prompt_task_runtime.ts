@@ -1,5 +1,5 @@
 import type { Bot, Context } from "grammy";
-import type { PromptResult } from "./opencode";
+import type { PromptResult } from "./agent";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
 import { sendLocalFiles, sendPromptAttachments } from "./files";

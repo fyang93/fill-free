@@ -23,9 +23,6 @@ prompt_task_timeout_ms = 60000
 menu_page_size = 8
 default_timezone = "Asia/Tokyo"
 
-[opencode]
-base_url = "http://127.0.0.1:4096"
-
 [dreaming]
 enabled = true
 idle_after_ms = 900000

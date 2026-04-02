@@ -1,38 +1,6 @@
-import type { PromptAttachment } from "../types";
-import type { OpenCodeMessage, PromptOutboundMessageDraft, PromptPendingAuthorizationDraft, PromptReminderDraft, PromptResult } from "./types";
+import type { PromptResult, PromptOutboundMessageDraft, PromptPendingAuthorizationDraft, PromptReminderDraft } from "./types";
 
 const DEFAULT_JSON_MESSAGE = "Done.";
-
-export function parseModel(model: string | null): { providerID: string; modelID: string } | null {
-  if (!model) return null;
-  const index = model.indexOf("/");
-  if (index <= 0 || index === model.length - 1) return null;
-  return {
-    providerID: model.slice(0, index),
-    modelID: model.slice(index + 1),
-  };
-}
-
-export function extractText(message: OpenCodeMessage): string {
-  const parts = message.parts || [];
-  const texts = parts
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text?.trim())
-    .filter(Boolean);
-  if (texts.length > 0) return texts.join("\n\n");
-  if (parts.some((part) => part.type === "file")) return "Generated attachment output.";
-  return "Completed with no displayable text output.";
-}
-
-export function summarizeParts(message: OpenCodeMessage): Array<Record<string, unknown>> {
-  return (message.parts || []).map((part) => ({
-    type: part.type || "unknown",
-    textLength: typeof part.text === "string" ? part.text.length : 0,
-    mime: part.mime,
-    filename: part.filename,
-    hasUrl: typeof part.url === "string",
-  }));
-}
 
 function extractJsonCandidates(text: string): string[] {
   const candidates: string[] = [];
@@ -85,15 +53,8 @@ function parsePendingAuthorizations(value: unknown): PromptPendingAuthorizationD
     : [];
 }
 
-export function extractPromptResult(message: OpenCodeMessage): PromptResult {
-  const plain = extractText(message).trim();
-  const attachments: PromptAttachment[] = (message.parts || [])
-    .filter((part) => part.type === "file" && typeof part.url === "string" && typeof part.mime === "string")
-    .map((part) => ({
-      mimeType: part.mime as string,
-      filename: typeof part.filename === "string" ? part.filename : undefined,
-      url: part.url as string,
-    }));
+export function extractPromptResultFromText(rawText: string): PromptResult {
+  const plain = rawText.trim();
 
   for (const candidate of extractJsonCandidates(plain)) {
     try {
@@ -108,7 +69,7 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
         return {
           message: messageText || DEFAULT_JSON_MESSAGE,
           files,
-          attachments,
+          attachments: [],
           reminders,
           outboundMessages,
           pendingAuthorizations,
@@ -119,5 +80,5 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
     }
   }
 
-  return { message: plain || DEFAULT_JSON_MESSAGE, files: [], attachments, reminders: [], outboundMessages: [], pendingAuthorizations: [] };
+  return { message: plain || DEFAULT_JSON_MESSAGE, files: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [] };
 }

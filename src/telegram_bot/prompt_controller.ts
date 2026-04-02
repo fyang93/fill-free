@@ -11,7 +11,7 @@ import {
 } from "./state";
 import { t } from "./i18n";
 import { accessLevelForUserId } from "./access";
-import type { OpenCodeService } from "./opencode";
+import type { AgentService } from "./agent";
 import { runPromptTask, type ActivePromptTask } from "./prompt_task_runner";
 import { WAITING_MESSAGE_PLACEHOLDER } from "./prompt_constants";
 import { createWaitingMessageController } from "./prompt_task_runtime";
@@ -25,7 +25,7 @@ import { buildRecentAttachments, pruneRecentUploads } from "./recent_uploads";
 type PromptControllerDeps = {
   config: AppConfig;
   bot: Bot<Context>;
-  opencode: OpenCodeService;
+  agentService: AgentService;
   isTrustedUserId: (userId: number | undefined) => boolean;
   isAdminUserId: (userId: number | undefined) => boolean;
   isAddressedToBot: (ctx: Context) => boolean;
@@ -82,7 +82,7 @@ export class PromptController {
     this.activeTasks = new ActivePromptTasks(
       this.deps.config,
       this.deps.bot,
-      this.deps.opencode,
+      this.deps.agentService,
       (task) => this.waiting.stop(task),
     );
   }
@@ -254,7 +254,7 @@ export class PromptController {
     const scope = this.conversationScope(ctx);
     this.pendingMerge.clear(scope.key, "/new command");
     await this.interruptActiveTask("/new command", scope.key);
-    const sessionId = await this.deps.opencode.newSession(scope.key, scope.label);
+    const sessionId = await this.deps.agentService.newSession(scope.key, scope.label);
     clearRecentUploads(scope.key);
     return sessionId;
   }
@@ -324,7 +324,7 @@ export class PromptController {
         uploadedFiles,
         attachments,
         telegramMessageTime,
-        opencode: this.deps.opencode,
+        agentService: this.deps.agentService,
         isAdminUserId: this.deps.isAdminUserId,
         isTrustedUserId: this.deps.isTrustedUserId,
         isTaskCurrent: (taskScopeKey, taskId) => this.activeTasks.isCurrent(taskScopeKey, taskId),

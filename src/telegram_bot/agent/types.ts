@@ -1,29 +1,5 @@
 import type { PromptAttachment } from "../types";
 
-export type OpenCodeModel = {
-  providerID: string;
-  modelID: string;
-};
-
-export type OpenCodePromptBody = {
-  parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; filename?: string; url: string }>;
-  model?: OpenCodeModel;
-  system: string;
-};
-
-export type OpenCodeMessagePart = {
-  type?: string;
-  text?: string;
-  mime?: string;
-  filename?: string;
-  url?: string;
-};
-
-export type OpenCodeMessage = {
-  parts?: OpenCodeMessagePart[];
-  info?: { structured_output?: unknown };
-};
-
 export type PromptReminderTarget = {
   id?: number;
   username?: string;

@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
-import type { OpenCodeService, PromptResult } from "./opencode";
+import type { AgentService, PromptResult } from "./agent";
 import { logger } from "./logger";
 import { t } from "./i18n";
 import { editMessageTextFormatted } from "./telegram_format";
@@ -42,7 +42,7 @@ export type RunPromptTaskDeps = {
   uploadedFiles: UploadedFile[];
   attachments: PromptAttachment[];
   telegramMessageTime?: string;
-  opencode: OpenCodeService;
+  agentService: AgentService;
   isAdminUserId: (userId: number | undefined) => boolean;
   isTrustedUserId: (userId: number | undefined) => boolean;
   isTaskCurrent: (scopeKey: string, taskId: number) => boolean;
@@ -60,7 +60,7 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
     uploadedFiles,
     attachments,
     telegramMessageTime,
-    opencode,
+    agentService,
     isAdminUserId,
     isTrustedUserId,
     isTaskCurrent,
@@ -77,7 +77,7 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
 
   try {
     const answer = await withTimeout(
-      opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, task.scopeKey, task.scopeLabel, accessRole),
+      agentService.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, task.scopeKey, task.scopeLabel, accessRole),
       config.bot.promptTaskTimeoutMs,
       `prompt task ${task.id}`,
     );
@@ -91,7 +91,7 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
     const actionResult = await executePromptActions({
       config,
       bot: deps.bot,
-      opencode,
+      agentService,
       answer,
       ctx,
       requesterUserId: userId,
@@ -101,7 +101,7 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
     } satisfies ExecutePromptActionsInput);
     const finalMessage = await composeFinalReply({
       config,
-      opencode,
+      agentService,
       answer,
       actionResult,
       requesterUserId: userId,
@@ -121,8 +121,8 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
     onStopWaiting(task);
     const message = error instanceof Error ? error.message : String(error);
     if (/timed out after/i.test(message)) {
-      await logger.warn(`prompt task ${task.id} timed out; aborting opencode session for ${task.scopeLabel}`);
-      await opencode.abortCurrentSession(task.scopeKey, task.scopeLabel);
+      await logger.warn(`prompt task ${task.id} timed out; aborting agent session for ${task.scopeLabel}`);
+      await agentService.abortCurrentSession(task.scopeKey, task.scopeLabel);
     }
     await logger.error(`prompt handling failed: ${message}`);
     await onPruneRecentUploads(task.scopeKey);
@@ -135,19 +135,19 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
 
 async function composeFinalReply(input: {
   config: AppConfig;
-  opencode: OpenCodeService;
+  agentService: AgentService;
   answer: PromptResult;
   actionResult: Awaited<ReturnType<typeof executePromptActions>>;
   requesterUserId?: number;
   chatId?: number;
   chatType?: string;
 }): Promise<string> {
-  const { config, opencode, answer, actionResult, requesterUserId, chatId, chatType } = input;
+  const { config, agentService, answer, actionResult, requesterUserId, chatId, chatType } = input;
   const modelFacts = actionResult.facts;
   let finalMessage = answer.message || t(config, "generic_done");
   if (modelFacts.length > 0) {
     try {
-      finalMessage = await opencode.composeTelegramReply(finalMessage, modelFacts, {
+      finalMessage = await agentService.composeTelegramReply(finalMessage, modelFacts, {
         requesterUserId,
         chatId,
         chatType,

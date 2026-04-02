@@ -69,7 +69,6 @@ export function buildProviderModelKeyboard(provider: string, models: string[], a
 
 export function resolveDisplayedModel(stateModel: string | null, defaults: Record<string, string>, fallbackModel: string): string {
   if (stateModel) return stateModel;
-  if (defaults.opencode) return `opencode/${defaults.opencode}`;
   const first = Object.entries(defaults)[0];
   if (first) return `${first[0]}/${first[1]}`;
   return fallbackModel;

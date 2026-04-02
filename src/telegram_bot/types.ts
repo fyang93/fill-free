@@ -24,9 +24,6 @@ export type AppConfig = {
     logFile: string;
     stateFile: string;
   };
-  opencode: {
-    baseUrl: string;
-  };
   dreaming: {
     enabled: boolean;
     idleAfterMs: number;
@@ -42,7 +39,10 @@ export type UploadedFile = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
-  source: "document" | "photo" | "voice" | "audio";
+  source: "document" | "photo" | "voice" | "audio" | "video";
+  audioTitle?: string;
+  audioPerformer?: string;
+  durationSeconds?: number;
 };
 
 export type PromptAttachment = {

@@ -22,6 +22,7 @@ function inferExtensionFromMime(mimeType: string): string {
   if (mimeType === "audio/mpeg") return ".mp3";
   if (mimeType === "audio/mp4") return ".m4a";
   if (mimeType === "audio/wav") return ".wav";
+  if (mimeType === "video/mp4") return ".mp4";
   return "";
 }
 
@@ -84,11 +85,15 @@ export async function saveTelegramFile(
   const photos = ctx.message && "photo" in ctx.message ? ctx.message.photo : undefined;
   const voice = ctx.message && "voice" in ctx.message ? ctx.message.voice : undefined;
   const audio = ctx.message && "audio" in ctx.message ? ctx.message.audio : undefined;
+  const video = ctx.message && "video" in ctx.message ? ctx.message.video : undefined;
 
   let fileId: string | undefined;
   let originalName = "file";
   let mimeType = "application/octet-stream";
   let source: UploadedFile["source"] = "document";
+  let audioTitle: string | undefined;
+  let audioPerformer: string | undefined;
+  let durationSeconds: number | undefined;
 
   if (document?.file_id) {
     fileId = document.file_id;
@@ -106,11 +111,21 @@ export async function saveTelegramFile(
     mimeType = voice.mime_type || "audio/ogg";
     originalName = `voice-${Date.now()}${inferExtensionFromMime(mimeType) || ".ogg"}`;
     source = "voice";
+    durationSeconds = typeof voice.duration === "number" ? voice.duration : undefined;
   } else if (audio?.file_id) {
     fileId = audio.file_id;
     mimeType = audio.mime_type || "audio/mpeg";
     originalName = sanitizeFilename(audio.file_name || `audio-${Date.now()}${inferExtensionFromMime(mimeType) || ".audio"}`);
     source = "audio";
+    audioTitle = typeof audio.title === "string" && audio.title.trim() ? audio.title.trim() : undefined;
+    audioPerformer = typeof audio.performer === "string" && audio.performer.trim() ? audio.performer.trim() : undefined;
+    durationSeconds = typeof audio.duration === "number" ? audio.duration : undefined;
+  } else if (video?.file_id) {
+    fileId = video.file_id;
+    mimeType = video.mime_type || "video/mp4";
+    originalName = sanitizeFilename(video.file_name || `video-${Date.now()}${inferExtensionFromMime(mimeType) || ".mp4"}`);
+    source = "video";
+    durationSeconds = typeof video.duration === "number" ? video.duration : undefined;
   }
 
   if (!fileId) return null;
@@ -140,6 +155,9 @@ export async function saveTelegramFile(
     mimeType,
     sizeBytes: bytes.byteLength,
     source,
+    audioTitle,
+    audioPerformer,
+    durationSeconds,
   };
 }
 

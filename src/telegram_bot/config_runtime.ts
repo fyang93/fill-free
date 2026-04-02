@@ -36,7 +36,6 @@ function diffConfigKeys(before: AppConfig, after: AppConfig): string[] {
   if (before.bot.promptTaskTimeoutMs !== after.bot.promptTaskTimeoutMs) changed.push("bot.prompt_task_timeout_ms");
   if (before.bot.menuPageSize !== after.bot.menuPageSize) changed.push("bot.menu_page_size");
   if (before.bot.defaultTimezone !== after.bot.defaultTimezone) changed.push("bot.default_timezone");
-  if (before.opencode.baseUrl !== after.opencode.baseUrl) changed.push("opencode.base_url");
   if (before.dreaming.enabled !== after.dreaming.enabled) changed.push("dreaming.enabled");
   if (before.dreaming.idleAfterMs !== after.dreaming.idleAfterMs) changed.push("dreaming.idle_after_ms");
   if (before.dreaming.checkIntervalMs !== after.dreaming.checkIntervalMs) changed.push("dreaming.check_interval_ms");
@@ -57,7 +56,6 @@ export function applyReloadedConfig(target: AppConfig, next: AppConfig): ConfigR
   target.telegram = { ...next.telegram };
   target.bot = { ...next.bot };
   target.paths = { ...next.paths };
-  target.opencode = { ...next.opencode };
   target.dreaming = { ...next.dreaming };
 
   const reloadedKeys = requestedChanges.filter((key) => !restartRequiredKeys.includes(key));

@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
 import { logger } from "./logger";
-import type { PromptReminderDraft } from "./opencode/types";
-import type { OpenCodeService } from "./opencode";
+import type { PromptReminderDraft } from "./agent/types";
+import type { AgentService } from "./agent";
 import { persistState, rememberUserTimezone } from "./state";
 import { buildReminderScheduleFromExternal } from "./reminders/schedule_parser";
 import { createReminderEventWithDefaults, formatReminderEvent, isValidReminderTimezone, prepareReminderDeliveryText, resolveReminderTimezone, updateReminderEvent, type ReminderEvent, type ReminderNotification } from "./reminders";
@@ -39,7 +39,7 @@ function reminderCreatedFact(config: AppConfig, event: ReminderEvent, requesterU
 
 export async function createStructuredReminders(
   config: AppConfig,
-  opencode: OpenCodeService,
+  agentService: AgentService,
   rawReminders: PromptReminderDraft[],
   ctx: Context,
   userId?: number,
@@ -109,7 +109,7 @@ export async function createStructuredReminders(
       notifications: buildReminderNotifications(raw.notifications),
     });
     try {
-      if (await prepareReminderDeliveryText(config, opencode, event)) {
+      if (await prepareReminderDeliveryText(config, agentService, event)) {
         await updateReminderEvent(config, event);
       }
     } catch (error) {

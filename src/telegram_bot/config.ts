@@ -65,7 +65,6 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
 
   const telegram = asRecord(parsed.telegram);
   const bot = asRecord(parsed.bot);
-  const opencode = asRecord(parsed.opencode);
   const dreaming = asRecord(parsed.dreaming);
   const repoRoot = path.resolve(process.cwd());
   const tmpDir = path.resolve(repoRoot, "tmp");
@@ -104,9 +103,6 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       uploadSubdir,
       logFile,
       stateFile,
-    },
-    opencode: {
-      baseUrl: asString(opencode.base_url, "http://127.0.0.1:4096"),
     },
     dreaming: {
       enabled: asBoolean(dreaming.enabled, true),
