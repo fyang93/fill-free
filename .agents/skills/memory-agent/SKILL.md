@@ -11,8 +11,8 @@ Use this skill when the user asks to remember, save, update, organize, merge, li
 
 - Prefer repository-local sources first for user memory, reminders, personal facts, files, logs, and project behavior.
 - Check `memory/`, `assets/`, `system/`, and relevant code/logs before considering external search.
+- For reminder, relay, coordination, naming, or administrator-habit questions, check `memory/preferences.md` early.
 - Use web search only when local sources are insufficient for the question.
-- Prefer `fd` and `rg` for retrieval. Start with the smallest useful `rg` result and only read full files when needed.
 - Treat frontmatter as lightweight support only. Keep it minimal and use it for `title`, `aliases`, `summary`, and sparse `tags`, not as the primary retrieval path.
 
 ## Note Routing
@@ -20,7 +20,7 @@ Use this skill when the user asks to remember, save, update, organize, merge, li
 - All long-term markdown notes must live under `memory/`.
 - Treat `system/` as code-managed persistent data rather than general-purpose notes. Do not move ordinary memory there or casually rewrite files there unless the task is explicitly about system-managed data.
 - Merge related information into an existing topic note whenever it clearly fits. Keep each markdown file focused on one stable topic.
-- Use existing topic notes when possible: identity/documents -> `memory/profile.md`, banking/financial details -> `memory/banking.md`, people/contact details -> `memory/contacts.md`, family relationships -> `memory/family.md`, pets -> `memory/pets.md`.
+- Preferences about wording, reminders, coordination, or delivery habits belong in `memory/preferences.md`.
 - Create a new note only when the information represents a distinct long-lived topic that does not fit an existing note.
 - If new information conflicts with an existing note, update only when the intended replacement is clear; otherwise ask the user.
 

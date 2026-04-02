@@ -73,7 +73,7 @@ export function defaultReminderTimeSemantics(kind: ReminderEventKind, schedule: 
   return "local";
 }
 
-export function buildDefaultReminderNotifications(kind: ReminderEventKind): ReminderNotification[] {
+export function buildDefaultReminderNotifications(_config: AppConfig, kind: ReminderEventKind): ReminderNotification[] {
   if (kind === "meeting") {
     return [{ id: "default-1h", offsetMinutes: -60, enabled: true, label: "提前1小时" }];
   }
@@ -201,7 +201,7 @@ export async function writeReminderEvents(config: AppConfig, events: ReminderEve
   await queueReminderStoreWrite(() => writeReminderStore(config, events));
 }
 
-export function buildReminderEvent(draft: ReminderEventDraft, fallbackTimezone = "Asia/Tokyo"): ReminderEvent {
+export function buildReminderEvent(config: AppConfig, draft: ReminderEventDraft, fallbackTimezone = "Asia/Tokyo"): ReminderEvent {
   const kind = defaultReminderEventKind({
     category: draft.category,
     specialKind: draft.specialKind,
@@ -216,7 +216,7 @@ export function buildReminderEvent(draft: ReminderEventDraft, fallbackTimezone =
     timeSemantics: draft.timeSemantics || defaultReminderTimeSemantics(kind, draft.schedule),
     timezone: draft.timezone || fallbackTimezone,
     schedule: draft.schedule,
-    notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultReminderNotifications(kind),
+    notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultReminderNotifications(config, kind),
     category: draft.category,
     specialKind: draft.specialKind,
     status: draft.status || "active",
@@ -241,7 +241,7 @@ export async function createReminderEvent(event: ReminderEvent, config: AppConfi
 }
 
 export async function createReminderEventWithDefaults(config: AppConfig, draft: ReminderEventDraft): Promise<ReminderEvent> {
-  const event = buildReminderEvent(draft, defaultReminderTimezone(config));
+  const event = buildReminderEvent(config, draft, defaultReminderTimezone(config));
   return createReminderEvent(event, config);
 }
 

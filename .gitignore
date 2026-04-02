@@ -18,6 +18,7 @@ memory/**
 !memory/**/
 !memory/.gitkeep
 !memory/**/.gitkeep
+!memory/preferences.md
 
 assets/**
 !assets/**/

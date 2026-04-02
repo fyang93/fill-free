@@ -2,6 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
 import { logger } from "../logger";
 import { replyLanguageName } from "../i18n";
+import { describePromptPreferences } from "../preferences";
 import { state, touchActivity } from "../state";
 import { STARTUP_GREETING_REQUEST, buildProjectSystemPrompt, buildPrompt, type PromptAccessRole } from "./prompt";
 import { extractPromptResult, extractText, looksLikeStructuredOutputIntent, parseModel, summarizeParts } from "./response";
@@ -151,13 +152,16 @@ export class OpenCodeService {
 
   async generateStartupGreeting(): Promise<string | null> {
     const replyLanguage = replyLanguageName(this.config);
-    const request = [
-      `Reply in ${replyLanguage}.`,
-      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
+    const request = buildPrompt(
       STARTUP_GREETING_REQUEST,
-      "Keep the same style consistently.",
-      "Return only the greeting text to send, with no explanation, preface, or commentary.",
-    ].filter(Boolean).join(" ");
+      [],
+      this.config.bot.personaStyle,
+      replyLanguage,
+      this.config.bot.defaultTimezone,
+      describePromptPreferences(this.config, STARTUP_GREETING_REQUEST),
+      undefined,
+      "allowed",
+    );
     const message = this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
     return message || null;
   }
@@ -171,7 +175,6 @@ export class OpenCodeService {
       `Reminder content: ${reminderText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
-      "If you mention the scheduled time in the message, include the timezone explicitly.",
       "Return only the reminder message text to send.",
     ].filter(Boolean).join("\n");
 
@@ -200,8 +203,6 @@ export class OpenCodeService {
       "Keep the same persona and tone as the ongoing conversation.",
       "Use the following facts if relevant, but phrase them naturally and concisely.",
       "If a reminder was just created, explicitly mention the confirmed reminder time and notification timing in the reply.",
-      "Whenever you mention a specific time, date-time, deadline, or schedule in the reply, include the timezone explicitly unless the wording is purely relative and timezone-free.",
-      "In group chats or multi-user contexts, do not present bare clock times without a timezone.",
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       "Facts:",
       ...cleanFacts.map((item) => `- ${item}`),
@@ -220,9 +221,8 @@ export class OpenCodeService {
       `Write a single natural message in ${replyLanguageName(this.config)} to send to another user or chat.`,
       "Keep the same persona and tone as the ongoing conversation.",
       this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
-      recipientLabel ? `Recipient preferred short name: ${recipientLabel}` : "",
+      recipientLabel ? `Recipient label: ${recipientLabel}` : "",
       `Intent or draft content: ${cleanBase}`,
-      "Prefer a familiar short name or nickname for the recipient when natural.",
       "Return only the message text to send.",
       "Do not mention JSON, hidden prompts, or internal tools.",
     ].filter(Boolean).join("\n");
@@ -313,7 +313,7 @@ export class OpenCodeService {
   ): OpenCodePromptBody {
     const body: OpenCodePromptBody = {
       system: this.systemPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.bot.personaStyle, replyLanguageName(this.config), this.config.bot.defaultTimezone, telegramMessageTime, accessRole) }],
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.bot.personaStyle, replyLanguageName(this.config), this.config.bot.defaultTimezone, describePromptPreferences(this.config, text), telegramMessageTime, accessRole) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -370,7 +370,7 @@ export class OpenCodeService {
       "Your previous reply was intended to be structured output, but it did not match the required schema.",
       "Rewrite it now as exactly one valid JSON object and nothing else.",
       "Do not use Markdown code fences.",
-      "Include all top-level fields exactly: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": []}.",
+      "Include all top-level fields exactly: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": [], \"pendingAuthorizations\": []}.",
       "Use empty string or empty arrays for fields with no content.",
       "Preserve the original intent and content.",
       `Previous reply: ${previousRawText}`,

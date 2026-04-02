@@ -21,34 +21,28 @@ export function buildProjectSystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, botDefaultTimezone: string, telegramMessageTime?: string, accessRole: PromptAccessRole = "allowed"): string {
+export function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, botDefaultTimezone: string, preferenceLines: string[] = [], telegramMessageTime?: string, accessRole: PromptAccessRole = "allowed"): string {
   const userRequest = text.trim() || "Handle the user input according to the project rules.";
   const availableSkills = loadAvailableProjectSkills();
+  const activePreferenceLines = preferenceLines.filter((line) => line.trim());
 
   const common = [
-    "Project policies:",
-    "- Prefer repository-local sources first.",
-    "- Check memory/, assets/, system/, and relevant logs/code before external search when applicable.",
-    "- Treat system/ as code-managed persistent data, not general memory notes.",
     telegramMessageTime ? `Message time: ${telegramMessageTime}` : "",
     `Bot default timezone: ${botDefaultTimezone}.`,
     `Reply in ${replyLanguage}.`,
     "Reply with plain text unless files, reminders, or relaying to another known user are needed.",
     "For structured output, return exactly one JSON object with no Markdown fences or extra commentary.",
-    "Structured output schema: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": [], \"pendingAuthorizations\": []}. Keep all top-level fields present; use \"\" or [] when empty.",
-    "Reminder item schema: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", \"notifications\", optional \"targetUser\", optional \"targetUsers\" }. Reminder targets may identify either a known user or a known chat/group.",
-    "Reminder schedule kind must be exactly one of: once, interval, weekly, monthly, yearly, lunarYearly.",
-    "Schedule rules: once -> {\"kind\":\"once\",\"at\":\"ISO-8601\"}; interval -> {\"kind\":\"interval\",\"every\":number,\"unit\":\"minute|hour|day|week|month|year\", optional \"anchor\":\"ISO-8601\"}; weekly -> {\"kind\":\"weekly\",\"every\":number,\"daysOfWeek\":number[],\"time\":\"HH:MM\"}; monthly -> {\"kind\":\"monthly\",\"every\":number,\"mode\":\"dayOfMonth\"|\"nthWeekday\",\"time\":\"HH:MM\"} plus dayOfMonth or weekOfMonth+dayOfWeek; yearly -> {\"kind\":\"yearly\",\"every\":number,\"month\":number,\"day\":number,\"time\":\"HH:MM\"}; lunarYearly -> {\"kind\":\"lunarYearly\",\"month\":number,\"day\":number,\"time\":\"HH:MM\"} with optional isLeapMonth and leapMonthPolicy.",
-    "If notifications are included, each item must use integer \"offsetMinutes\"; omit notifications entirely when defaults are fine.",
-    "For reminders, let code own defaults. Unless the user explicitly specifies otherwise, do not invent custom reminder offsets when defaults already apply.",
-    "Whenever you mention a specific time, date-time, deadline, schedule, or reminder time in the user-facing message, include the timezone explicitly unless the message is purely relative and timezone-free.",
-    "In group chats or multi-user contexts, be extra careful not to present bare clock times without a timezone.",
-    "For birthday, anniversary, festival, and memorial reminders, omit notifications unless the user explicitly overrides them so code can apply the default sequence.",
+    "Top-level schema: {\"message\": string, \"files\": string[], \"reminders\": [], \"outboundMessages\": [], \"pendingAuthorizations\": []}. Keep every top-level field present; use \"\" or [] when empty.",
+    "Use files only when the bot should send a local file back to the user now. Do not include repository files that were only read, created, or updated.",
+    "Reminder item schema: {\"title\": string, \"schedule\": {...}, optional \"note\", \"kind\", \"category\", \"specialKind\", \"timeSemantics\", \"timezone\", optional \"notifications\", optional \"targetUser\", optional \"targetUsers\" }.",
+    "Reminder schedule kinds: once, interval, weekly, monthly, yearly, lunarYearly.",
+    "Schedule fields: once -> at; interval -> every + unit + optional anchor; weekly -> every + daysOfWeek + time; monthly -> every + mode + time + (dayOfMonth or weekOfMonth+dayOfWeek); yearly -> every + month + day + time; lunarYearly -> month + day + time + optional isLeapMonth/leapMonthPolicy.",
+    "If notifications are included, each item must use integer \"offsetMinutes\". Reminder targets may identify either a known user or a known chat/group.",
     "For environment/tool installation tasks, prefer uv for Python packages and bun for Node/npm packages when appropriate. Use flake.nix for repo-level system tools and reproducible environment dependencies.",
     "Outbound message schema: {\"message\": string, optional \"targetUser\", optional \"targetUsers\" }. A target item uses { optional \"id\", \"username\", \"displayName\", \"role\" }. Targets may identify either a known user or a known group/chat. Use role=current_chat for the current group/chat when needed. Use targetUsers when more than one recipient is intended.",
     accessRole === "admin" ? "Pending authorization schema: {\"username\": string, \"expiresAt\": \"ISO-8601\" }. Use pendingAuthorizations only for explicit admin requests to temporarily allow a @username until a specific time. Convert the admin's requested duration or deadline into expiresAt." : "",
     "If the user asks you to tell, inform, relay, forward, or share information with another user now, use outboundMessages instead of reminders. Use reminders only when the user explicitly wants a future reminder.",
-    "Prefer familiar short names or nicknames for people when known. In multi-user Telegram relays, prefer the recipient's nickname or familiar short name when natural.",
+    ...(activePreferenceLines.length > 0 ? ["Relevant repository preferences:", ...activePreferenceLines] : []),
     personaStyle ? `Reply style: ${personaStyle}` : "",
   ].filter(Boolean);
 
