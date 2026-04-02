@@ -17,7 +17,7 @@ import { replyFormatted, sendMessageFormatted } from "./telegram_format";
 import { isAddressedToBot, isAdminUserId, isTrustedUserId, unauthorizedGuard } from "./access";
 import { handleModelCallback } from "./model_callback";
 import { PromptController } from "./prompt_controller";
-import { startDreamLoop } from "./dreaming";
+import { createDreamRunner } from "./dreaming";
 
 const configPath = DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -87,8 +87,8 @@ async function sendStartupGreeting(): Promise<void> {
   }
 }
 
-function startDreamLoopWithNotifications(): NodeJS.Timeout | null {
-  return startDreamLoop(config, opencode, {
+function createDreamRunnerWithNotifications() {
+  return createDreamRunner(config, opencode, {
     isBusy: () => promptController.hasActiveTask(),
     onChange: async (summary) => {
       await sendAdminMessage(summary);
@@ -140,6 +140,19 @@ bot.command("model", async (ctx) => {
   }
 });
 
+bot.command("dream", async (ctx) => {
+  if (!isAdminUser(ctx.from?.id)) {
+    await replyFormatted(ctx, t(config, "config_mutation_admin_only"));
+    return;
+  }
+  await replyFormatted(ctx, t(config, "dream_started"));
+  try {
+    await dreamRunner.runNow();
+  } catch (error) {
+    await replyFormatted(ctx, t(config, "dream_failed", { error: error instanceof Error ? error.message : String(error) }));
+  }
+});
+
 bot.on("callback_query:data", async (ctx) => {
   if (await handleReminderCallback(config, ctx)) {
     return;
@@ -188,6 +201,7 @@ async function syncBotCommands(): Promise<void> {
     { command: "help", description: t(config, "command_help") },
     { command: "new", description: t(config, "command_new") },
     { command: "model", description: t(config, "command_model") },
+    { command: "dream", description: t(config, "command_dream") },
   ]);
 }
 
@@ -218,12 +232,12 @@ let reminderLoop = await startReminderLoop(
     }
   },
 );
-let dreamLoop = startDreamLoopWithNotifications();
+let dreamRunner = createDreamRunnerWithNotifications();
 const configWatcher = startConfigWatcher(configPath, config, async (_reloadedConfig, result) => {
   configureLogger(config.paths.logFile);
   opencode.reloadConfig(config);
-  if (dreamLoop) clearInterval(dreamLoop);
-  dreamLoop = startDreamLoopWithNotifications();
+  if (dreamRunner.timer) clearInterval(dreamRunner.timer);
+  dreamRunner = createDreamRunnerWithNotifications();
   await syncBotCommands();
   if (config.telegram.adminUserId && (result.reloadedKeys.length > 0 || result.restartRequiredKeys.length > 0)) {
     const lines = [t(config, "config_reload_notice")];
@@ -258,14 +272,14 @@ await bot.start({
 process.on("SIGINT", () => {
   clearInterval(reminderLoop);
   configWatcher.close();
-  if (dreamLoop) clearInterval(dreamLoop);
+  if (dreamRunner.timer) clearInterval(dreamRunner.timer);
   opencode.stop();
   bot.stop();
 });
 process.on("SIGTERM", () => {
   clearInterval(reminderLoop);
   configWatcher.close();
-  if (dreamLoop) clearInterval(dreamLoop);
+  if (dreamRunner.timer) clearInterval(dreamRunner.timer);
   opencode.stop();
   bot.stop();
 });

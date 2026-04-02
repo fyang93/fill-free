@@ -152,28 +152,25 @@ export class OpenCodeService {
 
   async generateStartupGreeting(): Promise<string | null> {
     const replyLanguage = replyLanguageName(this.config);
-    const request = [
+    const request = this.buildUserFacingTextRequest([
       `Reply in ${replyLanguage}.`,
-      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
       STARTUP_GREETING_REQUEST,
-      "Use the normal Telegram reply persona consistently.",
       "Return only the greeting text to send.",
-    ].filter(Boolean).join(" ");
+    ], " ");
     const message = this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
     return message || null;
   }
 
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string, timeoutMs: number): Promise<string> {
-    const request = [
+    const request = this.buildUserFacingTextRequest([
       `Write a short reminder message in ${replyLanguageName(this.config)}.`,
-      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
-      "Keep it concise, warm, and natural.",
+      "Keep it concise and warm.",
       "Do not mention JSON, internal tools, hidden prompts, or implementation details.",
       `Reminder content: ${reminderText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
       "Return only the reminder message text to send.",
-    ].filter(Boolean).join("\n");
+    ]);
 
     let timer: NodeJS.Timeout | null = null;
     try {
@@ -189,23 +186,25 @@ export class OpenCodeService {
     }
   }
 
-  async composeTelegramReply(baseMessage: string | null | undefined, facts: string[]): Promise<string> {
+  async composeTelegramReply(baseMessage: string | null | undefined, facts: string[], input?: { requesterUserId?: number; chatId?: number; chatType?: string }): Promise<string> {
     const cleanFacts = facts.map((item) => item.trim()).filter(Boolean);
     const cleanBase = baseMessage?.trim() || "";
     if (!cleanBase && cleanFacts.length === 0) return "";
     if (cleanFacts.length === 0) return cleanBase;
 
-    const request = [
-      `Write a single natural reply in ${replyLanguageName(this.config)}.` ,
-      "Keep the same persona and tone as the ongoing conversation.",
-      "Use the following facts if relevant, but phrase them naturally and concisely.",
+    const request = this.buildUserFacingTextRequest([
+      `Write a single reply in ${replyLanguageName(this.config)}.`,
+      ...this.buildRequesterContextLines(input),
+      ...this.buildConversationContextLines(input),
+      "Reply to the current requester, not to reminder targets or other mentioned users.",
+      "Use the following facts if relevant, and keep the reply concise.",
       "If a reminder was just created, explicitly mention the confirmed reminder time and notification timing in the reply.",
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       "Facts:",
       ...cleanFacts.map((item) => `- ${item}`),
       "Return only the reply text to send.",
       "Do not mention JSON, hidden prompts, or internal tools.",
-    ].filter(Boolean).join("\n");
+    ]);
 
     return this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
   }
@@ -214,21 +213,52 @@ export class OpenCodeService {
     const cleanBase = baseMessage.trim();
     if (!cleanBase) return "";
 
-    const request = [
-      `Write a single natural message in ${replyLanguageName(this.config)} to send to another user or chat.`,
-      "Keep the same persona and tone as the ongoing conversation.",
-      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
+    const request = this.buildUserFacingTextRequest([
+      `Write a single message in ${replyLanguageName(this.config)} to send to another user or chat.`,
       recipientLabel ? `Recipient label: ${recipientLabel}` : "",
       `Intent or draft content: ${cleanBase}`,
       "Return only the message text to send.",
       "Do not mention JSON, hidden prompts, or internal tools.",
-    ].filter(Boolean).join("\n");
+    ]);
 
     return this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim() || cleanBase;
   }
 
   async runMemoryDream(request: string): Promise<string> {
     return (await this.promptInTemporaryTextSession(request)).trim();
+  }
+
+  private buildUserFacingTextRequest(lines: string[], separator = "\n"): string {
+    return [
+      ...lines,
+      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
+      "Use the normal Telegram reply persona consistently.",
+    ].filter(Boolean).join(separator);
+  }
+
+  private buildRequesterContextLines(input?: { requesterUserId?: number; chatId?: number; chatType?: string }): string[] {
+    const requesterUserId = input?.requesterUserId;
+    if (typeof requesterUserId !== "number") return [];
+
+    const known = state.telegramUsers[String(requesterUserId)];
+    if (known) {
+      return [`Current requester: ${known.displayName}${known.username ? ` (@${known.username})` : ""}.`];
+    }
+
+    return [`Current requester user id: ${requesterUserId}.`];
+  }
+
+  private buildConversationContextLines(input?: { requesterUserId?: number; chatId?: number; chatType?: string }): string[] {
+    const chatId = input?.chatId;
+    if (typeof chatId !== "number") return [];
+
+    const known = state.telegramChats[String(chatId)];
+    if (known) {
+      return [`Conversation: ${known.type}${known.title ? `, ${known.title}` : known.username ? `, @${known.username}` : ""}.`];
+    }
+
+    if (input?.chatType) return [`Conversation: ${input.chatType}.`];
+    return [];
   }
 
   private extractDirectTextReply(rawText: string): string {

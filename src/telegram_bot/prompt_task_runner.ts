@@ -104,6 +104,9 @@ export async function runPromptTask(deps: RunPromptTaskDeps): Promise<void> {
       opencode,
       answer,
       actionResult,
+      requesterUserId: userId,
+      chatId: task.chatId,
+      chatType: ctx.chat?.type,
     });
     await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, finalMessage);
 
@@ -135,13 +138,20 @@ async function composeFinalReply(input: {
   opencode: OpenCodeService;
   answer: PromptResult;
   actionResult: Awaited<ReturnType<typeof executePromptActions>>;
+  requesterUserId?: number;
+  chatId?: number;
+  chatType?: string;
 }): Promise<string> {
-  const { config, opencode, answer, actionResult } = input;
+  const { config, opencode, answer, actionResult, requesterUserId, chatId, chatType } = input;
   const modelFacts = actionResult.facts;
   let finalMessage = answer.message || t(config, "generic_done");
   if (modelFacts.length > 0) {
     try {
-      finalMessage = await opencode.composeTelegramReply(finalMessage, modelFacts);
+      finalMessage = await opencode.composeTelegramReply(finalMessage, modelFacts, {
+        requesterUserId,
+        chatId,
+        chatType,
+      });
     } catch (error) {
       await logger.warn(`failed to compose telegram follow-up reply: ${error instanceof Error ? error.message : String(error)}`);
       finalMessage = [finalMessage, ...modelFacts].filter(Boolean).join("\n\n");

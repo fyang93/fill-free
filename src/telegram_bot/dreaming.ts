@@ -1,7 +1,8 @@
-import { appendFile, mkdir, readFile, readdir, rmdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { OpenCodeService } from "./opencode";
 import { pruneInactiveReminderEvents } from "./reminders";
+import { readReminderEvents, writeReminderEvents } from "./reminders/store";
 import { formatAvailableSkills, loadAvailableProjectSkills } from "./skills";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
@@ -121,7 +122,84 @@ async function appendDreamLog(config: AppConfig, entry: string): Promise<void> {
   await appendFile(logPath, entry, "utf8");
 }
 
-async function removeEmptyDirsUnder(root: string, dir = root): Promise<string[]> {
+type TelegramChatRecord = {
+  type: string;
+  title?: string;
+  username?: string;
+  lastSeenAt: string;
+};
+
+function parseSeenAt(value: string | undefined): number {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChatIds: string[]; migratedReminderTargets: number; pairs: Array<{ oldChatId: string; newChatId: string; title: string }> }> {
+  const chats = Object.entries(state.telegramChats)
+    .map(([chatId, chat]) => ({ chatId, chat }))
+    .filter(({ chat }) => chat.title && (chat.type === "group" || chat.type === "supergroup"));
+
+  const byTitle = new Map<string, Array<{ chatId: string; chat: TelegramChatRecord }>>();
+  for (const entry of chats) {
+    const title = entry.chat.title?.trim();
+    if (!title) continue;
+    const bucket = byTitle.get(title) || [];
+    bucket.push(entry as { chatId: string; chat: TelegramChatRecord });
+    byTitle.set(title, bucket);
+  }
+
+  const pairs: Array<{ oldChatId: string; newChatId: string; title: string }> = [];
+  for (const [title, entries] of byTitle.entries()) {
+    const supergroups = entries.filter(({ chat }) => chat.type === "supergroup");
+    const groups = entries.filter(({ chat }) => chat.type === "group");
+    if (supergroups.length === 0 || groups.length === 0) continue;
+    const newestSupergroup = supergroups.sort((a, b) => parseSeenAt(b.chat.lastSeenAt) - parseSeenAt(a.chat.lastSeenAt))[0];
+    if (!newestSupergroup) continue;
+    for (const group of groups) {
+      pairs.push({ oldChatId: group.chatId, newChatId: newestSupergroup.chatId, title });
+    }
+  }
+
+  if (pairs.length === 0) return { removedChatIds: [], migratedReminderTargets: 0, pairs: [] };
+
+  const migrationMap = new Map(pairs.map((pair) => [pair.oldChatId, pair]));
+  const reminders = await readReminderEvents(config);
+  let migratedReminderTargets = 0;
+  let remindersChanged = false;
+  for (const event of reminders) {
+    let eventChanged = false;
+    for (const target of event.targets) {
+      if (target.targetKind !== "chat") continue;
+      const migration = migrationMap.get(String(target.targetId));
+      if (!migration) continue;
+      target.targetId = Number(migration.newChatId);
+      target.displayName = migration.title;
+      migratedReminderTargets += 1;
+      eventChanged = true;
+    }
+    if (eventChanged) {
+      event.updatedAt = new Date().toISOString();
+      remindersChanged = true;
+    }
+  }
+  if (remindersChanged) {
+    await writeReminderEvents(config, reminders);
+  }
+
+  const removedChatIds: string[] = [];
+  for (const pair of pairs) {
+    if (!state.telegramChats[pair.oldChatId]) continue;
+    delete state.telegramChats[pair.oldChatId];
+    removedChatIds.push(pair.oldChatId);
+  }
+  if (removedChatIds.length > 0) {
+    await persistState(config.paths.stateFile);
+  }
+
+  return { removedChatIds: removedChatIds.sort((a, b) => a.localeCompare(b)), migratedReminderTargets, pairs };
+}
+
+async function clearTmpContents(root: string, dir = root): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -131,143 +209,179 @@ async function removeEmptyDirsUnder(root: string, dir = root): Promise<string[]>
 
   const removed: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (entry.name === ".gitkeep") continue;
     const fullPath = path.join(dir, entry.name);
-    removed.push(...await removeEmptyDirsUnder(root, fullPath));
-  }
-
-  if (dir === root) return removed;
-
-  try {
-    const remaining = await readdir(dir);
-    if (remaining.length === 0) {
-      await rmdir(dir);
-      removed.push(path.relative(root, dir) || ".");
+    try {
+      await rm(fullPath, { recursive: true, force: true });
+      removed.push(path.relative(root, fullPath));
+    } catch {
+      // ignore concurrent or permission failures
     }
-  } catch {
-    // ignore concurrent or permission failures
   }
 
   return removed.sort((a, b) => a.localeCompare(b));
 }
 
+type DreamDeps = { isBusy: () => boolean; onChange?: (summary: string) => Promise<void> };
+
+export type DreamRunner = {
+  timer: NodeJS.Timeout | null;
+  runNow: () => Promise<void>;
+};
+
+async function runDreamCycle(
+  config: AppConfig,
+  opencode: OpenCodeService,
+  deps: DreamDeps,
+  input: { force: boolean; runningRef: { value: boolean } },
+): Promise<void> {
+  const { force, runningRef } = input;
+  if (runningRef.value) return;
+  if (!force && deps.isBusy()) return;
+
+  const lastActivityAt = state.lastActivityAt;
+  const idleMs = lastActivityAt ? Date.now() - new Date(lastActivityAt).getTime() : Number.POSITIVE_INFINITY;
+  if (!force && (!Number.isFinite(idleMs) || idleMs < config.dreaming.idleAfterMs)) return;
+
+  const preChanges: string[] = [];
+
+  const reminderCleanup = await pruneInactiveReminderEvents(config);
+  if (reminderCleanup.removed > 0) {
+    await logger.info(`dream loop pruned ${reminderCleanup.removed} inactive reminders`);
+    preChanges.push(`删除了 ${reminderCleanup.removed} 条失效提醒`);
+    await appendDreamLog(config, [
+      `## ${new Date().toISOString()}`,
+      `trigger: ${force ? "forced" : `idle ${Math.round(idleMs / 1000)}s`} + reminder cleanup`,
+      `summary: pruned ${reminderCleanup.removed} inactive reminders`,
+      `deleted: ${reminderCleanup.removedIds.join(", ")}`,
+      "",
+    ].join("\n"));
+  }
+
+  const removedTmpEntries = await clearTmpContents(config.paths.tmpDir);
+  if (removedTmpEntries.length > 0) {
+    await logger.info(`dream loop cleared ${removedTmpEntries.length} tmp entries`);
+    preChanges.push(`清理了 ${removedTmpEntries.length} 个 tmp 项目`);
+    await appendDreamLog(config, [
+      `## ${new Date().toISOString()}`,
+      `trigger: ${force ? "forced" : `idle ${Math.round(idleMs / 1000)}s`} + tmp cleanup`,
+      `summary: cleared ${removedTmpEntries.length} tmp entries`,
+      `deleted: ${removedTmpEntries.map((item) => path.join(path.relative(config.paths.repoRoot, config.paths.tmpDir), item)).join(", ")}`,
+      "",
+    ].join("\n"));
+  }
+
+  const chatMigration = await migrateLegacyGroupChats(config);
+  if (chatMigration.removedChatIds.length > 0) {
+    await logger.info(`dream loop migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups remindersUpdated=${chatMigration.migratedReminderTargets}`);
+    preChanges.push(`迁移了 ${chatMigration.removedChatIds.length} 个旧 group 到 supergroup`);
+    if (chatMigration.migratedReminderTargets > 0) {
+      preChanges.push(`更新了 ${chatMigration.migratedReminderTargets} 个 reminder 群组目标`);
+    }
+    await appendDreamLog(config, [
+      `## ${new Date().toISOString()}`,
+      `trigger: ${force ? "forced" : `idle ${Math.round(idleMs / 1000)}s`} + chat migration cleanup`,
+      `summary: migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups`,
+      `pairs: ${chatMigration.pairs.map((pair) => `${pair.title}: ${pair.oldChatId} -> ${pair.newChatId}`).join(", ")}`,
+      `reminderTargetsUpdated: ${chatMigration.migratedReminderTargets}`,
+      "",
+    ].join("\n"));
+  }
+
+  const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
+  const currentFingerprint = snapshotFingerprint(beforeSnapshot);
+  const changedFiles = force ? [...beforeSnapshot.keys()].sort((a, b) => a.localeCompare(b)) : recentlyChangedFiles(beforeSnapshot, state.lastDreamedAt);
+  if (!force && currentFingerprint === (state.lastDreamedMemoryFingerprint || "")) {
+    if (deps.onChange && preChanges.length > 0) {
+      await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
+    }
+    return;
+  }
+  if (!force && changedFiles.length === 0) {
+    state.lastDreamedMemoryFingerprint = currentFingerprint || null;
+    await persistState(config.paths.stateFile);
+    if (deps.onChange && preChanges.length > 0) {
+      await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
+    }
+    return;
+  }
+
+  runningRef.value = true;
+  const startedAt = new Date().toISOString();
+  try {
+    await logger.info(`dream loop starting${force ? " (forced)" : ""} after ${Number.isFinite(idleMs) ? `${idleMs}ms` : "unknown"} idle changedFiles=${changedFiles.length}`);
+    const request = await buildDreamRequest(force ? null : state.lastDreamedAt, changedFiles);
+    const summary = await withTimeout(opencode.runMemoryDream(request), config.dreaming.timeoutMs, "dream loop");
+    const afterSnapshot = await memorySnapshot(config.paths.repoRoot);
+    const afterFingerprint = snapshotFingerprint(afterSnapshot);
+    const changes = diffSnapshots(beforeSnapshot, afterSnapshot);
+    state.lastDreamedAt = new Date().toISOString();
+    state.lastDreamedMemoryFingerprint = afterFingerprint || null;
+    await persistState(config.paths.stateFile);
+    await logger.info(`dream loop finished: ${summary || "(empty summary)"}`);
+    await appendDreamLog(config, [
+      `## ${startedAt}`,
+      `trigger: ${force ? "forced" : `idle ${Math.round(idleMs / 1000)}s`} + memory changed`,
+      `summary: ${summary || "no summary"}`,
+      `created: ${changes.created.length ? changes.created.join(", ") : "-"}`,
+      `updated: ${changes.updated.length ? changes.updated.join(", ") : "-"}`,
+      `deleted: ${changes.deleted.length ? changes.deleted.join(", ") : "-"}`,
+      "",
+    ].join("\n"));
+    const memoryChanged = changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0;
+    if (deps.onChange && (preChanges.length > 0 || memoryChanged)) {
+      const lines = ["🧠 入梦完成"];
+      if (preChanges.length > 0) lines.push(...preChanges.map((item) => `- ${item}`));
+      if (memoryChanged) {
+        lines.push(`- 记忆整理摘要：${summary || "已完成整理"}`);
+        if (changes.created.length > 0) lines.push(`- 新建：${changes.created.join(", ")}`);
+        if (changes.updated.length > 0) lines.push(`- 更新：${changes.updated.join(", ")}`);
+        if (changes.deleted.length > 0) lines.push(`- 删除：${changes.deleted.join(", ")}`);
+      }
+      await deps.onChange(lines.join("\n"));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logger.warn(`dream loop failed: ${message}`);
+    await appendDreamLog(config, [
+      `## ${startedAt}`,
+      `trigger: ${force ? "forced" : `idle ${Math.round(idleMs / 1000)}s`} + memory changed`,
+      `failed: ${message}`,
+      "",
+    ].join("\n"));
+  } finally {
+    runningRef.value = false;
+  }
+}
+
+export function createDreamRunner(
+  config: AppConfig,
+  opencode: OpenCodeService,
+  deps: DreamDeps,
+): DreamRunner {
+  const runningRef = { value: false };
+  const runNow = async (): Promise<void> => {
+    await runDreamCycle(config, opencode, deps, { force: true, runningRef });
+  };
+  const timer = !config.dreaming.enabled ? null : setInterval(() => {
+    void runDreamCycle(config, opencode, deps, { force: false, runningRef }).catch(async (error) => {
+      await logger.warn(`dream loop tick failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }, config.dreaming.checkIntervalMs);
+
+  if (timer) {
+    void runDreamCycle(config, opencode, deps, { force: false, runningRef }).catch(async (error) => {
+      await logger.warn(`dream loop tick failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  return { timer, runNow };
+}
+
 export function startDreamLoop(
   config: AppConfig,
   opencode: OpenCodeService,
-  deps: { isBusy: () => boolean; onChange?: (summary: string) => Promise<void> },
+  deps: DreamDeps,
 ): NodeJS.Timeout | null {
-  if (!config.dreaming.enabled) return null;
-
-  let running = false;
-
-  const tick = async () => {
-    if (running) return;
-    if (deps.isBusy()) return;
-
-    const lastActivityAt = state.lastActivityAt;
-    if (!lastActivityAt) return;
-
-    const idleMs = Date.now() - new Date(lastActivityAt).getTime();
-    if (!Number.isFinite(idleMs) || idleMs < config.dreaming.idleAfterMs) return;
-
-    const preChanges: string[] = [];
-
-    const reminderCleanup = await pruneInactiveReminderEvents(config);
-    if (reminderCleanup.removed > 0) {
-      await logger.info(`dream loop pruned ${reminderCleanup.removed} inactive reminders`);
-      preChanges.push(`删除了 ${reminderCleanup.removed} 条失效提醒`);
-      await appendDreamLog(config, [
-        `## ${new Date().toISOString()}`,
-        `trigger: idle ${Math.round(idleMs / 1000)}s + reminder cleanup`,
-        `summary: pruned ${reminderCleanup.removed} inactive reminders`,
-        `deleted: ${reminderCleanup.removedIds.join(", ")}`,
-        "",
-      ].join("\n"));
-    }
-
-    const removedEmptyTmpDirs = await removeEmptyDirsUnder(config.paths.tmpDir);
-    if (removedEmptyTmpDirs.length > 0) {
-      await logger.info(`dream loop removed ${removedEmptyTmpDirs.length} empty tmp directories`);
-      preChanges.push(`清理了 ${removedEmptyTmpDirs.length} 个空的 tmp 目录`);
-      await appendDreamLog(config, [
-        `## ${new Date().toISOString()}`,
-        `trigger: idle ${Math.round(idleMs / 1000)}s + tmp cleanup`,
-        `summary: removed ${removedEmptyTmpDirs.length} empty tmp directories`,
-        `deleted: ${removedEmptyTmpDirs.map((item) => path.join(path.relative(config.paths.repoRoot, config.paths.tmpDir), item)).join(", ")}`,
-        "",
-      ].join("\n"));
-    }
-
-    const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
-    const currentFingerprint = snapshotFingerprint(beforeSnapshot);
-    const changedFiles = recentlyChangedFiles(beforeSnapshot, state.lastDreamedAt);
-    if (currentFingerprint === (state.lastDreamedMemoryFingerprint || "")) {
-      if (deps.onChange && preChanges.length > 0) {
-        await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
-      }
-      return;
-    }
-    if (changedFiles.length === 0) {
-      state.lastDreamedMemoryFingerprint = currentFingerprint || null;
-      await persistState(config.paths.stateFile);
-      if (deps.onChange && preChanges.length > 0) {
-        await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
-      }
-      return;
-    }
-
-    running = true;
-    const startedAt = new Date().toISOString();
-    try {
-      await logger.info(`dream loop starting after ${idleMs}ms idle changedFiles=${changedFiles.length}`);
-      const request = await buildDreamRequest(state.lastDreamedAt, changedFiles);
-      const summary = await withTimeout(opencode.runMemoryDream(request), config.dreaming.timeoutMs, "dream loop");
-      const afterSnapshot = await memorySnapshot(config.paths.repoRoot);
-      const afterFingerprint = snapshotFingerprint(afterSnapshot);
-      const changes = diffSnapshots(beforeSnapshot, afterSnapshot);
-      state.lastDreamedAt = new Date().toISOString();
-      state.lastDreamedMemoryFingerprint = afterFingerprint || null;
-      await persistState(config.paths.stateFile);
-      await logger.info(`dream loop finished: ${summary || "(empty summary)"}`);
-      await appendDreamLog(config, [
-        `## ${startedAt}`,
-        `trigger: idle ${Math.round(idleMs / 1000)}s + memory changed`,
-        `summary: ${summary || "no summary"}`,
-        `created: ${changes.created.length ? changes.created.join(", ") : "-"}`,
-        `updated: ${changes.updated.length ? changes.updated.join(", ") : "-"}`,
-        `deleted: ${changes.deleted.length ? changes.deleted.join(", ") : "-"}`,
-        "",
-      ].join("\n"));
-      const memoryChanged = changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0;
-      if (deps.onChange && (preChanges.length > 0 || memoryChanged)) {
-        const lines = ["🧠 入梦完成"];
-        if (preChanges.length > 0) lines.push(...preChanges.map((item) => `- ${item}`));
-        if (memoryChanged) {
-          lines.push(`- 记忆整理摘要：${summary || "已完成整理"}`);
-          if (changes.created.length > 0) lines.push(`- 新建：${changes.created.join(", ")}`);
-          if (changes.updated.length > 0) lines.push(`- 更新：${changes.updated.join(", ")}`);
-          if (changes.deleted.length > 0) lines.push(`- 删除：${changes.deleted.join(", ")}`);
-        }
-        await deps.onChange(lines.join("\n"));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await logger.warn(`dream loop failed: ${message}`);
-      await appendDreamLog(config, [
-        `## ${startedAt}`,
-        `trigger: idle ${Math.round(idleMs / 1000)}s + memory changed`,
-        `failed: ${message}`,
-        "",
-      ].join("\n"));
-    } finally {
-      running = false;
-    }
-  };
-
-  const timer = setInterval(() => {
-    void tick();
-  }, config.dreaming.checkIntervalMs);
-
-  void tick();
-  return timer;
+  return createDreamRunner(config, opencode, deps).timer;
 }
