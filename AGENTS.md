@@ -1,14 +1,36 @@
-# Agent Instructions
+# Project prompting principles
 
-This repository prefers a minimal-tool workflow.
+- Learn pi, understand pi, become pi.
+- Trust the model's capability.
+- Keep prompts concise and restrained.
+- Do not add clever or defensive prompt text unless it is truly necessary.
+- If the code strictly requires specific structured fields, name those critical fields explicitly in the prompt.
+- If the code does not strictly require a detail, do not over-constrain the model.
 
-- For read-only retrieval, prefer direct `fd`/`rg` and note body search first.
-- Prefer repository-local sources first for user memory, reminders, personal facts, files, logs, and project behavior.
-- Check `memory/`, `assets/`, `system/`, and relevant code/logs before considering external search.
-- Use web search only when local sources are insufficient for the question.
-- Use the `memory-agent` skill for any request that would change repository memory or long-term files: remember, save, update, organize, merge, link, move from `tmp/` to `assets/`, or reshape existing notes.
-- Use the `reminder-agent` skill for reminder-related requests: creating reminders, turning schedules/lists into reminders, recurring or event reminders, reminder interpretation/debugging, or mixed requests where reminders are one of the intended outcomes.
-- For simple read-only questions about existing notes or assets, direct retrieval is fine; use `memory-agent` when note routing, merging, or persistence decisions are needed.
-- Treat `system/` as code-managed persistent data, not general memory notes. Do not casually rewrite or reorganize files there through freeform memory editing.
-- When a user message may imply both long-term memory and reminders, use both `memory-agent` and `reminder-agent` as appropriate instead of treating them as separate unrelated flows.
-- Do not claim that notes or files were saved, moved, merged, linked, or persisted unless the repository was actually updated.
+## User-facing language
+
+- Prefer model-generated user-facing wording over hard-coded reply text.
+- Code should provide facts, state, and constraints; the model should phrase the final reply.
+- Preserve persona consistency across normal replies, relays, reminder confirmations, and follow-up messages.
+- Avoid fixed user-visible copy unless it is clearly UI text, a safety fallback, or a deterministic product label.
+
+## i18n
+
+- Be careful with internationalization.
+- Keep UI strings, labels, buttons, and deterministic schedule/unit text in i18n.
+- Avoid storing conversational reply prose in i18n when the model can generate it from facts.
+
+## Memory vs system data
+
+- `memory/` is for human-readable long-term notes.
+- `system/` is for code-managed persistent data.
+- Do not casually mix the two.
+
+## Keep the codebase clean
+
+- Prefer small, well-named modules over growing a single controller or utility file into a catch-all.
+- Keep orchestrators thin: entrypoints and action dispatchers should coordinate domain modules, not absorb their logic.
+- When a new feature introduces a new domain concept, give it a clear home instead of hiding it inside `state.ts`, prompt builders, or Telegram-specific glue.
+- Avoid rebuilding manual routing or prompt-time heuristics when a skill catalog plus model judgment is sufficient.
+- Use code for deterministic boundaries and persistence rules; use prompts for minimal task context, not duplicate enforcement.
+

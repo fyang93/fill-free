@@ -69,7 +69,7 @@ export async function prepareReminderDeliveryText(config: AppConfig, opencode: O
     event.title,
     nextInstance.notifyAt,
     reminderEventScheduleSummary(config, event),
-    config.telegram.reminderMessageTimeoutMs,
+    config.bot.reminderMessageTimeoutMs,
   );
   const trimmed = message.trim();
   if (!trimmed) return false;

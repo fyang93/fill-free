@@ -9,6 +9,7 @@ export type {
   ReminderSchedule,
   ReminderSpecialKind,
   ReminderStoreV2,
+  ReminderTarget,
   ReminderTimeSemantics,
   ReminderView,
 } from "./types";

@@ -188,7 +188,6 @@ export async function sendLocalFiles(ctx: Context, config: AppConfig, candidates
     if (
       relPath === path.join("system", "reminders.json")
       || relPath === path.join("system", "telegram-state.json")
-      || relPath === path.join("system", "telegram-links.json")
       || relPath === path.join("index", "reminders.json")
     ) continue;
     try {

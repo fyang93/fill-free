@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "./config_runtime";
 import { configureLogger, logger } from "./logger";
 import { OpenCodeService } from "./opencode";
 import { currentModel, loadPersistentState, persistState, state } from "./state";
+import { pruneExpiredPendingAuthorizationsFromState } from "./pending_access";
 import { handleReminderCallback, prepareReminderDeliveryText, prewarmReminderDeliveryTexts, pruneExpiredReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "./reminders";
 import {
   buildProviderKeyboard,
@@ -22,10 +23,20 @@ const configPath = DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
 await loadPersistentState(config.paths.stateFile);
 configureLogger(config.paths.logFile);
+await logger.info(`telegram bot process starting pid=${process.pid}`);
 const bot = new Bot(config.telegram.botToken);
 const opencode = new OpenCodeService(config);
 let botUsername: string | null = null;
 let botUserId: number | null = null;
+const pendingAuthorizationCleanup = setInterval(() => {
+  void (async () => {
+    const removed = await pruneExpiredPendingAuthorizationsFromState(config);
+    if (removed <= 0) return;
+    await logger.info(`removed ${removed} expired pending authorizations`);
+  })().catch(async (error) => {
+    await logger.warn(`pending authorization cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}, 60_000);
 
 const promptController = new PromptController({
   config,
@@ -117,11 +128,11 @@ bot.command("model", async (ctx) => {
     const activeProvider = activeModel.split("/", 1)[0] || providers[0];
     if (providers.length === 1 || providers.includes(activeProvider)) {
       await replyFormatted(ctx, t(config, "choose_model_under_provider", { provider: activeProvider }), {
-        reply_markup: buildProviderModelKeyboard(activeProvider, models, activeModel, config.telegram.menuPageSize, t(config, "reminder_back"), 0),
+        reply_markup: buildProviderModelKeyboard(activeProvider, models, activeModel, config.bot.menuPageSize, t(config, "reminder_back"), 0),
       });
     } else {
       await replyFormatted(ctx, t(config, "choose_provider"), {
-        reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, t(config, "reminder_back"), 0),
+        reply_markup: buildProviderKeyboard(models, activeModel, config.bot.menuPageSize, t(config, "reminder_back"), 0),
       });
     }
   } catch (error) {
@@ -191,7 +202,7 @@ let reminderLoop = await startReminderLoop(
         event.title,
         event.deliveryState?.currentOccurrence?.scheduledAt || new Date().toLocaleString(),
         recurrence,
-        config.telegram.reminderMessageTimeoutMs,
+        config.bot.reminderMessageTimeoutMs,
       );
       return message || fallback;
     } catch (error) {

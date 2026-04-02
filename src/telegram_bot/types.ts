@@ -5,6 +5,8 @@ export type AppConfig = {
     trustedUserIds: number[];
     adminUserId: number | null;
     maxFileSizeMb: number;
+  };
+  bot: {
     personaStyle: string;
     language: "zh" | "en";
     waitingMessage: string;
@@ -13,6 +15,7 @@ export type AppConfig = {
     reminderMessageTimeoutMs: number;
     promptTaskTimeoutMs: number;
     menuPageSize: number;
+    defaultTimezone: string;
   };
   paths: {
     repoRoot: string;
@@ -48,6 +51,14 @@ export type PromptAttachment = {
   url: string;
 };
 
+export type PendingAuthorization = {
+  kind: "allowed";
+  username: string;
+  createdBy: number;
+  createdAt: string;
+  expiresAt: string;
+};
+
 export type SessionState = {
   model: string | null;
   lastActivityAt: string | null;
@@ -56,4 +67,6 @@ export type SessionState = {
   recentUploadsByScope: Record<string, { files: UploadedFile[]; recentUploadsAt: string | null }>;
   userTimezones: Record<string, { timezone: string; updatedAt: string }>;
   telegramUsers: Record<string, { username?: string; firstName?: string; lastName?: string; displayName: string; lastSeenAt: string }>;
+  telegramChats: Record<string, { type: string; title?: string; username?: string; lastSeenAt: string }>;
+  pendingAuthorizations: PendingAuthorization[];
 };

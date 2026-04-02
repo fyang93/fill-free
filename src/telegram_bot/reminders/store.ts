@@ -4,7 +4,7 @@ import type { AppConfig } from "../types";
 import { getAccurateNow } from "../time";
 import { getUserTimezone } from "../state";
 import { normalizeStoredReminderSchedule } from "./schedule_parser";
-import type { ReminderEvent, ReminderEventKind, ReminderNotification, ReminderRecipient, ReminderSchedule, ReminderSpecialKind, ReminderStoreV2, ReminderTimeSemantics } from "./types";
+import type { ReminderEvent, ReminderEventKind, ReminderNotification, ReminderSchedule, ReminderSpecialKind, ReminderStoreV2, ReminderTarget, ReminderTimeSemantics } from "./types";
 
 export type ReminderEventDraft = {
   title: string;
@@ -19,7 +19,7 @@ export type ReminderEventDraft = {
   status?: ReminderEvent["status"];
   createdAt?: string;
   updatedAt?: string;
-  recipients?: ReminderRecipient[];
+  targets?: ReminderTarget[];
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
   deliveryPreparedNotificationId?: string;
@@ -29,7 +29,9 @@ export type ReminderEventDraft = {
 
 let reminderStoreWriteQueue: Promise<void> = Promise.resolve();
 
-const DEFAULT_TIMEZONE = "Asia/Tokyo";
+function defaultReminderTimezone(config: AppConfig): string {
+  return config.bot.defaultTimezone;
+}
 
 export function isValidReminderTimezone(timezone: string): boolean {
   try {
@@ -53,9 +55,9 @@ export function resolveReminderTimezone(
     return rememberedTimezone;
   }
   if (input.telegramMessageTime) {
-    return DEFAULT_TIMEZONE;
+    return defaultReminderTimezone(_config);
   }
-  return DEFAULT_TIMEZONE;
+  return defaultReminderTimezone(_config);
 }
 
 export function defaultReminderEventKind(input: { category?: "routine" | "special"; specialKind?: ReminderSpecialKind; kind?: ReminderEventKind; schedule?: ReminderSchedule }): ReminderEventKind {
@@ -90,13 +92,14 @@ function remindersPath(config: AppConfig): string {
   return path.join(config.paths.repoRoot, "system", "reminders.json");
 }
 
-function normalizeRecipient(raw: unknown): ReminderRecipient | null {
+function normalizeTarget(raw: unknown): ReminderTarget | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
-  const userId = Number(record.userId);
+  const targetKind = record.targetKind === "chat" ? "chat" : record.targetKind === "user" ? "user" : null;
+  const targetId = Number(record.targetId);
   const displayName = typeof record.displayName === "string" && record.displayName.trim() ? record.displayName.trim() : undefined;
-  if (!Number.isInteger(userId)) return null;
-  return { userId, displayName };
+  if (!targetKind || !Number.isInteger(targetId)) return null;
+  return { targetKind, targetId, displayName };
 }
 
 function normalizeNotification(raw: unknown): ReminderNotification | null {
@@ -114,7 +117,7 @@ function normalizeEventSchedule(raw: unknown): ReminderSchedule | null {
   return normalizeStoredReminderSchedule(raw);
 }
 
-function normalizeEvent(raw: unknown): ReminderEvent | null {
+function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): ReminderEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -122,7 +125,7 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
   const note = typeof record.note === "string" && record.note.trim() ? record.note.trim() : undefined;
   const kind = record.kind === "routine" || record.kind === "meeting" || record.kind === "birthday" || record.kind === "anniversary" || record.kind === "festival" || record.kind === "memorial" || record.kind === "task" || record.kind === "custom" ? record.kind : "custom";
   const timeSemantics = record.timeSemantics === "absolute" || record.timeSemantics === "local" ? record.timeSemantics : undefined;
-  const timezone = typeof record.timezone === "string" && record.timezone.trim() ? record.timezone.trim() : DEFAULT_TIMEZONE;
+  const timezone = typeof record.timezone === "string" && record.timezone.trim() ? record.timezone.trim() : fallbackTimezone;
   const schedule = normalizeEventSchedule(record.schedule);
   const notifications = Array.isArray(record.notifications) ? record.notifications.map(normalizeNotification).filter((item): item is ReminderNotification => Boolean(item)) : [];
   const status = record.status === "active" || record.status === "paused" || record.status === "deleted" ? record.status : "active";
@@ -130,15 +133,15 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
   const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : undefined;
   const category = record.category === "special" ? "special" : "routine";
   const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial" ? record.specialKind : undefined;
-  const recipients = Array.isArray(record.recipients)
-    ? record.recipients.map(normalizeRecipient).filter((item): item is ReminderRecipient => Boolean(item))
+  const targets = Array.isArray(record.targets)
+    ? record.targets.map(normalizeTarget).filter((item): item is ReminderTarget => Boolean(item))
     : [];
   const deliveryText = typeof record.deliveryText === "string" && record.deliveryText.trim() ? record.deliveryText.trim() : undefined;
   const deliveryTextGeneratedAt = typeof record.deliveryTextGeneratedAt === "string" && record.deliveryTextGeneratedAt.trim() ? record.deliveryTextGeneratedAt.trim() : undefined;
   const deliveryPreparedNotificationId = typeof record.deliveryPreparedNotificationId === "string" && record.deliveryPreparedNotificationId.trim() ? record.deliveryPreparedNotificationId.trim() : undefined;
   const deliveryPreparedNotifyAt = typeof record.deliveryPreparedNotifyAt === "string" && record.deliveryPreparedNotifyAt.trim() ? record.deliveryPreparedNotifyAt.trim() : undefined;
   const deliveryState = record.deliveryState && typeof record.deliveryState === "object" ? record.deliveryState as ReminderEvent["deliveryState"] : undefined;
-  if (!id || !title || !schedule || !createdAt || notifications.length === 0 || recipients.length === 0) return null;
+  if (!id || !title || !schedule || !createdAt || notifications.length === 0 || targets.length === 0) return null;
   return {
     id,
     title,
@@ -153,7 +156,7 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
     status,
     createdAt,
     updatedAt,
-    recipients,
+    targets,
     deliveryText,
     deliveryTextGeneratedAt,
     deliveryPreparedNotificationId,
@@ -162,9 +165,9 @@ function normalizeEvent(raw: unknown): ReminderEvent | null {
   };
 }
 
-function parseReminderStore(raw: unknown): ReminderStoreV2 {
+function parseReminderStore(raw: unknown, fallbackTimezone = "Asia/Tokyo"): ReminderStoreV2 {
   if (!Array.isArray(raw)) return [];
-  return raw.map(normalizeEvent).filter((item): item is ReminderEvent => Boolean(item));
+  return raw.map((item) => normalizeEvent(item, fallbackTimezone)).filter((item): item is ReminderEvent => Boolean(item));
 }
 
 async function loadReminderStore(config: AppConfig): Promise<ReminderStoreV2> {
@@ -172,7 +175,7 @@ async function loadReminderStore(config: AppConfig): Promise<ReminderStoreV2> {
   try {
     const rawText = await readFile(filePath, "utf8");
     const parsed = JSON.parse(rawText) as unknown;
-    return parseReminderStore(parsed);
+    return parseReminderStore(parsed, defaultReminderTimezone(config));
   } catch {
     return [];
   }
@@ -198,7 +201,7 @@ export async function writeReminderEvents(config: AppConfig, events: ReminderEve
   await queueReminderStoreWrite(() => writeReminderStore(config, events));
 }
 
-export function buildReminderEvent(draft: ReminderEventDraft): ReminderEvent {
+export function buildReminderEvent(draft: ReminderEventDraft, fallbackTimezone = "Asia/Tokyo"): ReminderEvent {
   const kind = defaultReminderEventKind({
     category: draft.category,
     specialKind: draft.specialKind,
@@ -211,7 +214,7 @@ export function buildReminderEvent(draft: ReminderEventDraft): ReminderEvent {
     note: draft.note,
     kind,
     timeSemantics: draft.timeSemantics || defaultReminderTimeSemantics(kind, draft.schedule),
-    timezone: draft.timezone || DEFAULT_TIMEZONE,
+    timezone: draft.timezone || fallbackTimezone,
     schedule: draft.schedule,
     notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultReminderNotifications(kind),
     category: draft.category,
@@ -219,7 +222,7 @@ export function buildReminderEvent(draft: ReminderEventDraft): ReminderEvent {
     status: draft.status || "active",
     createdAt: draft.createdAt || new Date().toISOString(),
     updatedAt: draft.updatedAt,
-    recipients: draft.recipients && draft.recipients.length > 0 ? draft.recipients : [],
+    targets: draft.targets && draft.targets.length > 0 ? draft.targets : [],
     deliveryText: draft.deliveryText,
     deliveryTextGeneratedAt: draft.deliveryTextGeneratedAt,
     deliveryPreparedNotificationId: draft.deliveryPreparedNotificationId,
@@ -238,7 +241,7 @@ export async function createReminderEvent(event: ReminderEvent, config: AppConfi
 }
 
 export async function createReminderEventWithDefaults(config: AppConfig, draft: ReminderEventDraft): Promise<ReminderEvent> {
-  const event = buildReminderEvent(draft);
+  const event = buildReminderEvent(draft, defaultReminderTimezone(config));
   return createReminderEvent(event, config);
 }
 

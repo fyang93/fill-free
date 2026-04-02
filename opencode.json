@@ -9,6 +9,11 @@
     "time": {
       "type": "local",
       "command": [ "uvx", "mcp-server-time" ]
+    },
+    "nixos": {
+      "type": "local",
+      "command": [ "uvx", "mcp-nixos" ],
+      "enabled": true
     }
   }
 }

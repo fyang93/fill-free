@@ -1,6 +1,6 @@
 ---
 name: memory-agent
-description: Use for lightweight memory retrieval, note updates, and organizing long-term files in this repository.
+description: Use when the task involves retrieving, saving, updating, merging, or organizing long-term repository memory, notes, files, or persistent user information.
 ---
 
 # Memory Agent
@@ -9,6 +9,9 @@ Use this skill when the user asks to remember, save, update, organize, merge, li
 
 ## Retrieval
 
+- Prefer repository-local sources first for user memory, reminders, personal facts, files, logs, and project behavior.
+- Check `memory/`, `assets/`, `system/`, and relevant code/logs before considering external search.
+- Use web search only when local sources are insufficient for the question.
 - Prefer `fd` and `rg` for retrieval. Start with the smallest useful `rg` result and only read full files when needed.
 - Treat frontmatter as lightweight support only. Keep it minimal and use it for `title`, `aliases`, `summary`, and sparse `tags`, not as the primary retrieval path.
 

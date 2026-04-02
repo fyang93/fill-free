@@ -50,24 +50,34 @@ function asLanguage(value: unknown): "zh" | "en" {
   return normalized === "en" ? "en" : "zh";
 }
 
+function isValidTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml")): AppConfig {
   const raw = readFileSync(configPath, "utf8");
   const parsed = asRecord(parse(raw));
 
   const telegram = asRecord(parsed.telegram);
-  const paths = asRecord(parsed.paths);
+  const bot = asRecord(parsed.bot);
   const opencode = asRecord(parsed.opencode);
   const dreaming = asRecord(parsed.dreaming);
   const repoRoot = path.resolve(process.cwd());
   const tmpDir = path.resolve(repoRoot, "tmp");
-  const uploadSubdir = asString(paths.upload_subdir, "telegram");
-  const logFile = path.resolve(repoRoot, asString(paths.log_file, "logs/telegram-bot.log"));
+  const uploadSubdir = "telegram";
+  const logFile = path.resolve(repoRoot, "logs", "telegram-bot.log");
   const stateFile = path.resolve(repoRoot, "system", "telegram-state.json");
 
   const allowedUserIds = asNumberArray(telegram.allowed_user_ids);
   const trustedUserIds = asNumberArray(telegram.trusted_user_ids);
   const adminUserIdValue = asNumber(telegram.admin_user_id, NaN);
   const adminUserId = Number.isFinite(adminUserIdValue) && adminUserIdValue > 0 ? adminUserIdValue : null;
+  const defaultTimezone = asString(bot.default_timezone, "Asia/Tokyo").trim() || "Asia/Tokyo";
 
   const config: AppConfig = {
     telegram: {
@@ -76,14 +86,17 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       trustedUserIds,
       adminUserId,
       maxFileSizeMb: asNumber(telegram.max_file_size_mb, 20),
-      personaStyle: asString(telegram.persona_style),
-      language: asLanguage(telegram.language),
-      waitingMessage: asString(telegram.waiting_message, "机宝启动中..."),
-      waitingMessageCandidates: asStringArray(telegram.waiting_message_candidates),
-      waitingMessageRotationMs: asNumber(telegram.waiting_message_rotation_ms, 5000),
-      reminderMessageTimeoutMs: asNumber(telegram.reminder_message_timeout_ms, 60000),
-      promptTaskTimeoutMs: asNumber(telegram.prompt_task_timeout_ms, 60000),
-      menuPageSize: asNumber(telegram.menu_page_size, 8),
+    },
+    bot: {
+      personaStyle: asString(bot.persona_style),
+      language: asLanguage(bot.language),
+      waitingMessage: asString(bot.waiting_message, "机宝启动中..."),
+      waitingMessageCandidates: asStringArray(bot.waiting_message_candidates),
+      waitingMessageRotationMs: asNumber(bot.waiting_message_rotation_ms, 5000),
+      reminderMessageTimeoutMs: asNumber(bot.reminder_message_timeout_ms, 60000),
+      promptTaskTimeoutMs: asNumber(bot.prompt_task_timeout_ms, 60000),
+      menuPageSize: asNumber(bot.menu_page_size, 8),
+      defaultTimezone,
     },
     paths: {
       repoRoot,
@@ -105,6 +118,9 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
 
   if (!config.telegram.botToken) {
     throw new Error(`Missing telegram.bot_token in ${configPath}`);
+  }
+  if (!isValidTimezone(config.bot.defaultTimezone)) {
+    throw new Error(`Invalid bot.default_timezone in ${configPath}: ${config.bot.defaultTimezone}`);
   }
   if (
     config.telegram.allowedUserIds.length === 0

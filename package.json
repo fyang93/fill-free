@@ -6,6 +6,7 @@
     "opencode": "opencode",
     "opencode:run": "opencode run",
     "telegram:bot": "bun run src/telegram_bot/index.ts",
+    "telegram:dev": "bun --watch src/telegram_bot/index.ts",
     "telegram:check": "tsc -p tsconfig.json"
   },
   "dependencies": {

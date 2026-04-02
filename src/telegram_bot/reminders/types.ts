@@ -57,8 +57,9 @@ export type ReminderDeliveryState = {
 
 export type ReminderTimeSemantics = "absolute" | "local";
 
-export type ReminderRecipient = {
-  userId: number;
+export type ReminderTarget = {
+  targetKind: "user" | "chat";
+  targetId: number;
   displayName?: string;
 };
 
@@ -76,7 +77,7 @@ export type ReminderEvent = {
   status: "active" | "paused" | "deleted";
   createdAt: string;
   updatedAt?: string;
-  recipients: ReminderRecipient[];
+  targets: ReminderTarget[];
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
   deliveryPreparedNotificationId?: string;

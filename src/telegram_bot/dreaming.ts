@@ -2,11 +2,10 @@ import { appendFile, mkdir, readFile, readdir, rmdir, stat } from "node:fs/promi
 import path from "node:path";
 import type { OpenCodeService } from "./opencode";
 import { pruneInactiveReminderEvents } from "./reminders";
+import { formatAvailableSkills, loadAvailableProjectSkills } from "./skills";
 import type { AppConfig } from "./types";
 import { logger } from "./logger";
 import { persistState, state } from "./state";
-
-const MEMORY_AGENT_SKILL_PATH = path.join(process.cwd(), ".agents/skills/memory-agent/SKILL.md");
 
 type MemorySnapshot = Map<string, { size: number; mtimeMs: number }>;
 
@@ -22,16 +21,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-const REMINDER_AGENT_SKILL_PATH = path.join(process.cwd(), ".agents/skills/reminder-agent/SKILL.md");
-
-async function loadSkillRules(skillPath: string): Promise<string> {
-  try {
-    return (await readFile(skillPath, "utf8")).trim();
-  } catch {
-    return "";
-  }
-}
-
 function recentlyChangedFiles(snapshot: MemorySnapshot, lastDreamedAt: string | null): string[] {
   if (!lastDreamedAt) return [...snapshot.keys()].sort((a, b) => a.localeCompare(b));
   const since = Date.parse(lastDreamedAt);
@@ -43,24 +32,20 @@ function recentlyChangedFiles(snapshot: MemorySnapshot, lastDreamedAt: string | 
 }
 
 async function buildDreamRequest(lastDreamedAt: string | null, changedFiles: string[]): Promise<string> {
-  const [memoryAgentRules, reminderAgentRules] = await Promise.all([
-    loadSkillRules(MEMORY_AGENT_SKILL_PATH),
-    loadSkillRules(REMINDER_AGENT_SKILL_PATH),
-  ]);
-  const conciseRules = [
-    memoryAgentRules ? `Follow memory-agent rules:\n${memoryAgentRules}` : "",
-    reminderAgentRules ? `Follow reminder-agent rules when relevant:\n${reminderAgentRules}` : "",
-  ].filter(Boolean).join("\n\n");
-  return [
+  const draft = [
     "Idle memory maintenance.",
     lastDreamedAt ? `Last dreaming: ${lastDreamedAt}` : "Last dreaming: none",
     changedFiles.length > 0
       ? `Files changed since last dreaming:\n${changedFiles.map((filePath) => `- ${filePath}`).join("\n")}`
       : "Files changed since last dreaming: none",
     "Focus on changed files first. Inspect other memory files only if needed for merging or consistency.",
-    conciseRules,
     "Reply with a short summary of repository changes, or say no change.",
   ].filter(Boolean).join("\n\n");
+
+  const availableSkills = loadAvailableProjectSkills();
+  const skillCatalog = availableSkills.length > 0 ? formatAvailableSkills(availableSkills) : "";
+
+  return [draft, skillCatalog].filter(Boolean).join("\n\n");
 }
 
 async function walkMemoryFiles(root: string, dir = root): Promise<string[]> {

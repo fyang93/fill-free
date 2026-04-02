@@ -66,11 +66,11 @@ function advanceOccurrence(event: ReminderEvent, now: Date): void {
   event.updatedAt = now.toISOString();
 }
 
-function reminderRecipients(config: AppConfig, event: ReminderEvent): number[] {
-  const recipients = event.recipients
-    .map((item) => item.userId)
+function reminderTargets(config: AppConfig, event: ReminderEvent): number[] {
+  const targets = event.targets
+    .map((item) => item.targetId)
     .filter((item) => Number.isInteger(item));
-  return recipients.length > 0 ? Array.from(new Set(recipients)) : config.telegram.allowedUserIds;
+  return targets.length > 0 ? Array.from(new Set(targets)) : config.telegram.allowedUserIds;
 }
 
 export async function deliverDueReminders(
@@ -99,14 +99,14 @@ export async function deliverDueReminders(
       const fallbackMessage = fallbackDeliveryMessage(config, activeEvent, instance);
       const preparedMessage = isPreparedReminderDeliveryTextUsable(activeEvent, instance) ? activeEvent.deliveryText : undefined;
       const deliveryMessage = preparedMessage || (renderMessage ? await renderMessage(activeEvent, instance, fallbackMessage) : fallbackMessage);
-      const recipients = reminderRecipients(config, activeEvent);
+      const targets = reminderTargets(config, activeEvent);
       let delivered = false;
-      for (const userId of recipients) {
+      for (const targetId of targets) {
         try {
-          await sendMessageFormatted(bot, userId, deliveryMessage);
+          await sendMessageFormatted(bot, targetId, deliveryMessage);
           delivered = true;
         } catch (error) {
-          await logger.warn(`failed to deliver reminder ${activeEvent.id} to user=${userId}: ${error instanceof Error ? error.message : String(error)}`);
+          await logger.warn(`failed to deliver reminder ${activeEvent.id} to target=${targetId}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       if (!delivered) continue;

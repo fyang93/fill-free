@@ -39,7 +39,7 @@ export async function handleModelCallback(ctx: Context, deps: ModelCallbackDepen
         const provider = providers[0];
         if (ctx.chat && ctx.callbackQuery?.message?.message_id) {
           await deps.editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
-            reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, backLabel, 0),
+            reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.bot.menuPageSize, backLabel, 0),
           });
         }
         await ctx.answerCallbackQuery();
@@ -48,7 +48,7 @@ export async function handleModelCallback(ctx: Context, deps: ModelCallbackDepen
       const page = Number(rest.split(":", 2)[1] || 0);
       if (ctx.chat && ctx.callbackQuery?.message?.message_id) {
         await deps.editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_provider"), {
-          reply_markup: buildProviderKeyboard(models, activeModel, config.telegram.menuPageSize, backLabel, page),
+          reply_markup: buildProviderKeyboard(models, activeModel, config.bot.menuPageSize, backLabel, page),
         });
       }
       await ctx.answerCallbackQuery();
@@ -64,7 +64,7 @@ export async function handleModelCallback(ctx: Context, deps: ModelCallbackDepen
       }
       if (ctx.chat && ctx.callbackQuery?.message?.message_id) {
         await deps.editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
-          reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.telegram.menuPageSize, backLabel, Number(pageRaw || 0)),
+          reply_markup: buildProviderModelKeyboard(provider, models, activeModel, config.bot.menuPageSize, backLabel, Number(pageRaw || 0)),
         });
       }
       await ctx.answerCallbackQuery();
@@ -75,7 +75,7 @@ export async function handleModelCallback(ctx: Context, deps: ModelCallbackDepen
       const [, provider, pageRaw] = rest.split(":", 3);
       if (ctx.chat && ctx.callbackQuery?.message?.message_id) {
         await deps.editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
-          reply_markup: buildProviderModelKeyboard(provider || "", models, activeModel, config.telegram.menuPageSize, backLabel, Number(pageRaw || 0)),
+          reply_markup: buildProviderModelKeyboard(provider || "", models, activeModel, config.bot.menuPageSize, backLabel, Number(pageRaw || 0)),
         });
       }
       await ctx.answerCallbackQuery();
@@ -101,7 +101,7 @@ export async function handleModelCallback(ctx: Context, deps: ModelCallbackDepen
     if (ctx.chat && ctx.callbackQuery?.message?.message_id) {
       const provider = model.split("/", 1)[0];
       await deps.editMessageTextFormattedSafe(ctx, ctx.chat.id, ctx.callbackQuery.message.message_id, t(config, "choose_model_under_provider", { provider }), {
-        reply_markup: buildProviderModelKeyboard(provider, models, state.model || model, config.telegram.menuPageSize, backLabel, 0),
+        reply_markup: buildProviderModelKeyboard(provider, models, state.model || model, config.bot.menuPageSize, backLabel, 0),
       });
     }
     return true;

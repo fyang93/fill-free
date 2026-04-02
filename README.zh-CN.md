@@ -4,13 +4,13 @@
 
 一个本地优先的 Telegram bot，用于个人记忆、资料管理和提醒。
 
-## 主要用途
+## 核心功能
 
 - 记住并查询个人信息
-- 整理上传的资料
+- 整理上传的资料和文件
 - 根据已保存的信息辅助填表
 - 创建和管理提醒
-- 在已授权 Telegram 用户之间代为转达消息
+- 向已授权用户或已知群聊发送消息与提醒
 
 ## 快速开始
 
@@ -51,12 +51,20 @@ bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 allowed_user_ids = [111111111]
 trusted_user_ids = [222222222]
 admin_user_id = 333333333
+
+[bot]
+language = "zh"
+persona_style = "模仿杀戮尖塔里的故障机器人说话。"
+reminder_message_timeout_ms = 60000
+prompt_task_timeout_ms = 60000
+default_timezone = "Asia/Tokyo"
 ```
 
 一些常用的可选项：
 
-- `reminder_message_timeout_ms`：提醒消息生成超时时间，默认 `60000`
-- `prompt_task_timeout_ms`：普通 Telegram 消息处理超时时间，默认 `60000`
+- `bot.reminder_message_timeout_ms`：提醒消息生成超时时间，默认 `60000`
+- `bot.prompt_task_timeout_ms`：普通消息处理超时时间，默认 `60000`
+- `bot.default_timezone`：用户未显式提供时使用的默认时区
 
 ### 3. 启动
 
@@ -71,11 +79,13 @@ just serve
 
 ## 权限级别
 
-- `allowed user`：可以和 bot 对话，也可以为自己请求提醒，但不应读取或修改私密长期数据
+- `allowed user`：可以和 bot 对话并使用基础功能
 - `trusted user`：可以读取和修改记忆、文件、提醒及其他持久化数据
 - `admin user`：在 trusted 的基础上拥有管理权限
 
 不在 `allowed_user_ids`、`trusted_user_ids` 或 `admin_user_id` 中的用户，无法访问 bot。
+
+admin 也可以对某个 `@username` 做临时授权。对方需要在临时授权过期前主动私聊 bot，一旦成功，bot 会自动把对方加入 `allowed_user_ids`。
 
 ## 主要目录结构
 
@@ -84,32 +94,16 @@ just serve
 - `system/`：由代码管理的持久化数据，例如 reminders、Telegram identity/state
 - `tmp/`：临时上传和工作文件
 
-## 基本使用示例
-
-### 个人记忆
+## 使用示例
 
 - “记一下我的护照号。”
 - “我的家庭住址是什么？”
 - “根据我保存的信息帮我填这个表。”
-
-### 提醒
-
 - “提醒我明天早上 9 点提交申请。”
-- “给我妻子创建生日提醒，提前两周、一周、一天和当天提醒。”
-
-### 多用户使用
-
-假设：
-
-- `111111111` 是 allowed user
-- `222222222` 是 trusted user
-- `333333333` 是 admin
-
-示例：
-
-- trusted/admin 用户：`发给 @kyogokuame：晚饭好了。`
-- trusted/admin 用户：`提醒 @kyogokuame 明晚 8 点吃药。`
-- 在群里回复某人的消息后说：`告诉他/她我 10 分钟后到。`
+- “发给 @kyogokuame：晚饭好了。”
+- “提醒 @kyogokuame 明晚 8 点吃药。”
+- “把这条消息发到家庭群。”
+- “明天上午 10 点提醒项目群。”
 
 ## 命令
 

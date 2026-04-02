@@ -51,10 +51,16 @@ export type PromptReminderDraft = {
   targetUsers?: PromptReminderTarget[];
 };
 
+export type PromptPendingAuthorizationDraft = {
+  username: string;
+  expiresAt: string;
+};
+
 export type PromptResult = {
   message: string;
   files: string[];
   attachments: PromptAttachment[];
   reminders: PromptReminderDraft[];
   outboundMessages: PromptOutboundMessageDraft[];
+  pendingAuthorizations: PromptPendingAuthorizationDraft[];
 };

@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import type { AppConfig } from "./types";
+import { grantPendingAllowedAccessIfMatched, pruneExpiredPendingAuthorizationsFromState } from "./pending_access";
 import { logger } from "./logger";
 import { touchActivity } from "./state";
 
@@ -24,8 +25,24 @@ export function isTrustedUserId(config: AppConfig, userId: number | undefined): 
 }
 
 export async function unauthorizedGuard(config: AppConfig, ctx: Context, next: () => Promise<void>): Promise<void> {
+  const pruned = await pruneExpiredPendingAuthorizationsFromState(config);
+  if (pruned > 0) {
+    await logger.info(`pruned ${pruned} expired pending authorizations`);
+  }
+
   const userId = ctx.from?.id;
-  const accessLevel = accessLevelForUserId(config, userId);
+  let accessLevel = accessLevelForUserId(config, userId);
+  if (accessLevel === "none" && userId) {
+    try {
+      const granted = await grantPendingAllowedAccessIfMatched(config, ctx.from);
+      if (granted.granted) {
+        await logger.info(`granted allowed access from pending authorization user=${userId} username=@${granted.username} changed=${granted.changed}`);
+        accessLevel = "allowed";
+      }
+    } catch (error) {
+      await logger.warn(`failed to grant pending allowed access user=${userId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   if (accessLevel === "none") {
     await logger.warn(`Telegram access denied level=none user=${userId ?? "unknown"}`);
     return;

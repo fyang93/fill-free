@@ -265,7 +265,7 @@ export class PromptController {
 
       if (!caption) {
         await this.setReactionSafe(ctx, "🥰");
-        await replyFormatted(ctx, t(this.deps.config, "file_saved", { path: uploaded.savedPath, waiting_message: this.deps.config.telegram.waitingMessage }));
+        await replyFormatted(ctx, t(this.deps.config, "file_saved", { path: uploaded.savedPath, waiting_message: this.deps.config.bot.waitingMessage }));
         return;
       }
 
@@ -368,7 +368,7 @@ export class PromptController {
 
     await this.interruptActiveTask(`new incoming message ${sourceMessageId}`, scope.key);
     await this.setReactionSafe(ctx, "🤔");
-    const initialWaitingMessage = this.deps.config.telegram.waitingMessage;
+    const initialWaitingMessage = this.deps.config.bot.waitingMessage;
     const waiting = await ctx.reply(this.waiting.render(waitingTemplate, initialWaitingMessage));
     const task: ActiveTask = {
       id: this.nextTaskId++,
@@ -390,7 +390,7 @@ export class PromptController {
       const promptStartedAt = Date.now();
       const answer = await withTimeout(
         this.deps.opencode.prompt(effectivePromptText, uploadedFiles, attachments, telegramMessageTime, scope.key, scope.label, accessRole),
-        this.deps.config.telegram.promptTaskTimeoutMs,
+        this.deps.config.bot.promptTaskTimeoutMs,
         `prompt task ${task.id}`,
       );
       await logger.info(`prompt task ${task.id} completed in ${Date.now() - promptStartedAt}ms`);

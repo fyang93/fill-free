@@ -59,7 +59,7 @@ function buildSpecialMenuKeyboard(config: AppConfig, events: ReminderEvent[]): I
 
 function buildListKeyboard(config: AppConfig, events: ReminderEvent[], page: number, view: ReminderView): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  const pageSize = Math.max(1, config.telegram.menuPageSize);
+  const pageSize = Math.max(1, config.bot.menuPageSize);
   const totalPages = Math.max(1, Math.ceil(events.length / pageSize));
   const start = page * pageSize;
   const pageItems = events.slice(start, start + pageSize);
@@ -90,8 +90,8 @@ function timeSemanticsLabel(config: AppConfig, event: ReminderEvent): string {
 }
 
 function eventRecipientsLabel(config: AppConfig, event: ReminderEvent): string {
-  if (event.recipients.length === 0) return t(config, "reminder_recipients_unspecified");
-  return event.recipients.map((item) => item.displayName || String(item.userId)).join("、");
+  if (event.targets.length === 0) return t(config, "reminder_recipients_unspecified");
+  return event.targets.map((item) => item.displayName || String(item.targetId)).join("、");
 }
 
 function eventDetailText(config: AppConfig, event: ReminderEvent): string {

@@ -31,7 +31,7 @@ export function createWaitingMessageController(
   }
 
   function start(task: { id: number; scopeKey: string; chatId: number; waitingMessageId: number; cancelled: boolean; waitingMessageRotation?: NodeJS.Timeout }, waitingTemplate: string, initialWaitingMessage: string): void {
-    const candidates = config.telegram.waitingMessageCandidates;
+    const candidates = config.bot.waitingMessageCandidates;
     if (candidates.length === 0) return;
 
     let currentWaitingMessage = initialWaitingMessage;
@@ -43,7 +43,7 @@ export function createWaitingMessageController(
       void bot.api.editMessageText(task.chatId, task.waitingMessageId, render(waitingTemplate, currentWaitingMessage)).catch(() => {
         // ignore transient edit failures during waiting-message rotation
       });
-    }, config.telegram.waitingMessageRotationMs);
+    }, config.bot.waitingMessageRotationMs);
   }
 
   function stop(task: { waitingMessageRotation?: NodeJS.Timeout } | null): void {

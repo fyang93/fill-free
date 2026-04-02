@@ -27,18 +27,15 @@ function diffConfigKeys(before: AppConfig, after: AppConfig): string[] {
   if (!equalNumberArray(before.telegram.trustedUserIds, after.telegram.trustedUserIds)) changed.push("telegram.trusted_user_ids");
   if (before.telegram.adminUserId !== after.telegram.adminUserId) changed.push("telegram.admin_user_id");
   if (before.telegram.maxFileSizeMb !== after.telegram.maxFileSizeMb) changed.push("telegram.max_file_size_mb");
-  if (before.telegram.personaStyle !== after.telegram.personaStyle) changed.push("telegram.persona_style");
-  if (before.telegram.language !== after.telegram.language) changed.push("telegram.language");
-  if (before.telegram.waitingMessage !== after.telegram.waitingMessage) changed.push("telegram.waiting_message");
-  if (!equalStringArray(before.telegram.waitingMessageCandidates, after.telegram.waitingMessageCandidates)) changed.push("telegram.waiting_message_candidates");
-  if (before.telegram.waitingMessageRotationMs !== after.telegram.waitingMessageRotationMs) changed.push("telegram.waiting_message_rotation_ms");
-  if (before.telegram.reminderMessageTimeoutMs !== after.telegram.reminderMessageTimeoutMs) changed.push("telegram.reminder_message_timeout_ms");
-  if (before.telegram.promptTaskTimeoutMs !== after.telegram.promptTaskTimeoutMs) changed.push("telegram.prompt_task_timeout_ms");
-  if (before.telegram.menuPageSize !== after.telegram.menuPageSize) changed.push("telegram.menu_page_size");
-  if (before.paths.repoRoot !== after.paths.repoRoot) changed.push("paths.repo_root");
-  if (before.paths.tmpDir !== after.paths.tmpDir) changed.push("paths.tmp_dir");
-  if (before.paths.uploadSubdir !== after.paths.uploadSubdir) changed.push("paths.upload_subdir");
-  if (before.paths.logFile !== after.paths.logFile) changed.push("paths.log_file");
+  if (before.bot.personaStyle !== after.bot.personaStyle) changed.push("bot.persona_style");
+  if (before.bot.language !== after.bot.language) changed.push("bot.language");
+  if (before.bot.waitingMessage !== after.bot.waitingMessage) changed.push("bot.waiting_message");
+  if (!equalStringArray(before.bot.waitingMessageCandidates, after.bot.waitingMessageCandidates)) changed.push("bot.waiting_message_candidates");
+  if (before.bot.waitingMessageRotationMs !== after.bot.waitingMessageRotationMs) changed.push("bot.waiting_message_rotation_ms");
+  if (before.bot.reminderMessageTimeoutMs !== after.bot.reminderMessageTimeoutMs) changed.push("bot.reminder_message_timeout_ms");
+  if (before.bot.promptTaskTimeoutMs !== after.bot.promptTaskTimeoutMs) changed.push("bot.prompt_task_timeout_ms");
+  if (before.bot.menuPageSize !== after.bot.menuPageSize) changed.push("bot.menu_page_size");
+  if (before.bot.defaultTimezone !== after.bot.defaultTimezone) changed.push("bot.default_timezone");
   if (before.opencode.baseUrl !== after.opencode.baseUrl) changed.push("opencode.base_url");
   if (before.dreaming.enabled !== after.dreaming.enabled) changed.push("dreaming.enabled");
   if (before.dreaming.idleAfterMs !== after.dreaming.idleAfterMs) changed.push("dreaming.idle_after_ms");
@@ -57,13 +54,8 @@ export function applyReloadedConfig(target: AppConfig, next: AppConfig): ConfigR
     restartRequiredKeys.push("telegram.bot_token");
     next.telegram.botToken = target.telegram.botToken;
   }
-  if (target.paths.repoRoot !== next.paths.repoRoot) {
-    warnings.push("paths.repo_root changed but requires process restart; keeping the current runtime repo root");
-    restartRequiredKeys.push("paths.repo_root");
-    next.paths.repoRoot = target.paths.repoRoot;
-  }
-
   target.telegram = { ...next.telegram };
+  target.bot = { ...next.bot };
   target.paths = { ...next.paths };
   target.opencode = { ...next.opencode };
   target.dreaming = { ...next.dreaming };

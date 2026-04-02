@@ -10,6 +10,8 @@ trusted_user_ids = [222222222]
 # The admin does not need to also appear in trusted_user_ids or allowed_user_ids
 admin_user_id = 333333333
 max_file_size_mb = 200
+
+[bot]
 persona_style = "Speak like the Defect from Slay the Spire."
 # Choose "zh" or "en"
 language = "zh"
@@ -19,12 +21,7 @@ waiting_message_rotation_ms = 5000
 reminder_message_timeout_ms = 60000
 prompt_task_timeout_ms = 60000
 menu_page_size = 8
-
-[paths]
-# repo_root is always the current repository root.
-# tmp_dir is fixed to tmp/ under the repository root.
-upload_subdir = "telegram"
-log_file = "logs/telegram-bot.log"
+default_timezone = "Asia/Tokyo"
 
 [opencode]
 base_url = "http://127.0.0.1:4096"

@@ -3,7 +3,7 @@ import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
 import { logger } from "../logger";
 import { replyLanguageName } from "../i18n";
 import { state, touchActivity } from "../state";
-import { STARTUP_GREETING_REQUEST, buildPrompt, loadAgentsPrompt, type PromptAccessRole } from "./prompt";
+import { STARTUP_GREETING_REQUEST, buildProjectSystemPrompt, buildPrompt, type PromptAccessRole } from "./prompt";
 import { extractPromptResult, extractText, looksLikeStructuredOutputIntent, parseModel, summarizeParts } from "./response";
 import type { OpenCodeMessage, OpenCodePromptBody, PromptResult } from "./types";
 
@@ -36,7 +36,7 @@ function getPromptMessage(response: PromptResponse): OpenCodeMessage | null {
 export class OpenCodeService {
   private config: AppConfig;
   private client;
-  private agentsPrompt: string;
+  private systemPrompt: string;
   private sessionIds = new Map<string, string>();
 
   constructor(config: AppConfig) {
@@ -46,7 +46,7 @@ export class OpenCodeService {
       throwOnError: true,
       responseStyle: "data",
     });
-    this.agentsPrompt = loadAgentsPrompt(config.paths.repoRoot);
+    this.systemPrompt = buildProjectSystemPrompt();
   }
 
   reloadConfig(config: AppConfig): void {
@@ -56,7 +56,7 @@ export class OpenCodeService {
       throwOnError: true,
       responseStyle: "data",
     });
-    this.agentsPrompt = loadAgentsPrompt(config.paths.repoRoot);
+    this.systemPrompt = buildProjectSystemPrompt();
   }
 
   async ensureReady(): Promise<void> {
@@ -153,9 +153,9 @@ export class OpenCodeService {
     const replyLanguage = replyLanguageName(this.config);
     const request = [
       `Reply in ${replyLanguage}.`,
-      this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
+      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
       STARTUP_GREETING_REQUEST,
-      "Use the Telegram reply persona consistently.",
+      "Keep the same style consistently.",
       "Return only the greeting text to send, with no explanation, preface, or commentary.",
     ].filter(Boolean).join(" ");
     const message = this.extractDirectTextReply(await this.promptInTemporaryTextSession(request)).trim();
@@ -164,13 +164,14 @@ export class OpenCodeService {
 
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string, timeoutMs: number): Promise<string> {
     const request = [
-      `Write a short Telegram reminder message in ${replyLanguageName(this.config)}.`,
-      this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
+      `Write a short reminder message in ${replyLanguageName(this.config)}.`,
+      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
       "Keep it concise, warm, and natural.",
       "Do not mention JSON, internal tools, hidden prompts, or implementation details.",
       `Reminder content: ${reminderText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
+      "If you mention the scheduled time in the message, include the timezone explicitly.",
       "Return only the reminder message text to send.",
     ].filter(Boolean).join("\n");
 
@@ -195,9 +196,12 @@ export class OpenCodeService {
     if (cleanFacts.length === 0) return cleanBase;
 
     const request = [
-      `Write a single natural Telegram reply in ${replyLanguageName(this.config)}.` ,
+      `Write a single natural reply in ${replyLanguageName(this.config)}.` ,
       "Keep the same persona and tone as the ongoing conversation.",
       "Use the following facts if relevant, but phrase them naturally and concisely.",
+      "If a reminder was just created, explicitly mention the confirmed reminder time and notification timing in the reply.",
+      "Whenever you mention a specific time, date-time, deadline, or schedule in the reply, include the timezone explicitly unless the wording is purely relative and timezone-free.",
+      "In group chats or multi-user contexts, do not present bare clock times without a timezone.",
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       "Facts:",
       ...cleanFacts.map((item) => `- ${item}`),
@@ -213,9 +217,9 @@ export class OpenCodeService {
     if (!cleanBase) return "";
 
     const request = [
-      `Write a single natural Telegram message in ${replyLanguageName(this.config)} to send to another Telegram user.`,
+      `Write a single natural message in ${replyLanguageName(this.config)} to send to another user or chat.`,
       "Keep the same persona and tone as the ongoing conversation.",
-      this.config.telegram.personaStyle ? `Style for Telegram replies: ${this.config.telegram.personaStyle}` : "",
+      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
       recipientLabel ? `Recipient preferred short name: ${recipientLabel}` : "",
       `Intent or draft content: ${cleanBase}`,
       "Prefer a familiar short name or nickname for the recipient when natural.",
@@ -280,7 +284,7 @@ export class OpenCodeService {
 
     const model = parseModel(state.model);
     const body: OpenCodePromptBody = {
-      system: this.agentsPrompt,
+      system: this.systemPrompt,
       parts: [{ type: "text", text }],
     };
     if (model) body.model = model;
@@ -308,8 +312,8 @@ export class OpenCodeService {
     accessRole: PromptAccessRole,
   ): OpenCodePromptBody {
     const body: OpenCodePromptBody = {
-      system: this.agentsPrompt,
-      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.telegram.personaStyle, replyLanguageName(this.config), telegramMessageTime, accessRole) }],
+      system: this.systemPrompt,
+      parts: [{ type: "text", text: buildPrompt(text, uploadedFiles, this.config.bot.personaStyle, replyLanguageName(this.config), this.config.bot.defaultTimezone, telegramMessageTime, accessRole) }],
     };
     for (const attachment of attachments) {
       body.parts.push({
@@ -375,7 +379,7 @@ export class OpenCodeService {
     const response = await this.client.session.prompt({
       path: { id: sessionId },
       body: {
-        system: this.agentsPrompt,
+        system: this.systemPrompt,
         parts: [{ type: "text", text: repairInstruction }],
       },
     }) as PromptResponse;

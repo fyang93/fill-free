@@ -1,28 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SessionState, UploadedFile } from "./types";
+import type { PendingAuthorization, SessionState, UploadedFile } from "./types";
 
 const RECENT_UPLOADS_TTL_MS = 30 * 60 * 1000;
 
-type TelegramUserInput = {
-  id?: number;
-  username?: string;
-  first_name?: string;
-  last_name?: string;
-};
-
-type KnownTelegramUser = {
-  id: number;
-  username?: string;
-  firstName?: string;
-  lastName?: string;
-  displayName: string;
-  lastSeenAt: string;
-};
-
-function allowedUserIdSet(allowedUserIds?: number[]): Set<number> | null {
-  return allowedUserIds && allowedUserIds.length > 0 ? new Set(allowedUserIds) : null;
-}
 
 export const state: SessionState = {
   model: null,
@@ -32,27 +13,34 @@ export const state: SessionState = {
   recentUploadsByScope: {},
   userTimezones: {},
   telegramUsers: {},
+  telegramChats: {},
+  pendingAuthorizations: [],
 };
 
 function cleanOptionalText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function buildDisplayName(firstName?: string, lastName?: string, username?: string): string {
-  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-  if (fullName) return fullName;
-  if (username) return `@${username}`;
-  return "Telegram user";
-}
-
 function normalizeLookupKey(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
+function normalizePendingAuthorization(value: unknown): PendingAuthorization | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const kind = record.kind === "allowed" ? "allowed" : null;
+  const username = cleanOptionalText(record.username)?.replace(/^@+/, "").toLowerCase();
+  const createdBy = Number(record.createdBy);
+  const createdAt = cleanOptionalText(record.createdAt);
+  const expiresAt = cleanOptionalText(record.expiresAt);
+  if (!kind || !username || !Number.isInteger(createdBy) || !createdAt || !expiresAt) return null;
+  return { kind, username, createdBy, createdAt, expiresAt };
 }
 
 export async function loadPersistentState(filePath: string): Promise<void> {
   try {
     const raw = await readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as { model?: unknown; lastDreamedAt?: unknown; lastDreamedMemoryFingerprint?: unknown; userTimezones?: unknown; telegramUsers?: unknown };
+    const parsed = JSON.parse(raw) as { model?: unknown; lastDreamedAt?: unknown; lastDreamedMemoryFingerprint?: unknown; userTimezones?: unknown; telegramUsers?: unknown; telegramChats?: unknown; pendingAuthorizations?: unknown };
     state.model = typeof parsed.model === "string" && parsed.model.trim() ? parsed.model.trim() : null;
     state.lastDreamedAt = typeof parsed.lastDreamedAt === "string" && parsed.lastDreamedAt.trim() ? parsed.lastDreamedAt.trim() : null;
     state.lastDreamedMemoryFingerprint = typeof parsed.lastDreamedMemoryFingerprint === "string" && parsed.lastDreamedMemoryFingerprint.trim() ? parsed.lastDreamedMemoryFingerprint.trim() : null;
@@ -76,7 +64,7 @@ export async function loadPersistentState(filePath: string): Promise<void> {
         const username = cleanOptionalText(record.username);
         const firstName = cleanOptionalText(record.firstName);
         const lastName = cleanOptionalText(record.lastName);
-        const displayName = cleanOptionalText(record.displayName) || buildDisplayName(firstName, lastName, username);
+        const displayName = cleanOptionalText(record.displayName) || [firstName, lastName].filter(Boolean).join(" ").trim() || (username ? `@${username}` : "Telegram user");
         const lastSeenAt = cleanOptionalText(record.lastSeenAt) || new Date().toISOString();
         telegramUsers[userId] = { username, firstName, lastName, displayName, lastSeenAt };
       }
@@ -84,6 +72,24 @@ export async function loadPersistentState(filePath: string): Promise<void> {
     } else {
       state.telegramUsers = {};
     }
+    if (parsed.telegramChats && typeof parsed.telegramChats === "object") {
+      const telegramChats: SessionState["telegramChats"] = {};
+      for (const [chatId, value] of Object.entries(parsed.telegramChats as Record<string, unknown>)) {
+        if (!/^-?[0-9]+$/.test(chatId)) continue;
+        const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+        const type = cleanOptionalText(record.type) || "private";
+        const title = cleanOptionalText(record.title);
+        const username = cleanOptionalText(record.username);
+        const lastSeenAt = cleanOptionalText(record.lastSeenAt) || new Date().toISOString();
+        telegramChats[chatId] = { type, title, username, lastSeenAt };
+      }
+      state.telegramChats = telegramChats;
+    } else {
+      state.telegramChats = {};
+    }
+    state.pendingAuthorizations = Array.isArray(parsed.pendingAuthorizations)
+      ? parsed.pendingAuthorizations.map(normalizePendingAuthorization).filter((item): item is PendingAuthorization => Boolean(item))
+      : [];
     state.recentUploadsByScope = {};
   } catch {
     state.model = null;
@@ -91,6 +97,8 @@ export async function loadPersistentState(filePath: string): Promise<void> {
     state.lastDreamedMemoryFingerprint = null;
     state.userTimezones = {};
     state.telegramUsers = {};
+    state.telegramChats = {};
+    state.pendingAuthorizations = [];
     state.recentUploadsByScope = {};
   }
 }
@@ -99,7 +107,7 @@ export async function persistState(filePath: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(
     filePath,
-    JSON.stringify({ model: state.model, lastDreamedAt: state.lastDreamedAt, lastDreamedMemoryFingerprint: state.lastDreamedMemoryFingerprint, userTimezones: state.userTimezones, telegramUsers: state.telegramUsers }, null, 2) + "\n",
+    JSON.stringify({ model: state.model, lastDreamedAt: state.lastDreamedAt, lastDreamedMemoryFingerprint: state.lastDreamedMemoryFingerprint, userTimezones: state.userTimezones, telegramUsers: state.telegramUsers, telegramChats: state.telegramChats, pendingAuthorizations: state.pendingAuthorizations }, null, 2) + "\n",
     "utf8",
   );
 }
@@ -122,93 +130,29 @@ export function rememberUserTimezone(userId: number | undefined, timezone: strin
   state.userTimezones[String(userId)] = { timezone: timezone.trim(), updatedAt: new Date().toISOString() };
 }
 
-export function rememberTelegramUser(user: TelegramUserInput | null | undefined, allowedUserIds?: number[]): boolean {
-  const userId = typeof user?.id === "number" && Number.isInteger(user.id) ? user.id : null;
-  const allowed = allowedUserIdSet(allowedUserIds);
-  if (!userId || (allowed && !allowed.has(userId))) return false;
-  const username = cleanOptionalText(user?.username);
-  const firstName = cleanOptionalText(user?.first_name);
-  const lastName = cleanOptionalText(user?.last_name);
-  const displayName = buildDisplayName(firstName, lastName, username);
-  const next: SessionState["telegramUsers"][string] = {
-    username,
-    firstName,
-    lastName,
-    displayName,
-    lastSeenAt: new Date().toISOString(),
-  };
-  const key = String(userId);
-  const previous = state.telegramUsers[key];
-  const changed = !previous
-    || previous.username !== next.username
-    || previous.firstName !== next.firstName
-    || previous.lastName !== next.lastName
-    || previous.displayName !== next.displayName;
-  state.telegramUsers[key] = changed ? next : { ...previous, lastSeenAt: next.lastSeenAt };
-  return changed;
+export function rememberPendingAuthorization(input: PendingAuthorization): void {
+  const username = normalizeLookupKey(input.username);
+  state.pendingAuthorizations = state.pendingAuthorizations.filter((item) => !(item.kind === input.kind && item.username === username));
+  state.pendingAuthorizations.push({ ...input, username });
 }
 
-export function listKnownTelegramUsers(allowedUserIds?: number[]): KnownTelegramUser[] {
-  const allowed = allowedUserIdSet(allowedUserIds);
-  return Object.entries(state.telegramUsers)
-    .filter(([id]) => !allowed || allowed.has(Number(id)))
-    .map(([id, value]) => ({
-      id: Number(id),
-      username: value.username,
-      firstName: value.firstName,
-      lastName: value.lastName,
-      displayName: value.displayName,
-      lastSeenAt: value.lastSeenAt,
-    }))
-    .filter((item) => Number.isInteger(item.id))
-    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
-}
-
-export function getTelegramUserDisplayName(userId: number | undefined, allowedUserIds?: number[]): string | null {
-  const allowed = allowedUserIdSet(allowedUserIds);
-  if (!userId || (allowed && !allowed.has(userId))) return null;
-  const user = state.telegramUsers[String(userId)];
-  if (!user) return null;
-  return user.username ? `${user.displayName} (@${user.username})` : user.displayName;
-}
-
-export function findTelegramUsers(input: { id?: number; username?: string; displayName?: string }, allowedUserIds?: number[]): KnownTelegramUser[] {
-  const allowed = allowedUserIdSet(allowedUserIds);
-  if (typeof input.id === "number" && Number.isInteger(input.id)) {
-    if (allowed && !allowed.has(input.id)) return [];
-    const direct = state.telegramUsers[String(input.id)];
-    if (direct) {
-      return [{
-        id: input.id,
-        username: direct.username,
-        firstName: direct.firstName,
-        lastName: direct.lastName,
-        displayName: direct.displayName,
-        lastSeenAt: direct.lastSeenAt,
-      }];
-    }
-    return [];
-  }
-
-  const candidates = [input.username, input.displayName]
-    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    .map(normalizeLookupKey);
-  if (candidates.length === 0) return [];
-
-  return listKnownTelegramUsers(allowedUserIds).filter((user) => {
-    const keys = new Set(
-      [
-        user.username,
-        user.displayName,
-        user.firstName,
-        user.lastName,
-        [user.firstName, user.lastName].filter(Boolean).join(" "),
-      ]
-        .filter((item): item is string => Boolean(item && item.trim()))
-        .map(normalizeLookupKey),
-    );
-    return candidates.some((candidate) => keys.has(candidate));
+export function pruneExpiredPendingAuthorizations(now = new Date()): number {
+  const before = state.pendingAuthorizations.length;
+  state.pendingAuthorizations = state.pendingAuthorizations.filter((item) => {
+    const expiresAt = Date.parse(item.expiresAt);
+    return Number.isFinite(expiresAt) && expiresAt > now.getTime();
   });
+  return before - state.pendingAuthorizations.length;
+}
+
+export function consumePendingAllowedAuthorization(username: string | undefined, now = new Date()): PendingAuthorization | null {
+  const normalized = normalizeLookupKey(username || "");
+  if (!normalized) return null;
+  pruneExpiredPendingAuthorizations(now);
+  const index = state.pendingAuthorizations.findIndex((item) => item.kind === "allowed" && item.username === normalized);
+  if (index < 0) return null;
+  const [match] = state.pendingAuthorizations.splice(index, 1);
+  return match || null;
 }
 
 function uploadsKey(scopeKey: string | undefined): string {

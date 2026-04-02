@@ -4,13 +4,13 @@
 
 A local-first Telegram bot for personal memory, files, and reminders.
 
-## What it does
+## Core features
 
 - remember and retrieve personal information
-- organize uploaded materials
+- organize uploaded materials and files
 - help with forms using saved facts
 - create and manage reminders
-- relay messages between authorized Telegram users
+- send messages and reminders to authorized users or known group chats
 
 ## Quick start
 
@@ -51,12 +51,20 @@ bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 allowed_user_ids = [111111111]
 trusted_user_ids = [222222222]
 admin_user_id = 333333333
+
+[bot]
+language = "zh"
+persona_style = "Speak like the Defect from Slay the Spire."
+reminder_message_timeout_ms = 60000
+prompt_task_timeout_ms = 60000
+default_timezone = "Asia/Tokyo"
 ```
 
 Useful optional settings:
 
-- `reminder_message_timeout_ms`: timeout for reminder message generation, default `60000`
-- `prompt_task_timeout_ms`: timeout for normal Telegram prompt handling, default `60000`
+- `bot.reminder_message_timeout_ms`: timeout for reminder message generation, default `60000`
+- `bot.prompt_task_timeout_ms`: timeout for normal prompt handling, default `60000`
+- `bot.default_timezone`: fallback timezone used when the user has not explicitly provided one
 
 ### 3. Start
 
@@ -71,11 +79,13 @@ just serve
 
 ## Access levels
 
-- `allowed user`: may chat with the bot and request reminders for themselves, but should not read or modify private long-term data
+- `allowed user`: may chat with the bot and use basic personal features
 - `trusted user`: may read and modify memory, files, reminders, and other persistent data
 - `admin user`: trusted user plus admin-only operations
 
 Users not listed in `allowed_user_ids`, `trusted_user_ids`, or `admin_user_id` cannot access the bot.
+
+The admin may also temporarily allow a `@username`. In that case, the user must send the bot a private message before the temporary authorization expires so the bot can add them to `allowed_user_ids`.
 
 ## Main directories
 
@@ -84,32 +94,16 @@ Users not listed in `allowed_user_ids`, `trusted_user_ids`, or `admin_user_id` c
 - `system/`: code-managed persistent data such as reminders and Telegram identity/state
 - `tmp/`: temporary uploads and working files
 
-## Basic usage examples
-
-### Personal memory
+## Example usage
 
 - “Remember my passport number.”
 - “What is my home address?”
 - “Use my saved info to help fill this form.”
-
-### Reminders
-
 - “Remind me tomorrow at 9am to submit the application.”
-- “Create a birthday reminder for my wife with reminders 2 weeks before, 1 week before, 1 day before, and same day.”
-
-### Multi-user usage
-
-Assume:
-
-- `111111111` is an allowed user
-- `222222222` is a trusted user
-- `333333333` is the admin
-
-Examples:
-
-- trusted/admin user: “Send this to @kyogokuame: dinner is ready.”
-- trusted/admin user: “Remind @kyogokuame tomorrow at 8pm to take medicine.”
-- in a group chat, reply to someone’s message and say: “Tell them I’ll arrive in 10 minutes.”
+- “Send this to @kyogokuame: dinner is ready.”
+- “Remind @kyogokuame tomorrow at 8pm to take medicine.”
+- “Send this to the family group.”
+- “Remind the project group tomorrow at 10am.”
 
 ## Commands
 

@@ -1,5 +1,5 @@
 import type { PromptAttachment } from "../types";
-import type { OpenCodeMessage, PromptOutboundMessageDraft, PromptReminderDraft, PromptResult } from "./types";
+import type { OpenCodeMessage, PromptOutboundMessageDraft, PromptPendingAuthorizationDraft, PromptReminderDraft, PromptResult } from "./types";
 
 const DEFAULT_JSON_MESSAGE = "Done.";
 
@@ -58,7 +58,7 @@ export function looksLikeStructuredOutputIntent(text: string): boolean {
   if (!trimmed) return false;
   return /```(?:json)?/i.test(trimmed)
     || /^\s*\{[\s\S]*\}\s*$/.test(trimmed)
-    || /"(?:message|files|reminders|outboundMessages)"\s*:/i.test(trimmed);
+    || /"(?:message|files|reminders|outboundMessages|pendingAuthorizations)"\s*:/i.test(trimmed);
 }
 
 function parseFiles(value: unknown): string[] {
@@ -79,6 +79,12 @@ function parseOutboundMessages(value: unknown): PromptOutboundMessageDraft[] {
     : [];
 }
 
+function parsePendingAuthorizations(value: unknown): PromptPendingAuthorizationDraft[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is PromptPendingAuthorizationDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).username === "string" && Boolean(((item as Record<string, unknown>).username as string).trim()) && typeof (item as Record<string, unknown>).expiresAt === "string" && Boolean(((item as Record<string, unknown>).expiresAt as string).trim()))
+    : [];
+}
+
 export function extractPromptResult(message: OpenCodeMessage): PromptResult {
   const plain = extractText(message).trim();
   const attachments: PromptAttachment[] = (message.parts || [])
@@ -91,12 +97,13 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
 
   for (const candidate of extractJsonCandidates(plain)) {
     try {
-      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown };
+      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown; pendingAuthorizations?: unknown };
       const files = parseFiles(parsed.files);
       const reminders = parseReminders(parsed.reminders);
       const outboundMessages = parseOutboundMessages(parsed.outboundMessages);
+      const pendingAuthorizations = parsePendingAuthorizations(parsed.pendingAuthorizations);
       const messageText = typeof parsed.message === "string" ? parsed.message.trim() : "";
-      const hasStructuredFields = files.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages);
+      const hasStructuredFields = files.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || pendingAuthorizations.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages) || Array.isArray(parsed.pendingAuthorizations);
       if (typeof parsed.message === "string" || hasStructuredFields) {
         return {
           message: messageText || DEFAULT_JSON_MESSAGE,
@@ -104,6 +111,7 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
           attachments,
           reminders,
           outboundMessages,
+          pendingAuthorizations,
         };
       }
     } catch {
@@ -111,5 +119,5 @@ export function extractPromptResult(message: OpenCodeMessage): PromptResult {
     }
   }
 
-  return { message: plain || DEFAULT_JSON_MESSAGE, files: [], attachments, reminders: [], outboundMessages: [] };
+  return { message: plain || DEFAULT_JSON_MESSAGE, files: [], attachments, reminders: [], outboundMessages: [], pendingAuthorizations: [] };
 }

@@ -4,7 +4,7 @@ import type { PromptReminderDraft } from "./opencode/types";
 import type { OpenCodeService } from "./opencode";
 import { persistState, rememberUserTimezone } from "./state";
 import { buildReminderScheduleFromExternal } from "./reminders/schedule_parser";
-import { createReminderEventWithDefaults, isValidReminderTimezone, prepareReminderDeliveryText, reminderEventScheduleSummary, resolveReminderTimezone, updateReminderEvent, type ReminderNotification } from "./reminders";
+import { createReminderEventWithDefaults, formatReminderEvent, isValidReminderTimezone, prepareReminderDeliveryText, resolveReminderTimezone, updateReminderEvent, type ReminderEvent, type ReminderNotification } from "./reminders";
 import type { AppConfig } from "./types";
 import { resolveReminderTargetUser, resolveTelegramTargetUsers, type ReminderTargetResolution } from "./telegram_identity";
 
@@ -26,11 +26,15 @@ function buildReminderNotifications(raw: unknown): ReminderNotification[] | unde
   return notifications.length > 0 ? notifications : undefined;
 }
 
-function reminderCreatedFact(eventTitle: string, schedule: string, requesterUserId: number | undefined, target: ReminderTargetResolution): string {
-  if (!target.userId || target.userId === requesterUserId) {
-    return `Reminder created for the requester. Title: ${eventTitle}. Schedule: ${schedule}.`;
+function reminderCreatedFact(config: AppConfig, event: ReminderEvent, requesterUserId: number | undefined, target: ReminderTargetResolution): string {
+  const details = formatReminderEvent(config, event);
+  if (target.chatId) {
+    return `Reminder created. Target chat: ${target.displayName || String(target.chatId)}. Details: ${details}.`;
   }
-  return `Reminder created. Recipient: ${target.displayName || String(target.userId)}. Title: ${eventTitle}. Schedule: ${schedule}.`;
+  if (!target.userId || target.userId === requesterUserId) {
+    return `Reminder created for the requester. Details: ${details}.`;
+  }
+  return `Reminder created. Recipient: ${target.displayName || String(target.userId)}. Details: ${details}.`;
 }
 
 export async function createStructuredReminders(
@@ -62,17 +66,34 @@ export async function createStructuredReminders(
       if (targetResult.resolved.length === 0) continue;
     }
 
-    const recipients = targetResult.resolved
+    const targets = targetResult.resolved
       .map((target) => {
-        const recipientUserId = target.status === "self" ? userId : target.userId;
-        if (!recipientUserId) return null;
-        return {
-          userId: recipientUserId,
-          displayName: target.status === "self" ? target.displayName || undefined : target.displayName,
-        };
+        if (target.status === "self") {
+          if (!userId) return null;
+          return {
+            targetKind: "user" as const,
+            targetId: userId,
+            displayName: target.displayName || undefined,
+          };
+        }
+        if (target.chatId) {
+          return {
+            targetKind: "chat" as const,
+            targetId: target.chatId,
+            displayName: target.displayName,
+          };
+        }
+        if (target.userId) {
+          return {
+            targetKind: "user" as const,
+            targetId: target.userId,
+            displayName: target.displayName,
+          };
+        }
+        return null;
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-    if (recipients.length === 0) continue;
+    if (targets.length === 0) continue;
 
     const primaryTarget = targetResult.resolved[0] || resolveReminderTargetUser(config, raw.targetUser, ctx, userId);
     const event = await createReminderEventWithDefaults(config, {
@@ -84,7 +105,7 @@ export async function createStructuredReminders(
       kind: raw.kind === "routine" || raw.kind === "meeting" || raw.kind === "birthday" || raw.kind === "anniversary" || raw.kind === "festival" || raw.kind === "memorial" || raw.kind === "task" || raw.kind === "custom" ? raw.kind : undefined,
       timeSemantics,
       timezone: resolveReminderTimezone(config, { explicitTimezone, telegramMessageTime, timeSemantics, userId }),
-      recipients,
+      targets,
       notifications: buildReminderNotifications(raw.notifications),
     });
     try {
@@ -98,7 +119,7 @@ export async function createStructuredReminders(
       rememberUserTimezone(userId, explicitTimezone);
       timezoneChanged = true;
     }
-    created.push(reminderCreatedFact(event.title, reminderEventScheduleSummary(config, event), userId, primaryTarget));
+    created.push(reminderCreatedFact(config, event, userId, primaryTarget));
   }
 
   if (timezoneChanged) {

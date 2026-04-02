@@ -4,6 +4,7 @@ import type { OpenCodeService } from "./opencode";
 import type { PromptAccessRole } from "./opencode/prompt";
 import type { PromptOutboundMessageDraft, PromptResult } from "./opencode/types";
 import { createStructuredReminders } from "./reminder_intent";
+import { storePendingAuthorizations } from "./pending_access";
 import { sendMessageFormatted } from "./telegram_format";
 import { resolveTelegramTargetUsers } from "./telegram_identity";
 import type { AppConfig } from "./types";
@@ -86,20 +87,20 @@ async function deliverOutboundMessages(
     clarifications.push(...targetResult.clarifications);
 
     for (const target of targetResult.resolved) {
-      const recipientUserId = target.status === "self" ? requesterUserId : target.userId;
-      if (!recipientUserId) {
+      const recipientId = target.status === "self" ? requesterUserId : target.chatId ?? target.userId;
+      if (!recipientId) {
         clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
         continue;
       }
-      const recipientLabel = target.displayName || String(recipientUserId);
+      const recipientLabel = target.displayName || String(recipientId);
       try {
         const relayText = await opencode.composeOutboundRelayMessage(text, recipientLabel);
-        await sendMessageFormatted(bot, recipientUserId, relayText);
+        await sendMessageFormatted(bot, recipientId, relayText);
         delivered.push(`Outbound message delivered. Recipient: ${recipientLabel}.`);
         sentMessages.push({ recipientLabel, text: relayText });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await logger.warn(`failed to send outbound telegram message to user=${recipientUserId}: ${message}`);
+        await logger.warn(`failed to send outbound message to target=${recipientId}: ${message}`);
         clarifications.push(`Outbound delivery failed. Recipient: ${recipientLabel}. Error: ${message}`);
       }
     }
@@ -123,13 +124,21 @@ export async function executePromptActions(input: ExecutePromptActionsInput): Pr
     : input.answer.outboundMessages.length > 0
       ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT], sentMessages: [] }
       : { delivered: [], clarifications: [], sentMessages: [] };
+  const pendingAuthorizationResult = await storePendingAuthorizations(
+    input.config,
+    input.answer.pendingAuthorizations,
+    input.requesterUserId,
+    input.accessRole,
+  );
 
   return {
     facts: [
       summarizeFactBlock("Multiple reminders created", reminderResult.created),
       summarizeFactBlock("Multiple outbound messages delivered", outboundResult.delivered),
+      summarizeFactBlock("Multiple temporary authorizations prepared", pendingAuthorizationResult.created),
       ...reminderResult.clarifications,
       ...outboundResult.clarifications,
+      ...pendingAuthorizationResult.clarifications,
     ].filter(Boolean),
     replyAppendix: buildOutboundReplyAppendix(input.config, outboundResult.sentMessages),
   };

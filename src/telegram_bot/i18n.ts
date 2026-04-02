@@ -216,7 +216,7 @@ export function formatTemplate(template: string, values: Record<string, string |
 }
 
 export function getDictionary(config: AppConfig): Dictionary {
-  return dictionaries[config.telegram.language];
+  return dictionaries[config.bot.language];
 }
 
 export function t(config: AppConfig, key: string, values: Record<string, string | number> = {}): string {
