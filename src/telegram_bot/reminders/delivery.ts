@@ -1,9 +1,9 @@
 import type { Bot, Context } from "grammy";
-import type { AppConfig } from "../types";
-import { logger } from "../logger";
-import { t } from "../i18n";
-import { getAccurateNow } from "../time";
-import { sendMessageFormatted } from "../telegram_format";
+import type { AppConfig } from "../app/types";
+import { logger } from "../app/logger";
+import { t } from "../app/i18n";
+import { getAccurateNow } from "../app/time";
+import { sendMessageFormatted } from "../telegram/format";
 import type { ReminderEvent, ReminderNotificationInstance } from "./types";
 import { isPreparedReminderDeliveryTextUsable } from "./preparation";
 import { allNotificationsSent, getCurrentOccurrence, listNotificationInstances } from "./schedule";

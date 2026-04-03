@@ -9,14 +9,13 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { existsSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
-import { logger } from "../logger";
-import { loadAvailableProjectSkills } from "../skills";
-import { replyLanguageName } from "../i18n";
-import { describePromptPreferences } from "../preferences";
-import { state, touchActivity } from "../state";
+import type { AppConfig, PromptAttachment, UploadedFile } from "../app/types";
+import { logger } from "../app/logger";
+import { loadAvailableProjectSkills } from "../skills/catalog";
+import { replyLanguageName } from "../app/i18n";
+import { state, touchActivity } from "../app/state";
 import { STARTUP_GREETING_REQUEST, buildProjectSystemPrompt, buildPrompt, type PromptAccessRole } from "./prompt";
-import { extractPromptResultFromText, looksLikeStructuredOutputIntent } from "./response";
+import { extractPromptResultFromText } from "./response";
 import type { PromptResult } from "./types";
 
 export type { PromptResult } from "./types";
@@ -88,7 +87,7 @@ export class AgentService {
     this.startResourceWatchers();
     await this.resourceLoader.reload();
     const loadedSkills = this.resourceLoader.getSkills().skills;
-    const projectSkills = loadAvailableProjectSkills();
+    const projectSkills = loadAvailableProjectSkills(this.config.paths.repoRoot);
     await logger.info(`pi resource loader skills loaded=${loadedSkills.length} projectSkillsListed=${projectSkills.length} names=${JSON.stringify(loadedSkills.map((skill) => skill.name))}`);
   }
 
@@ -276,16 +275,16 @@ export class AgentService {
   ): Promise<PromptResult> {
     const entry = await this.getOrCreateSession(scopeKey);
     const promptText = buildPrompt(
+      this.config.paths.repoRoot,
       text,
       uploadedFiles,
       this.config.bot.personaStyle,
       replyLanguageName(this.config),
       this.config.bot.defaultTimezone,
-      describePromptPreferences(this.config, text),
       telegramMessageTime,
       accessRole,
     );
-    await logger.info(`pi prompt context skillListIncluded=${promptText.includes("<available_skills>") ? "yes" : "no"} skillListCount=${loadAvailableProjectSkills().length}`);
+    await logger.info(`pi prompt context skillListIncluded=${promptText.includes("<available_skills>") ? "yes" : "no"} skillListCount=${loadAvailableProjectSkills(this.config.paths.repoRoot).length}`);
     await logger.info(`pi prompt request attachments=${JSON.stringify(this.attachmentLogSummary(attachments))}`);
     return this.promptAndParse(entry.session, promptText, attachments, false);
   }
@@ -473,23 +472,17 @@ export class AgentService {
     const rawText = await this.promptSessionForText(session, text, attachments);
     touchActivity();
     const parsed = extractPromptResultFromText(rawText);
-    await this.logParsedPromptResult(rawText, parsed, temporary, false);
+    await this.logParsedPromptResult(rawText, parsed, temporary);
 
     if (parsed.message.trim() || parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0) {
-      if (!this.shouldRepairStructuredOutput(rawText, parsed)) {
-        return parsed;
-      }
-    } else {
-      throw new Error("Model returned no displayable output.");
+      return parsed;
     }
 
-    await logger.warn(`${temporary ? "pi temporary prompt" : "pi prompt"} returned malformed structured output; requesting one repair pass`);
-    return this.requestStructuredOutputRepair(session, rawText, temporary);
+    throw new Error("Model returned no displayable output.");
   }
 
   private async promptSessionForText(session: AgentSession, text: string, attachments: PromptAttachment[]): Promise<string> {
     let currentText = "";
-    let finalText = "";
     let lastProviderError: string | null = null;
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "message_start") {
@@ -501,7 +494,6 @@ export class AgentService {
         return;
       }
       if (event.type === "message_end") {
-        if (currentText.trim()) finalText = currentText.trim();
         const message = "message" in event ? event.message as { stopReason?: string; errorMessage?: string } : undefined;
         if (message?.stopReason === "error" && message.errorMessage?.trim()) {
           lastProviderError = message.errorMessage.trim();
@@ -536,7 +528,9 @@ export class AgentService {
       unsubscribe();
     }
 
-    const result = finalText || currentText.trim();
+    const finalAssistant = this.extractFinalAssistantText(session);
+    const result = finalAssistant.text || currentText.trim();
+    await logger.info(`pi prompt final text source=${finalAssistant.text ? finalAssistant.source : "stream_fallback"} messageIndex=${finalAssistant.messageIndex}`);
     if (!result && lastProviderError) {
       await logger.warn(`pi prompt completed without text output; last provider error=${JSON.stringify(lastProviderError)}`);
       throw new Error(lastProviderError);
@@ -547,29 +541,19 @@ export class AgentService {
     return result;
   }
 
-  private shouldRepairStructuredOutput(rawText: string, parsed: PromptResult): boolean {
-    if (!looksLikeStructuredOutputIntent(rawText)) return false;
-    const hasStructuredData = parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0;
-    if (hasStructuredData) return false;
-    return parsed.message === rawText.trim();
-  }
-
-  private async requestStructuredOutputRepair(session: AgentSession, previousRawText: string, temporary: boolean): Promise<PromptResult> {
-    const repairInstruction = [
-      "Your previous reply was intended to be structured output, but it did not match the required schema.",
-      "Rewrite it now as exactly one valid JSON object and nothing else.",
-      "Do not use Markdown code fences.",
-      'Include all top-level fields exactly: {"message": string, "files": string[], "reminders": [], "outboundMessages": [], "pendingAuthorizations": []}.',
-      "Use empty string or empty arrays for fields with no content.",
-      "Preserve the original intent and content.",
-      `Previous reply: ${previousRawText}`,
-    ].join("\n");
-
-    const rawText = await this.promptSessionForText(session, repairInstruction, []);
-    touchActivity();
-    const parsed = extractPromptResultFromText(rawText);
-    await this.logParsedPromptResult(rawText, parsed, temporary, true);
-    return parsed;
+  private extractFinalAssistantText(session: AgentSession): { text: string; source: "session_messages" | "none"; messageIndex: number } {
+    const messages = session.messages as Array<{ role?: string; content?: Array<{ type?: string; text?: string }> }>;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+      const text = message.content
+        .filter((part): part is { type: string; text: string } => part?.type === "text" && typeof part.text === "string")
+        .map((part) => part.text)
+        .join("\n")
+        .trim();
+      if (text) return { text, source: "session_messages", messageIndex: i };
+    }
+    return { text: "", source: "none", messageIndex: -1 };
   }
 
   private attachmentLogSummary(attachments: PromptAttachment[]): Array<{ mimeType: string; filename?: string; urlScheme: string }> {
@@ -580,21 +564,21 @@ export class AgentService {
     }));
   }
 
-  private async logParsedPromptResult(rawText: string, parsed: PromptResult, temporary: boolean, repaired: boolean): Promise<void> {
+  private async logParsedPromptResult(rawText: string, parsed: PromptResult, temporary: boolean): Promise<void> {
     const label = temporary ? "pi temporary prompt" : "pi prompt";
-    await logger.info(`${label}${repaired ? " repair" : ""} raw=${JSON.stringify(rawText)}`);
+    await logger.info(`${label} raw=${JSON.stringify(rawText)}`);
     if (parsed.files.length === 0 && parsed.attachments.length === 0 && parsed.reminders.length === 0 && parsed.outboundMessages.length === 0 && parsed.pendingAuthorizations.length === 0 && parsed.message === (rawText.trim() || "Done.")) {
-      await logger.warn(`${label}${repaired ? " repair" : ""} did not return valid JSON; using plain-text fallback`);
+      await logger.warn(`${label} did not return valid JSON; using plain-text fallback`);
     }
     if (parsed.reminders.length === 0 && /"reminders"\s*:/i.test(rawText) && !/"reminders"\s*:\s*\[\s*\]/i.test(rawText)) {
-      await logger.warn(`${label}${repaired ? " repair" : ""} included a reminders field, but no valid reminder objects were parsed`);
+      await logger.warn(`${label} included a reminders field, but no valid reminder objects were parsed`);
     }
     if (parsed.outboundMessages.length === 0 && /"outboundMessages"\s*:/i.test(rawText) && !/"outboundMessages"\s*:\s*\[\s*\]/i.test(rawText)) {
-      await logger.warn(`${label}${repaired ? " repair" : ""} included an outboundMessages field, but no valid outbound message objects were parsed`);
+      await logger.warn(`${label} included an outboundMessages field, but no valid outbound message objects were parsed`);
     }
     if (parsed.pendingAuthorizations.length === 0 && /"pendingAuthorizations"\s*:/i.test(rawText) && !/"pendingAuthorizations"\s*:\s*\[\s*\]/i.test(rawText)) {
-      await logger.warn(`${label}${repaired ? " repair" : ""} included a pendingAuthorizations field, but no valid pending authorization objects were parsed`);
+      await logger.warn(`${label} included a pendingAuthorizations field, but no valid pending authorization objects were parsed`);
     }
-    await logger.info(`${label}${repaired ? " repair" : ""} result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics, targetUsers: item.targetUsers, targetUser: item.targetUser })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUsers: item.targetUsers, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))} pendingAuthorizations=${JSON.stringify(parsed.pendingAuthorizations)}`);
+    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${JSON.stringify(parsed.reminders.map((item) => ({ title: item.title, kind: item.kind, timeSemantics: item.timeSemantics, targetUsers: item.targetUsers, targetUser: item.targetUser })))} outboundMessages=${JSON.stringify(parsed.outboundMessages.map((item) => ({ message: item.message, targetUsers: item.targetUsers, targetUser: item.targetUser })))} attachments=${JSON.stringify(parsed.attachments.map((item) => ({ mimeType: item.mimeType, filename: item.filename })))} pendingAuthorizations=${JSON.stringify(parsed.pendingAuthorizations)}`);
   }
 }

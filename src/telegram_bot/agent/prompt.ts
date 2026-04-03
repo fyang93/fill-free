@@ -1,5 +1,5 @@
-import { formatAvailableSkills, loadAvailableProjectSkills } from "../skills";
-import type { UploadedFile } from "../types";
+import { formatAvailableSkills, loadAvailableProjectSkills } from "../skills/catalog";
+import type { UploadedFile } from "../app/types";
 
 export type PromptAccessRole = "admin" | "trusted" | "allowed";
 
@@ -22,10 +22,9 @@ export function buildProjectSystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildPrompt(text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, botDefaultTimezone: string, preferenceLines: string[] = [], telegramMessageTime?: string, accessRole: PromptAccessRole = "allowed"): string {
+export function buildPrompt(repoRoot: string, text: string, uploadedFiles: UploadedFile[], personaStyle: string, replyLanguage: string, botDefaultTimezone: string, telegramMessageTime?: string, accessRole: PromptAccessRole = "allowed"): string {
   const userRequest = text.trim() || "Handle the user input according to the project rules.";
-  const availableSkills = loadAvailableProjectSkills();
-  const activePreferenceLines = preferenceLines.filter((line) => line.trim());
+  const availableSkills = loadAvailableProjectSkills(repoRoot);
 
   const lines = [
     uploadedFiles.length > 0 ? "Saved files:" : "",
@@ -50,11 +49,9 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], persona
     "Use plain text unless structured output is needed.",
     "If structured output is needed, return exactly one JSON object with top-level fields: message, files, reminders, outboundMessages, pendingAuthorizations.",
     "See system/schemas/telegram-response.schema.json for the detailed shape.",
-    "Use files only when the bot should send a local file back to the user now.",
-    "If returning reminders, include at least title and schedule. If returning outboundMessages, include message and any needed targetUser or targetUsers.",
+    "Use files only when the bot should send a local file now.",
+    "For reminders include at least title and schedule. For outboundMessages include message and target.",
     accessRole === "admin" ? "Use pendingAuthorizations only for explicit admin requests, with username and expiresAt." : "",
-    activePreferenceLines.length > 0 ? "Relevant repository preferences:" : "",
-    ...activePreferenceLines,
     accessRole === "admin"
       ? "Requester role: admin. Repository memory and files may be updated when needed. Config or environment-management changes require explicit admin request."
       : accessRole === "trusted"

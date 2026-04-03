@@ -1,6 +1,6 @@
 import solarLunar from "solarlunar";
-import type { AppConfig } from "../types";
-import { t, uiLocaleTag } from "../i18n";
+import type { AppConfig } from "../app/types";
+import { t, uiLocaleTag } from "../app/i18n";
 import type {
   ReminderEvent,
   ReminderNotificationInstance,

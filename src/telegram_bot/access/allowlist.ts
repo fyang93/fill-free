@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { parse, stringify, type JsonMap } from "@iarna/toml";
-import { DEFAULT_CONFIG_PATH } from "./config_runtime";
+import { DEFAULT_CONFIG_PATH } from "../app/config_runtime";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};

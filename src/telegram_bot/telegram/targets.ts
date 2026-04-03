@@ -1,8 +1,7 @@
 import type { Context } from "grammy";
-import type { AppConfig } from "../types";
-import { findTelegramChats, findTelegramUsers, getTelegramUserDisplayName, listKnownTelegramChats, listKnownTelegramUsers, rememberTelegramChat, rememberTelegramUser } from "./registry";
-import { buildRequesterMemoryContext } from "./requester_memory_context";
-import { state } from "../state";
+import type { AppConfig } from "../app/types";
+import { findTelegramChats, findTelegramUsers, getTelegramUserDisplayName, rememberTelegramChat, rememberTelegramUser } from "./registry";
+import { state } from "../app/state";
 
 export type TelegramTargetIssue =
   | { kind: "ambiguous"; targetLabel: string; options: string[]; replyTarget?: string }
@@ -34,11 +33,10 @@ function preferredFriendlyName(candidates: Array<string | undefined>): string | 
     .sort((a, b) => scoreFriendlyName(a) - scoreFriendlyName(b) || a.length - b.length)[0];
 }
 
-function telegramUserSummary(user: { id: number; username?: string; displayName: string; preferredName?: string }): string {
-  const preferred = user.preferredName && user.preferredName !== user.displayName ? `, preferredName=${user.preferredName}` : "";
+function telegramUserSummary(user: { id: number; username?: string; displayName: string }): string {
   return user.username
-    ? `id=${user.id}, username=@${user.username}, displayName=${user.displayName}${preferred}`
-    : `id=${user.id}, displayName=${user.displayName}${preferred}`;
+    ? `${user.displayName} (@${user.username})`
+    : user.displayName;
 }
 
 export function authorizedTelegramUserIds(config: AppConfig): number[] {
@@ -74,29 +72,12 @@ function buildTelegramContextLines(config: AppConfig, ctx: Context): string[] {
   const lines: string[] = [];
   const requester = ctx.from;
   if (requester?.id) {
-    lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: getTelegramUserDisplayName(requester.id, authorizedUserIds) || telegramDisplayName(config, requester, authorizedUserIds), preferredName: preferredTelegramName(config, requester.id, requester) })}`);
-    lines.push(...buildRequesterMemoryContext(config, requester.id, requester));
+    lines.push(`Requester: ${telegramUserSummary({ id: requester.id, username: requester.username, displayName: getTelegramUserDisplayName(requester.id, authorizedUserIds) || telegramDisplayName(config, requester, authorizedUserIds) })}`);
   }
 
   const repliedMessage = ctx.message && "reply_to_message" in ctx.message ? ctx.message.reply_to_message : undefined;
   if (repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id)) {
-    lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: getTelegramUserDisplayName(repliedMessage.from.id, authorizedUserIds) || telegramDisplayName(config, repliedMessage.from, authorizedUserIds), preferredName: preferredTelegramName(config, repliedMessage.from.id, repliedMessage.from) })}`);
-  }
-
-  if (config.telegram.adminUserId) {
-    lines.push(`Admin user id: ${config.telegram.adminUserId}`);
-  }
-
-  const knownUsers = listKnownTelegramUsers(authorizedUserIds).slice(0, 12);
-  if (knownUsers.length > 0) {
-    lines.push("Known users:");
-    lines.push(...knownUsers.map((user) => `- ${telegramUserSummary(user)}`));
-  }
-
-  const knownChats = listKnownTelegramChats().filter((chat) => chat.type !== "private").slice(0, 12);
-  if (knownChats.length > 0) {
-    lines.push("Known chats:");
-    lines.push(...knownChats.map((chat) => `- id=${chat.id}, type=${chat.type}${chat.title ? `, title=${chat.title}` : ""}${chat.username ? `, username=@${chat.username}` : ""}`));
+    lines.push(`Reply target: ${telegramUserSummary({ id: repliedMessage.from.id, username: repliedMessage.from.username, displayName: getTelegramUserDisplayName(repliedMessage.from.id, authorizedUserIds) || telegramDisplayName(config, repliedMessage.from, authorizedUserIds) })}`);
   }
 
   return lines;

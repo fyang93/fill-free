@@ -1,23 +1,23 @@
 import { Bot } from "grammy";
-import { loadConfig } from "./config";
-import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "./config_runtime";
-import { configureLogger, logger } from "./logger";
+import { loadConfig } from "./app/config";
+import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "./app/config_runtime";
+import { configureLogger, logger } from "./app/logger";
 import { AgentService } from "./agent";
-import { currentModel, loadPersistentState, persistState, state } from "./state";
-import { pruneExpiredPendingAuthorizationsFromState } from "./pending_access";
+import { currentModel, loadPersistentState, persistState, state } from "./app/state";
+import { pruneExpiredPendingAuthorizationsFromState } from "./access/authorizations";
 import { handleReminderCallback, prepareReminderDeliveryText, prewarmReminderDeliveryTexts, pruneExpiredReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "./reminders";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
   providersFromModels,
   resolveDisplayedModel,
-} from "./model_menu";
-import { t } from "./i18n";
-import { replyFormatted, sendMessageFormatted } from "./telegram_format";
-import { isAddressedToBot, isAdminUserId, isTrustedUserId, unauthorizedGuard } from "./access";
-import { handleModelCallback } from "./model_callback";
-import { PromptController } from "./tasks/controller";
-import { createDreamRunner } from "./dreaming";
+} from "./models/menu";
+import { t } from "./app/i18n";
+import { replyFormatted, sendMessageFormatted } from "./telegram/format";
+import { isAddressedToBot, isAdminUserId, isTrustedUserId, unauthorizedGuard } from "./access/control";
+import { handleModelCallback } from "./models/callback";
+import { PromptController } from "./conversations/controller";
+import { createDreamRunner } from "./memory/dreaming";
 
 const configPath = DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);

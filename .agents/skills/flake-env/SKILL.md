@@ -23,6 +23,7 @@ Do not use this skill for:
 - Add or remove development tools from `flake.nix`
 - Resolve requests like "install X", "add tool Y", or "this command is missing" when the tool should exist in the repo environment
 - Look up the correct Nix package through the NixOS MCP before editing `flake.nix`
+- Keep environment decisions in repo configuration, not in prompt-time workaround text or ad-hoc shell advice
 
 ## Permission Rule
 

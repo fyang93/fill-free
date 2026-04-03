@@ -1,8 +1,8 @@
-import type { AppConfig } from "./types";
-import { addAllowedUserIdToConfig } from "./access_grants";
-import type { PromptAccessRole } from "./agent/prompt";
-import type { PromptPendingAuthorizationDraft } from "./agent/types";
-import { persistState, rememberPendingAuthorization, consumePendingAllowedAuthorization, pruneExpiredPendingAuthorizations } from "./state";
+import type { AppConfig } from "../app/types";
+import { addAllowedUserIdToConfig } from "./allowlist";
+import type { PromptAccessRole } from "../agent/prompt";
+import type { PromptPendingAuthorizationDraft } from "../agent/types";
+import { persistState, rememberPendingAuthorization, consumePendingAllowedAuthorization, pruneExpiredPendingAuthorizations } from "../app/state";
 
 export const PENDING_AUTH_ADMIN_ONLY_FACT = "Temporary authorization is admin-only.";
 

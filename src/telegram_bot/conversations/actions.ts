@@ -1,14 +1,14 @@
 import type { Bot, Context } from "grammy";
-import { logger } from "../logger";
+import { logger } from "../app/logger";
 import type { AgentService } from "../agent";
 import type { PromptAccessRole } from "../agent/prompt";
 import type { PromptOutboundMessageDraft, PromptResult } from "../agent/types";
-import { createStructuredReminders } from "../reminder_intent";
-import { storePendingAuthorizations } from "../pending_access";
-import { sendMessageFormatted } from "../telegram_format";
+import { createStructuredReminders } from "../reminders/intent";
+import { storePendingAuthorizations } from "../access/authorizations";
+import { sendMessageFormatted } from "../telegram/format";
 import { resolveTelegramTargetUsers } from "../telegram/identity";
-import type { AppConfig } from "../types";
-import { t } from "../i18n";
+import type { AppConfig } from "../app/types";
+import { t } from "../app/i18n";
 
 const OUTBOUND_TARGET_REQUIRED_FACT = "Outbound target is missing. Ask the user to specify the recipient by @mention or by replying to that person's message.";
 const OUTBOUND_TRUST_REQUIRED_FACT = "Outbound relay is not allowed for this requester. Only trusted or admin users may ask the bot to message other Telegram users.";
@@ -62,7 +62,6 @@ async function deliverOutboundMessages(
   ctx: Context,
   outboundMessages: PromptOutboundMessageDraft[],
   requesterUserId: number | undefined,
-  accessRole: PromptAccessRole,
   agentService: AgentService,
 ): Promise<OutboundDeliveryResult> {
   const delivered: string[] = [];
@@ -120,7 +119,7 @@ export async function executePromptActions(input: ExecutePromptActionsInput): Pr
   );
 
   const outboundResult = input.canDeliverOutbound
-    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId, input.accessRole, input.agentService)
+    ? await deliverOutboundMessages(input.config, input.bot, input.ctx, input.answer.outboundMessages, input.requesterUserId, input.agentService)
     : input.answer.outboundMessages.length > 0
       ? { delivered: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT], sentMessages: [] }
       : { delivered: [], clarifications: [], sentMessages: [] };

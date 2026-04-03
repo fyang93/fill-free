@@ -1,4 +1,4 @@
-import type { PromptAttachment } from "../types";
+import type { PromptAttachment } from "../app/types";
 
 export type PromptReminderTarget = {
   id?: number;

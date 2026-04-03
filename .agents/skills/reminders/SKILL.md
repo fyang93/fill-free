@@ -1,29 +1,30 @@
 ---
 name: reminders
-description: Use for reminder planning, reminder extraction from natural language, recurring/event reminder decisions, and cases where one user message may imply both reminders and other follow-up actions.
+description: Use when the task involves creating, changing, reviewing, or reasoning about reminders, schedules, recurring events, or natural-language requests that may imply reminder creation.
 ---
 
-# Reminder Agent
+# Reminders
 
-Use this skill when the user asks to create, change, review, clarify, or reason about reminders, schedules, recurring events, or reminder-oriented automation.
+Use this skill for reminder interpretation and reminder management.
 
-## When to Use This Skill
+## When to Use
 
-Use this skill when the user:
-
-- Asks to create one or more reminders
-- Gives a list or schedule that should become reminders
-- Mentions birthdays, anniversaries, memorials, festivals, meetings, deadlines, appointments, or routines that may need reminders
-- Wants reminders before an event
-- Needs help deciding whether something should be a one-time, recurring, or event-style reminder
-- Wants reminder behavior changed, simplified, debugged, or reviewed
-- Gives a mixed request where reminders may be only part of the intended outcome
+- The user asks to create, change, review, clarify, or delete reminders.
+- The user gives dates, schedules, routines, birthdays, anniversaries, deadlines, meetings, or other event information that may need reminders.
+- The user wants advance notice before an event or needs help deciding between one-time and recurring reminders.
+- One message may imply both a reminder and some other follow-up action.
 
 ## Operating Principles
 
-- Prefer repository-local sources first for reminders, user memory, project behavior, files, and logs. Check repository data before relying on outside assumptions.
-- When reminder habits, delivery habits, wording preferences, or coordination preferences may matter, check `memory/preferences.md` early.
-- Let the model do intent extraction and ambiguity handling: identify event kind, schedule shape, user-requested reminder offsets, timezone clues, and whether a follow-up question is necessary.
-- Let code own defaults, validation, normalization, timezone memory, and persistence. Do not invent complex reminder structures in prompt text when deterministic code can derive them.
-- Prefer the smallest sufficient clarification. Ask only when a reminder cannot be safely represented yet.
-- Only inspect raw reminder storage when debugging or low-level reminder maintenance truly requires it.
+- Prefer repository-local sources first for reminders, user memory, files, logs, and project behavior.
+- If wording, reminder timing habits, coordination defaults, or delivery preferences may matter, check `memory/preferences.md`.
+- Let the model handle intent extraction and ambiguity: event kind, schedule shape, offsets, timezone clues, and whether clarification is necessary.
+- Let code own reminder defaults, validation, normalization, timezone memory, and persistence.
+- Prefer the smallest sufficient clarification. Ask only when the reminder cannot yet be represented safely.
+- Inspect raw reminder storage only for debugging or low-level reminder maintenance.
+
+## Boundary With Memory
+
+- Do not create or rewrite markdown memory notes just to mirror reminder storage.
+- Use `memory/` only when the user also wants a durable fact, preference, or long-term context remembered beyond the reminder itself.
+- Keep reminder scheduling in reminder data, and keep long-term human-readable context in `memory/`.

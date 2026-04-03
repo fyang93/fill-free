@@ -1,26 +1,26 @@
 import type { Bot, Context } from "grammy";
-import type { AppConfig, PromptAttachment, UploadedFile } from "../types";
-import { logger } from "../logger";
+import type { AppConfig, PromptAttachment, UploadedFile } from "../app/types";
+import { logger } from "../app/logger";
 
-import { editMessageTextFormatted, replyFormatted } from "../telegram_format";
-import { getAccurateNowIso } from "../time";
+import { editMessageTextFormatted, replyFormatted } from "../telegram/format";
+import { getAccurateNowIso } from "../app/time";
 import {
   clearRecentUploads,
   persistState,
   touchActivity,
-} from "../state";
-import { t } from "../i18n";
-import { accessLevelForUserId } from "../access";
+} from "../app/state";
+import { t } from "../app/i18n";
+import { accessLevelForUserId } from "../access/control";
 import type { AgentService } from "../agent";
 import { runPromptTask, type ActivePromptTask } from "./runner";
 import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";
-import { createWaitingMessageController } from "./runtime";
+import { createWaitingMessageController } from "./waiting";
 import { rememberTelegramParticipants } from "../telegram/identity";
 import { buildTelegramReplyContextPrompt, summarizeIncomingText, telegramReplySummary } from "../telegram/reply_context";
 import { PendingPromptMerge } from "./pending_merge";
-import { ingestTelegramFile, logFilePromptScheduling } from "../file_ingress";
+import { ingestTelegramFile, logFilePromptScheduling } from "../files/ingress";
 import { ActivePromptTasks } from "./active";
-import { buildRecentAttachments, pruneRecentUploads } from "../recent_uploads";
+import { buildRecentAttachments, pruneRecentUploads } from "../files/recent";
 
 type PromptControllerDeps = {
   config: AppConfig;

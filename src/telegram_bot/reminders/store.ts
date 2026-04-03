@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AppConfig } from "../types";
-import { getAccurateNow } from "../time";
-import { getUserTimezone } from "../state";
+import type { AppConfig } from "../app/types";
+import { getAccurateNow } from "../app/time";
+import { getUserTimezone } from "../app/state";
 import { normalizeStoredReminderSchedule } from "./schedule_parser";
 import type { ReminderEvent, ReminderEventKind, ReminderNotification, ReminderSchedule, ReminderSpecialKind, ReminderStoreV2, ReminderTarget, ReminderTimeSemantics } from "./types";
 

@@ -1,12 +1,12 @@
 import { appendFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import type { AgentService } from "./agent";
-import { pruneInactiveReminderEvents } from "./reminders";
-import { readReminderEvents, writeReminderEvents } from "./reminders/store";
-import { formatAvailableSkills, loadAvailableProjectSkills } from "./skills";
-import type { AppConfig } from "./types";
-import { logger } from "./logger";
-import { persistState, state } from "./state";
+import type { AgentService } from "../agent";
+import { pruneInactiveReminderEvents } from "../reminders";
+import { readReminderEvents, writeReminderEvents } from "../reminders/store";
+import { formatAvailableSkills, loadAvailableProjectSkills } from "../skills/catalog";
+import type { AppConfig } from "../app/types";
+import { logger } from "../app/logger";
+import { persistState, state } from "../app/state";
 
 type MemorySnapshot = Map<string, { size: number; mtimeMs: number }>;
 
@@ -32,7 +32,7 @@ function recentlyChangedFiles(snapshot: MemorySnapshot, lastDreamedAt: string | 
     .sort((a, b) => a.localeCompare(b));
 }
 
-async function buildDreamRequest(lastDreamedAt: string | null, changedFiles: string[]): Promise<string> {
+async function buildDreamRequest(repoRoot: string, lastDreamedAt: string | null, changedFiles: string[]): Promise<string> {
   const draft = [
     "Idle memory maintenance.",
     lastDreamedAt ? `Last dreaming: ${lastDreamedAt}` : "Last dreaming: none",
@@ -43,7 +43,7 @@ async function buildDreamRequest(lastDreamedAt: string | null, changedFiles: str
     "Reply with a short summary of repository changes, or say no change.",
   ].filter(Boolean).join("\n\n");
 
-  const availableSkills = loadAvailableProjectSkills();
+  const availableSkills = loadAvailableProjectSkills(repoRoot);
   const skillCatalog = availableSkills.length > 0 ? formatAvailableSkills(availableSkills) : "";
 
   return [draft, skillCatalog].filter(Boolean).join("\n\n");
@@ -120,6 +120,21 @@ async function appendDreamLog(config: AppConfig, entry: string): Promise<void> {
   const logPath = path.join(config.paths.repoRoot, "logs", "dreaming.log");
   await mkdir(path.dirname(logPath), { recursive: true });
   await appendFile(logPath, entry, "utf8");
+}
+
+async function notifyDreamChanges(
+  agentService: AgentService,
+  deps: DreamDeps,
+  facts: string[],
+): Promise<void> {
+  if (!deps.onChange || facts.length === 0) return;
+
+  try {
+    const message = await agentService.composeTelegramReply("", facts);
+    await deps.onChange(message.trim() || facts.join("\n"));
+  } catch {
+    await deps.onChange(facts.join("\n"));
+  }
 }
 
 type TelegramChatRecord = {
@@ -292,17 +307,13 @@ async function runDreamCycle(
   const currentFingerprint = snapshotFingerprint(beforeSnapshot);
   const changedFiles = force ? [...beforeSnapshot.keys()].sort((a, b) => a.localeCompare(b)) : recentlyChangedFiles(beforeSnapshot, state.lastDreamedAt);
   if (!force && currentFingerprint === (state.lastDreamedMemoryFingerprint || "")) {
-    if (deps.onChange && preChanges.length > 0) {
-      await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
-    }
+    await notifyDreamChanges(agentService, deps, preChanges);
     return;
   }
   if (!force && changedFiles.length === 0) {
     state.lastDreamedMemoryFingerprint = currentFingerprint || null;
     await persistState(config.paths.stateFile);
-    if (deps.onChange && preChanges.length > 0) {
-      await deps.onChange(["🧠 入梦完成", ...preChanges.map((item) => `- ${item}`)].join("\n"));
-    }
+    await notifyDreamChanges(agentService, deps, preChanges);
     return;
   }
 
@@ -310,7 +321,7 @@ async function runDreamCycle(
   const startedAt = new Date().toISOString();
   try {
     await logger.info(`dream loop starting${force ? " (forced)" : ""} after ${Number.isFinite(idleMs) ? `${idleMs}ms` : "unknown"} idle changedFiles=${changedFiles.length}`);
-    const request = await buildDreamRequest(force ? null : state.lastDreamedAt, changedFiles);
+    const request = await buildDreamRequest(config.paths.repoRoot, force ? null : state.lastDreamedAt, changedFiles);
     const summary = await withTimeout(agentService.runMemoryDream(request), config.dreaming.timeoutMs, "dream loop");
     const afterSnapshot = await memorySnapshot(config.paths.repoRoot);
     const afterFingerprint = snapshotFingerprint(afterSnapshot);
@@ -329,16 +340,13 @@ async function runDreamCycle(
       "",
     ].join("\n"));
     const memoryChanged = changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0;
-    if (deps.onChange && (preChanges.length > 0 || memoryChanged)) {
-      const lines = ["🧠 入梦完成"];
-      if (preChanges.length > 0) lines.push(...preChanges.map((item) => `- ${item}`));
-      if (memoryChanged) {
-        lines.push(`- 记忆整理摘要：${summary || "已完成整理"}`);
-        if (changes.created.length > 0) lines.push(`- 新建：${changes.created.join(", ")}`);
-        if (changes.updated.length > 0) lines.push(`- 更新：${changes.updated.join(", ")}`);
-        if (changes.deleted.length > 0) lines.push(`- 删除：${changes.deleted.join(", ")}`);
-      }
-      await deps.onChange(lines.join("\n"));
+    if (preChanges.length > 0 || memoryChanged) {
+      const facts = [...preChanges];
+      if (summary) facts.push(`记忆整理摘要：${summary}`);
+      if (changes.created.length > 0) facts.push(`新建文件：${changes.created.join(", ")}`);
+      if (changes.updated.length > 0) facts.push(`更新文件：${changes.updated.join(", ")}`);
+      if (changes.deleted.length > 0) facts.push(`删除文件：${changes.deleted.join(", ")}`);
+      await notifyDreamChanges(agentService, deps, facts);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

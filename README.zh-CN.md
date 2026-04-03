@@ -2,43 +2,27 @@
 
 [English README](README.md)
 
-一个本地优先的 Telegram bot，用于个人记忆、资料管理和提醒。
+一个本地优先的 Telegram bot，用于个人记忆、文件、提醒，以及轻量的消息转达流程。
 
-该 bot 现在运行在 pi SDK 上，并把 bot 专用的 pi 配置放在 `.pi/bot/` 下。
+它运行在 pi SDK 上，并把 bot 专用的 pi 配置放在 `.pi/bot/` 下。
 
-## 核心功能
+## 它能做什么
 
-- 记住并查询个人信息
-- 整理上传的资料和文件
-- 根据已保存的信息辅助填表
+- 记住并查询个人事实信息
+- 整理上传的文件和资料
 - 创建和管理提醒
-- 向已授权用户或已知群聊发送消息与提醒
+- 向已授权用户或已知群聊发送消息或提醒
 
 ## 快速开始
-
-### 1. 安装依赖
-
-可以使用 Nix，或者手动安装：
-
-- `bun`
-- `just`
-- `fd`
-- `ripgrep`
-
-然后执行：
-
-```bash
-just install
-```
-
-### 2. 配置 bot
-
-复制示例文件：
 
 ```bash
 cp config.toml.example config.toml
 cp .env.example .env
+just install
+just serve
 ```
+
+## 配置
 
 至少填写：
 
@@ -78,19 +62,13 @@ bot 会使用项目内的 pi 配置文件：
 
 当前默认方案使用 OpenRouter，并通过 `OPENROUTER_API_KEY` 提供凭据。
 
-### 3. 启动
-
-```bash
-just serve
-```
-
 开发时如需监听文件变化，可用：
 
 ```bash
 bun run telegram:dev
 ```
 
-## Telegram 侧注意事项
+## Telegram 使用前提
 
 - 任何需要接收 bot 私聊消息的用户，都必须先主动和 bot 私聊一次。
 - 如果要在群里使用这个 bot，需要去 **BotFather** 把该 bot 的 **Group Privacy** 关闭。
@@ -105,23 +83,20 @@ bun run telegram:dev
 
 admin 也可以对某个 `@username` 做临时授权。对方需要在临时授权过期前主动私聊 bot，一旦成功，bot 会自动把对方加入 `allowed_user_ids`。
 
-## 主要目录结构
+## 主要目录
 
 - `memory/`：人类可读的长期记忆笔记
 - `assets/`：长期保存的文件
-- `system/`：由代码管理的持久化数据，例如 reminders、Telegram identity/state
+- `system/`：由代码管理的状态，例如 reminders、Telegram identity/state
 - `tmp/`：临时上传和工作文件
 
 ## 使用示例
 
 - “记一下我的护照号。”
 - “我的家庭住址是什么？”
-- “根据我保存的信息帮我填这个表。”
 - “提醒我明天早上 9 点提交申请。”
 - “发给 @kyogokuame：晚饭好了。”
-- “提醒 @kyogokuame 明晚 8 点吃药。”
 - “把这条消息发到家庭群。”
-- “明天上午 10 点提醒项目群。”
 
 ## 命令
 

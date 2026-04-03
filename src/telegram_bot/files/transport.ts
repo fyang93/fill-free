@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { InputFile, type Context } from "grammy";
-import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
+import type { AppConfig, PromptAttachment, UploadedFile } from "../app/types";
 
 const INVALID_FILENAME_RE = /[^a-zA-Z0-9._-]+/g;
 const REPO_FILE_PATH_RE = /(?:^|[\s`"'(<\[])(assets\/[^\s`"')>\]]+|tmp\/[^\s`"')>\]]+|\/[^\s`"')>\]]+)(?=$|[\s`"')>\]])/gm;

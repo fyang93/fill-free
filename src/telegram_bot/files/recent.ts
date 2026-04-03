@@ -1,8 +1,8 @@
 import { stat } from "node:fs/promises";
-import type { PromptAttachment, UploadedFile } from "./types";
-import { logger } from "./logger";
-import { getRecentUploads, hasRecentUploads, retainRecentUploads } from "./state";
-import { uploadedFileToAttachment } from "./files";
+import type { PromptAttachment, UploadedFile } from "../app/types";
+import { logger } from "../app/logger";
+import { getRecentUploads, hasRecentUploads, retainRecentUploads } from "../app/state";
+import { uploadedFileToAttachment } from "./transport";
 
 export async function buildRecentAttachments(scopeKey: string): Promise<{ files: UploadedFile[]; attachments: PromptAttachment[] }> {
   const files = getRecentUploads(scopeKey);

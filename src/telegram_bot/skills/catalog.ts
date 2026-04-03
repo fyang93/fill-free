@@ -1,16 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-const PROJECT_SKILLS_DIR = path.join(process.cwd(), ".agents/skills");
-
 export type SkillDescriptor = {
   name: string;
   description: string;
   location: string;
 };
 
-function projectSkillPath(skillName: string): string {
-  return path.join(PROJECT_SKILLS_DIR, skillName, "SKILL.md");
+function projectSkillPath(repoRoot: string, skillName: string): string {
+  return path.join(repoRoot, ".agents", "skills", skillName, "SKILL.md");
 }
 
 function loadSkillPromptSync(skillPath: string): string {
@@ -37,12 +35,13 @@ function parseSkillFrontmatter(content: string): { name?: string; description?: 
   return result;
 }
 
-export function loadAvailableProjectSkills(): SkillDescriptor[] {
+export function loadAvailableProjectSkills(repoRoot: string): SkillDescriptor[] {
+  const projectSkillsDir = path.join(repoRoot, ".agents", "skills");
   try {
-    return readdirSync(PROJECT_SKILLS_DIR, { withFileTypes: true })
+    return readdirSync(projectSkillsDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => {
-        const skillPath = projectSkillPath(entry.name);
+        const skillPath = projectSkillPath(repoRoot, entry.name);
         const content = loadSkillPromptSync(skillPath);
         if (!content) return null;
         const frontmatter = parseSkillFrontmatter(content);

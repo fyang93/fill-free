@@ -1,4 +1,4 @@
-import { state } from "../state";
+import { state } from "../app/state";
 
 export type TelegramUserInput = {
   id?: number;

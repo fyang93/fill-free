@@ -1,20 +1,19 @@
 ---
 name: memory
-description: Use when the task involves retrieving, saving, updating, merging, or organizing long-term repository memory, notes, files, or persistent user information.
+description: Use when the task involves repository-local memory, persistent user information, factual questions about what is recorded or available locally, bot capability questions grounded in this repository, or storing long-term preferences and notes.
 ---
 
 # Memory
 
-Use this skill when the user asks to remember, save, update, organize, merge, link, or retrieve long-term information from this repository. Use it especially for fact questions about what is known, remembered, recorded, or saved about a person, chat, reminder, file, preference, or other persistent repository state.
+Use this skill for repository-local memory: retrieving recorded facts, storing long-term notes, and handling durable user preferences or other persistent context.
 
 ## Retrieval
 
-- Prefer repository-local sources first for user memory, reminders, personal facts, files, logs, and project behavior.
-- For fact questions, first check repository-local memory and state before relying on conversation context, rough recollection, or external search.
-- This includes questions about who the current user is, what name is recorded for them, what is remembered about them, whether a fact was saved, and what habits, preferences, reminders, or files are already recorded.
-- Check `memory/`, `assets/`, `system/`, and relevant code/logs before considering external search.
-- For reminder, relay, coordination, naming, or administrator-habit questions, check `memory/preferences.md` early.
-- Use web search only when local sources are insufficient for the question.
+- Prefer repository-local sources first for facts, memory, reminders, files, logs, and repository-grounded capability questions.
+- For factual or capability questions, inspect local evidence before answering. This includes `README.md`, `memory/`, `assets/`, `system/`, relevant code, logs, and available skills.
+- This applies to questions about who someone is, what is already recorded, what preferences or reminders exist, and what the bot can do according to local code and project state.
+- If the answer may depend on wording, reminder, coordination, relay, or future behavior preferences, check `memory/preferences.md` early.
+- Use web search only when local sources are insufficient.
 - Treat frontmatter as lightweight support only. Keep it minimal and use it for `title`, `aliases`, `summary`, and sparse `tags`, not as the primary retrieval path.
 
 ## Note Routing
@@ -22,9 +21,20 @@ Use this skill when the user asks to remember, save, update, organize, merge, li
 - All long-term markdown notes must live under `memory/`.
 - Treat `system/` as code-managed persistent data rather than general-purpose notes. Do not move ordinary memory there or casually rewrite files there unless the task is explicitly about system-managed data.
 - Merge related information into an existing topic note whenever it clearly fits. Keep each markdown file focused on one stable topic.
-- Preferences about wording, reminders, coordination, or delivery habits belong in `memory/preferences.md`.
 - Create a new note only when the information represents a distinct long-lived topic that does not fit an existing note.
 - If new information conflicts with an existing note, update only when the intended replacement is clear; otherwise ask the user.
+
+## Preference Storage
+
+- If the user wants the bot to remember a standing preference, style, habit, or future behavior instruction, store it in `memory/preferences.md`.
+- This includes how the bot should reply, what tone to use, how reminders should be phrased, who to coordinate with by default, and other standing "from now on" or "next time" guidance.
+- Keep durable behavioral preferences in `memory/preferences.md` instead of scattering them across unrelated topic notes.
+
+## Boundary With Reminders
+
+- Do not turn every schedule mention, appointment, or birthday into a memory note.
+- If the main task is interpreting, creating, changing, or reviewing reminders, use the `reminders` skill and let reminder storage own the schedule data.
+- Only write to `memory/` when there is durable context worth remembering beyond the reminder itself.
 
 ## Files
 

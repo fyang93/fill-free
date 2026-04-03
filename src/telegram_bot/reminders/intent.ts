@@ -1,12 +1,12 @@
 import type { Context } from "grammy";
-import { logger } from "./logger";
-import type { PromptReminderDraft } from "./agent/types";
-import type { AgentService } from "./agent";
-import { persistState, rememberUserTimezone } from "./state";
-import { buildReminderScheduleFromExternal } from "./reminders/schedule_parser";
-import { createReminderEventWithDefaults, formatReminderEvent, isValidReminderTimezone, prepareReminderDeliveryText, resolveReminderTimezone, updateReminderEvent, type ReminderEvent, type ReminderNotification } from "./reminders";
-import type { AppConfig } from "./types";
-import { resolveReminderTargetUser, resolveTelegramTargetUsers, type ReminderTargetResolution } from "./telegram/identity";
+import { logger } from "../app/logger";
+import type { PromptReminderDraft } from "../agent/types";
+import type { AgentService } from "../agent";
+import { persistState, rememberUserTimezone } from "../app/state";
+import { buildReminderScheduleFromExternal } from "./schedule_parser";
+import { createReminderEventWithDefaults, formatReminderEvent, isValidReminderTimezone, prepareReminderDeliveryText, resolveReminderTimezone, updateReminderEvent, type ReminderEvent, type ReminderNotification } from ".";
+import type { AppConfig } from "../app/types";
+import { resolveReminderTargetUser, resolveTelegramTargetUsers, type ReminderTargetResolution } from "../telegram/identity";
 
 function buildReminderNotifications(raw: unknown): ReminderNotification[] | undefined {
   if (!Array.isArray(raw)) return undefined;

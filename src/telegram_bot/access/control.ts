@@ -1,8 +1,8 @@
 import type { Context } from "grammy";
-import type { AppConfig } from "./types";
-import { grantPendingAllowedAccessIfMatched, pruneExpiredPendingAuthorizationsFromState } from "./pending_access";
-import { logger } from "./logger";
-import { touchActivity } from "./state";
+import type { AppConfig } from "../app/types";
+import { grantPendingAllowedAccessIfMatched, pruneExpiredPendingAuthorizationsFromState } from "./authorizations";
+import { logger } from "../app/logger";
+import { touchActivity } from "../app/state";
 
 export type AccessLevel = "trusted" | "allowed" | "none";
 

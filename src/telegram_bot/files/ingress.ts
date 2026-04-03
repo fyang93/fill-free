@@ -1,10 +1,10 @@
 import type { Context } from "grammy";
-import type { AppConfig, PromptAttachment, UploadedFile } from "./types";
-import { logger } from "./logger";
-import { saveTelegramFile, uploadedFileToAttachment } from "./files";
-import { persistState, rememberUploads, touchActivity } from "./state";
-import { rememberTelegramParticipants } from "./telegram/identity";
-import { summarizeIncomingText, telegramReplySummary } from "./telegram/reply_context";
+import type { AppConfig, PromptAttachment, UploadedFile } from "../app/types";
+import { logger } from "../app/logger";
+import { saveTelegramFile, uploadedFileToAttachment } from "./transport";
+import { persistState, rememberUploads, touchActivity } from "../app/state";
+import { rememberTelegramParticipants } from "../telegram/identity";
+import { summarizeIncomingText, telegramReplySummary } from "../telegram/reply_context";
 
 export type SavedFileIngress = {
   uploaded: UploadedFile;

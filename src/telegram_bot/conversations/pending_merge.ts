@@ -1,5 +1,5 @@
 import type { Context } from "grammy";
-import { logger } from "../logger";
+import { logger } from "../app/logger";
 
 type PendingTextTask = {
   timer: NodeJS.Timeout;

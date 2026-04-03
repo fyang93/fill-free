@@ -3,8 +3,8 @@
   "private": true,
   "packageManager": "bun@1.3.10",
   "scripts": {
-    "telegram:bot": "bun run src/telegram_bot/index.ts",
-    "telegram:dev": "bun --watch src/telegram_bot/index.ts",
+    "telegram:bot": "bun run src/telegram_bot/main.ts",
+    "telegram:dev": "bun --watch src/telegram_bot/main.ts",
     "telegram:check": "tsc -p tsconfig.json"
   },
   "dependencies": {

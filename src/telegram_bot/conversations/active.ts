@@ -1,6 +1,6 @@
-import { logger } from "../logger";
-import { t } from "../i18n";
-import type { AppConfig } from "../types";
+import { logger } from "../app/logger";
+import { t } from "../app/i18n";
+import type { AppConfig } from "../app/types";
 import type { AgentService } from "../agent";
 import type { Bot, Context } from "grammy";
 import type { ActivePromptTask } from "./runner";

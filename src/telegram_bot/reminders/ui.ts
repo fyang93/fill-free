@@ -1,7 +1,7 @@
 import { InlineKeyboard, type Context } from "grammy";
-import type { AppConfig } from "../types";
-import { t } from "../i18n";
-import { editMessageTextFormatted } from "../telegram_format";
+import type { AppConfig } from "../app/types";
+import { t } from "../app/i18n";
+import { editMessageTextFormatted } from "../telegram/format";
 import type { ReminderEvent, ReminderNotificationInstance, ReminderView } from "./types";
 import { formatReminderEvent, getCurrentOccurrence, listNotificationInstances, reminderEventScheduleSummary } from "./schedule";
 import { deleteReminderEvent, getReminderEvent, readReminderEvents } from "./store";

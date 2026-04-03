@@ -2,43 +2,27 @@
 
 [中文说明](README.zh-CN.md)
 
-A local-first Telegram bot for personal memory, files, and reminders.
+A local-first Telegram bot for personal memory, files, reminders, and lightweight relay workflows.
 
-The bot now runs on the pi SDK, with bot-local pi configuration under `.pi/bot/`.
+It runs on the pi SDK, with bot-local pi configuration under `.pi/bot/`.
 
-## Core features
+## What it does
 
-- remember and retrieve personal information
-- organize uploaded materials and files
-- help with forms using saved facts
+- remember and retrieve personal facts
+- organize uploaded files and materials
 - create and manage reminders
-- send messages and reminders to authorized users or known group chats
+- send messages or reminders to authorized users or known group chats
 
 ## Quick start
-
-### 1. Install dependencies
-
-Use Nix, or install these manually:
-
-- `bun`
-- `just`
-- `fd`
-- `ripgrep`
-
-Then run:
-
-```bash
-just install
-```
-
-### 2. Configure the bot
-
-Copy the example files:
 
 ```bash
 cp config.toml.example config.toml
 cp .env.example .env
+just install
+just serve
 ```
+
+## Configuration
 
 Fill in at least:
 
@@ -78,19 +62,13 @@ The bot uses project-local pi files under `.pi/bot/`:
 
 The committed default setup uses OpenRouter via `OPENROUTER_API_KEY`.
 
-### 3. Start
-
-```bash
-just serve
-```
-
 For watch mode during development:
 
 ```bash
 bun run telegram:dev
 ```
 
-## Telegram setup notes
+## Telegram prerequisites
 
 - Every user who should receive direct bot messages must have started a private chat with the bot at least once.
 - If you want to use the bot in group chats, open **BotFather** and turn **Group Privacy** off for the bot.
@@ -109,19 +87,16 @@ The admin may also temporarily allow a `@username`. In that case, the user must 
 
 - `memory/`: human-readable long-term notes
 - `assets/`: files kept long-term
-- `system/`: code-managed persistent data such as reminders and Telegram identity/state
+- `system/`: code-managed state such as reminders and Telegram identity/state
 - `tmp/`: temporary uploads and working files
 
 ## Example usage
 
 - “Remember my passport number.”
 - “What is my home address?”
-- “Use my saved info to help fill this form.”
 - “Remind me tomorrow at 9am to submit the application.”
 - “Send this to @kyogokuame: dinner is ready.”
-- “Remind @kyogokuame tomorrow at 8pm to take medicine.”
 - “Send this to the family group.”
-- “Remind the project group tomorrow at 10am.”
 
 ## Commands
 

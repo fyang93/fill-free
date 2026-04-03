@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
-import type { AppConfig } from "./types";
-import { state } from "./state";
-import { t } from "./i18n";
+import type { AppConfig } from "../app/types";
+import { state } from "../app/state";
+import { t } from "../app/i18n";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
@@ -10,7 +10,7 @@ import {
   modelsForProvider,
   providersFromModels,
   resolveDisplayedModel,
-} from "./model_menu";
+} from "./menu";
 
 export type ModelCallbackDependencies = {
   config: AppConfig;
