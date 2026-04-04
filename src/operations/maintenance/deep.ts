@@ -9,6 +9,7 @@ import { persistState, state } from "scheduling/app/state";
 import { loadChats, loadUsers } from "operations/context/store";
 import { pruneInvalidInvertedIndex } from "operations/context/inverted-index";
 import { pruneFinishedTasks } from "support/tasks";
+import { pruneMissingTelegramFileRecords } from "operations/files/store";
 
 type MemorySnapshot = Map<string, { size: number; mtimeMs: number }>;
 
@@ -255,7 +256,7 @@ async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChat
   return { removedChatIds: removedChatIds.sort((a, b) => a.localeCompare(b)), migratedReminderTargets, pairs };
 }
 
-async function clearTmpContents(root: string, dir = root): Promise<string[]> {
+async function clearTmpContents(root: string, cutoffMs: number, dir = root): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -267,8 +268,23 @@ async function clearTmpContents(root: string, dir = root): Promise<string[]> {
   for (const entry of entries) {
     if (entry.name === ".gitkeep") continue;
     const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removed.push(...await clearTmpContents(root, cutoffMs, fullPath));
+      try {
+        const remaining = (await readdir(fullPath)).filter((name) => name !== ".gitkeep");
+        if (remaining.length === 0 && fullPath !== root) {
+          await rm(fullPath, { recursive: true, force: true });
+          removed.push(path.relative(root, fullPath));
+        }
+      } catch {
+        // ignore concurrent or permission failures
+      }
+      continue;
+    }
     try {
-      await rm(fullPath, { recursive: true, force: true });
+      const info = await stat(fullPath);
+      if (info.mtimeMs >= cutoffMs) continue;
+      await rm(fullPath, { force: true });
       removed.push(path.relative(root, fullPath));
     } catch {
       // ignore concurrent or permission failures
@@ -304,33 +320,42 @@ async function runMaintainerCycle(
   const indexCleanup = await pruneInvalidInvertedIndex(config.paths.repoRoot);
   if (indexCleanup.removedTerms > 0 || indexCleanup.removedPaths > 0) {
     await logger.info(`maintainer loop pruned inverted index removedTerms=${indexCleanup.removedTerms} removedPaths=${indexCleanup.removedPaths}`);
-    preChanges.push(`清理了倒排索引：删除 ${indexCleanup.removedTerms} 个词条，移除 ${indexCleanup.removedPaths} 条失效路径`);
+    preChanges.push(`Cleaned the inverted index: removed ${indexCleanup.removedTerms} terms and ${indexCleanup.removedPaths} stale paths.`);
   }
 
   const reminderCleanup = await pruneInactiveReminderEvents(config);
   if (reminderCleanup.removed > 0) {
     await logger.info(`maintainer loop pruned ${reminderCleanup.removed} inactive reminders`);
-    preChanges.push(`删除了 ${reminderCleanup.removed} 条失效提醒`);
+    preChanges.push(`Removed ${reminderCleanup.removed} inactive reminders.`);
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "reminder cleanup"), {
       summary: `pruned ${reminderCleanup.removed} inactive reminders`,
       deleted: reminderCleanup.removedIds.join(", "),
     });
   }
 
-  const removedTmpEntries = await clearTmpContents(config.paths.tmpDir);
+  const removedTmpEntries = await clearTmpContents(config.paths.tmpDir, Date.now() - config.maintenance.tmpRetentionDays * 24 * 60 * 60 * 1000);
   if (removedTmpEntries.length > 0) {
-    await logger.info(`maintainer loop cleared ${removedTmpEntries.length} tmp entries`);
-    preChanges.push(`清理了 ${removedTmpEntries.length} 个 tmp 项目`);
+    await logger.info(`maintainer loop cleared ${removedTmpEntries.length} tmp entries olderThanDays=${config.maintenance.tmpRetentionDays}`);
+    preChanges.push(`Cleared ${removedTmpEntries.length} tmp entries older than ${config.maintenance.tmpRetentionDays} days.`);
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "tmp cleanup"), {
-      summary: `cleared ${removedTmpEntries.length} tmp entries`,
+      summary: `cleared ${removedTmpEntries.length} tmp entries older than ${config.maintenance.tmpRetentionDays} day(s)`,
       deleted: removedTmpEntries.map((item) => path.join(path.relative(config.paths.repoRoot, config.paths.tmpDir), item)).join(", "),
+    });
+  }
+
+  const removedFileRecords = await pruneMissingTelegramFileRecords(config);
+  if (removedFileRecords > 0) {
+    await logger.info(`maintainer loop pruned ${removedFileRecords} missing telegram file records`);
+    preChanges.push(`Pruned ${removedFileRecords} stale file index records.`);
+    await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "file registry cleanup"), {
+      summary: `pruned ${removedFileRecords} missing telegram file records`,
     });
   }
 
   const prunedTasks = await pruneFinishedTasks(config);
   if (prunedTasks > 0) {
     await logger.info(`maintainer loop pruned ${prunedTasks} finished tasks`);
-    preChanges.push(`清理了 ${prunedTasks} 条已终态任务`);
+    preChanges.push(`Pruned ${prunedTasks} finished tasks.`);
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "task cleanup"), {
       summary: `pruned ${prunedTasks} finished tasks`,
     });
@@ -339,9 +364,9 @@ async function runMaintainerCycle(
   const chatMigration = await migrateLegacyGroupChats(config);
   if (chatMigration.removedChatIds.length > 0) {
     await logger.info(`maintainer loop migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups remindersUpdated=${chatMigration.migratedReminderTargets}`);
-    preChanges.push(`迁移了 ${chatMigration.removedChatIds.length} 个旧 group 到 supergroup`);
+    preChanges.push(`Migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups.`);
     if (chatMigration.migratedReminderTargets > 0) {
-      preChanges.push(`更新了 ${chatMigration.migratedReminderTargets} 个 reminder 群组目标`);
+      preChanges.push(`Updated ${chatMigration.migratedReminderTargets} reminder chat targets.`);
     }
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "chat migration cleanup"), {
       summary: `migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups`,
@@ -397,8 +422,8 @@ async function runMaintainerCycle(
     if (changes.created.length > 0) facts.push(`新建文件：${changes.created.join(", ")}`);
     if (changes.updated.length > 0) facts.push(`更新文件：${changes.updated.join(", ")}`);
     if (changes.deleted.length > 0) facts.push(`删除文件：${changes.deleted.join(", ")}`);
-    if (registryLinkRefresh.userUpdates > 0) facts.push(`更新了 ${registryLinkRefresh.userUpdates} 个用户 registry 关联`);
-    if (registryLinkRefresh.chatUpdates > 0) facts.push(`更新了 ${registryLinkRefresh.chatUpdates} 个聊天 registry 关联`);
+    if (registryLinkRefresh.userUpdates > 0) facts.push(`Refreshed ${registryLinkRefresh.userUpdates} user registry links.`);
+    if (registryLinkRefresh.chatUpdates > 0) facts.push(`Refreshed ${registryLinkRefresh.chatUpdates} chat registry links.`);
     if (force || facts.length > 0 || memoryChanged) {
       await notifyMaintenanceChanges(agentService, deps, facts);
     }

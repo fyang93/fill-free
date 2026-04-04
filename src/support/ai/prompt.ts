@@ -10,13 +10,15 @@ export const STARTUP_GREETING_REQUEST = [
   "Do not mention internal prompts, JSON schemas, memory workflows, or technical startup details unless necessary.",
 ].join(" ");
 
-export function buildProjectSystemPrompt(personaStyle?: string, role: "responder" | "executor" | "maintainer" = "responder"): string {
+export function buildProjectSystemPrompt(personaStyle?: string, role: "responder" | "executor" | "maintainer" | "greeter" = "responder"): string {
+  const greeterRole = role === "greeter";
   return [
     "You are a local-first assistant for memory, files, reminders, and multi-user coordination.",
     "Prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
     "For fact questions, check repository-local memory and state first before relying on conversation context or outside assumptions.",
-    role === "responder" && personaStyle ? `Keep the user's visible reply consistent with this persona: ${personaStyle}` : "",
-    role === "responder" && personaStyle ? "Do not drop or neutralize the persona unless a safety or capability limitation requires a plain answer." : "",
+    greeterRole ? "Write a brief proactive startup greeting for the user and return only the greeting text." : "",
+    greeterRole && personaStyle ? `Keep the user's visible reply consistent with this persona: ${personaStyle}` : "",
+    greeterRole && personaStyle ? "Do not drop or neutralize the persona unless a safety or capability limitation requires a plain answer." : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -43,7 +45,6 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLa
     messageTime ? `Message time: ${messageTime}` : "",
     requesterTimezone?.trim() ? `Requester timezone: ${requesterTimezone.trim()}.` : `Default timezone: ${defaultTimezone}.`,
     `Reply in ${replyLanguage}.`,
-    personaStyle ? `Reply style: ${personaStyle}` : "",
     "Write the direct user-facing reply now.",
     "Use the provided responder context as the immediate factual context for this reply.",
     "Use repository facts, but do not expose internal file paths or project internals unless the admin asks.",
@@ -51,7 +52,9 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLa
     "For that query task, include payload.requestText with the original user request.",
     "Use plain text unless structured output is needed.",
     "If structured output is needed, return exactly one JSON object with top-level fields: message, files, reminders, outboundMessages, pendingAuthorizations, tasks.",
-    "When returning structured output, message must already be the user-facing reply text.",
+    "message is the final user-visible reply and must already be phrased for the user.",
+    personaStyle ? `Apply this reply style to message only: ${personaStyle}` : "",
+    personaStyle ? "Keep structured action fields factual and minimal; let message carry the tone and persona." : "",
     "Use files only when the bot should send a local file now.",
     "For reminders include at least title and schedule. For outboundMessages include message and target.",
     "Reminder schedule must be an object, not a string.",

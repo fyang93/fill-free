@@ -76,9 +76,12 @@ async function sendStartupGreeting(): Promise<void> {
       return;
     }
 
-    const greeting = await agentService.generateStartupGreeting();
+    const greeting = await Promise.race([
+      agentService.generateStartupGreeting(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+    ]);
     if (!greeting) {
-      await logger.warn("startup greeting generation returned empty output; skipping greet");
+      await logger.warn("startup greeting generation timed out or returned empty output; skipping greet");
       return;
     }
 
@@ -260,7 +263,7 @@ await bot.start({
       await logger.info(`startup pruned ${expiredReminderCleanup.removed} expired reminders: ${expiredReminderCleanup.removedIds.join(", ")}`);
     }
     await enqueueActiveReminderPreparationTasks();
-    await sendStartupGreeting();
+    void sendStartupGreeting();
   },
 });
 

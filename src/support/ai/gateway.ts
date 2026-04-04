@@ -14,7 +14,9 @@ type SessionEntry = {
   sessionId: string;
 };
 
-type PromptRole = "responder" | "executor" | "maintainer";
+type PromptRole = "responder" | "executor" | "maintainer" | "greeter";
+
+type PromptToolsConfig = Record<string, boolean>;
 
 function parseModel(model: string | null): { providerID: string; modelID: string } | null {
   if (!model) return null;
@@ -52,7 +54,7 @@ export class AiService {
     this.replyComposer = new ReplyComposer(
       config,
       (text) => this.promptInLightTextSession(text, "responder"),
-      (text) => this.promptInLightTextSession(text),
+      (text) => this.promptInLightTextSession(text, "greeter"),
     );
     this.structuredReasoner = new StructuredReasoner(config, (promptText, attachments, scopeKey) => this.promptWithCurrentLightSession(promptText, attachments, scopeKey), (attachments) => this.attachmentLogSummary(attachments));
   }
@@ -237,6 +239,28 @@ export class AiService {
     return buildProjectSystemPrompt(this.config.bot.personaStyle, role);
   }
 
+  private toolsForRole(role?: PromptRole): PromptToolsConfig | undefined {
+    if (role !== "greeter" && role !== "responder") return undefined;
+    return {
+      read: false,
+      edit: false,
+      write: false,
+      patch: false,
+      bash: false,
+      glob: false,
+      grep: false,
+      list: false,
+      webfetch: false,
+      websearch: false,
+      codesearch: false,
+      task: false,
+      question: false,
+      todowrite: false,
+      lsp: false,
+      skill: false,
+    };
+  }
+
   private async promptAndParse(sessionId: string, text: string, attachments: AiAttachment[], temporary: boolean): Promise<AiTurnResult> {
     const startedAt = Date.now();
     await logger.info(`opencode prompt start temporary=${temporary ? "yes" : "no"} sessionId=${sessionId} model=${JSON.stringify(state.model || "default")} textChars=${text.length} attachments=${attachments.length}`);
@@ -271,7 +295,7 @@ export class AiService {
 
   private async promptWithCurrentLightSession(text: string, attachments: AiAttachment[], scopeKey?: string): Promise<AiTurnResult> {
     const entry = await this.getOrCreateSession(scopeKey, scopeKey);
-    const rawText = await this.promptSessionForLightText(entry.sessionId, text, attachments);
+    const rawText = await this.promptSessionForLightText(entry.sessionId, text, attachments, "responder");
     touchActivity();
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, false);
@@ -307,6 +331,7 @@ export class AiService {
       body: {
         system: role ? this.systemPromptForRole(role) : undefined,
         model: parseModel(state.model) || undefined,
+        tools: this.toolsForRole(role),
         parts: this.buildParts(text, attachments),
       },
     }) as any;

@@ -2,6 +2,9 @@ import { access, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promis
 import path from "node:path";
 import { InputFile, type Context } from "grammy";
 import type { AppConfig, AiAttachment, UploadedFile } from "scheduling/app/types";
+import { findTelegramFileByUniqueId, rememberTelegramFileRecord } from "operations/files/store";
+
+type AnyRecord = Record<string, unknown>;
 
 const INVALID_FILENAME_RE = /[^a-zA-Z0-9._-]+/g;
 const REPO_FILE_PATH_RE = /(?:^|[\s`"'(<\[])(assets\/[^\s`"')>\]]+|tmp\/[^\s`"')>\]]+|\/[^\s`"')>\]]+)(?=$|[\s`"')>\]])/gm;
@@ -86,62 +89,82 @@ async function fetchAttachmentBytes(url: string): Promise<{ bytes: Uint8Array; m
   };
 }
 
-export async function saveTelegramFile(
-  ctx: Context,
-  config: AppConfig,
-): Promise<UploadedFile | null> {
-  const document = ctx.message && "document" in ctx.message ? ctx.message.document : undefined;
-  const photos = ctx.message && "photo" in ctx.message ? ctx.message.photo : undefined;
-  const voice = ctx.message && "voice" in ctx.message ? ctx.message.voice : undefined;
-  const audio = ctx.message && "audio" in ctx.message ? ctx.message.audio : undefined;
-  const video = ctx.message && "video" in ctx.message ? ctx.message.video : undefined;
+function asRecord(value: unknown): AnyRecord | undefined {
+  return value && typeof value === "object" ? value as AnyRecord : undefined;
+}
 
-  let fileId: string | undefined;
-  let originalName = "file";
-  let mimeType = "application/octet-stream";
-  let source: UploadedFile["source"] = "document";
-  let audioTitle: string | undefined;
-  let audioPerformer: string | undefined;
-  let durationSeconds: number | undefined;
+function extractTelegramFileMetadata(message: unknown): Omit<UploadedFile, "savedPath" | "absolutePath" | "sizeBytes" | "filename"> & { fileId: string } | null {
+  const record = asRecord(message);
+  const document = asRecord(record?.document);
+  const voice = asRecord(record?.voice);
+  const audio = asRecord(record?.audio);
+  const video = asRecord(record?.video);
+  const photos = Array.isArray(record?.photo) ? record.photo : [];
 
-  if (document?.file_id) {
-    fileId = document.file_id;
-    originalName = sanitizeFilename(document.file_name || "document");
-    mimeType = document.mime_type || mimeType;
-    source = "document";
-  } else if (Array.isArray(photos) && photos.length > 0) {
-    const photo = photos[photos.length - 1];
-    fileId = photo.file_id;
-    originalName = `photo-${Date.now()}.jpg`;
-    mimeType = "image/jpeg";
-    source = "photo";
-  } else if (voice?.file_id) {
-    fileId = voice.file_id;
-    mimeType = voice.mime_type || "audio/ogg";
-    originalName = `voice-${Date.now()}${inferExtensionFromMime(mimeType) || ".ogg"}`;
-    source = "voice";
-    durationSeconds = typeof voice.duration === "number" ? voice.duration : undefined;
-  } else if (audio?.file_id) {
-    fileId = audio.file_id;
-    mimeType = audio.mime_type || "audio/mpeg";
-    originalName = sanitizeFilename(audio.file_name || `audio-${Date.now()}${inferExtensionFromMime(mimeType) || ".audio"}`);
-    source = "audio";
-    audioTitle = typeof audio.title === "string" && audio.title.trim() ? audio.title.trim() : undefined;
-    audioPerformer = typeof audio.performer === "string" && audio.performer.trim() ? audio.performer.trim() : undefined;
-    durationSeconds = typeof audio.duration === "number" ? audio.duration : undefined;
-  } else if (video?.file_id) {
-    fileId = video.file_id;
-    mimeType = video.mime_type || "video/mp4";
-    originalName = sanitizeFilename(video.file_name || `video-${Date.now()}${inferExtensionFromMime(mimeType) || ".mp4"}`);
-    source = "video";
-    durationSeconds = typeof video.duration === "number" ? video.duration : undefined;
+  if (typeof document?.file_id === "string") {
+    return {
+      fileId: document.file_id,
+      originalName: sanitizeFilename(typeof document.file_name === "string" ? document.file_name : "document"),
+      mimeType: typeof document.mime_type === "string" && document.mime_type.trim() ? document.mime_type : "application/octet-stream",
+      source: "document",
+      telegramFileUniqueId: typeof document.file_unique_id === "string" && document.file_unique_id.trim() ? document.file_unique_id : undefined,
+    };
+  }
+  if (photos.length > 0) {
+    const photo = asRecord(photos[photos.length - 1]);
+    if (typeof photo?.file_id === "string") {
+      return {
+        fileId: photo.file_id,
+        originalName: `photo-${Date.now()}.jpg`,
+        mimeType: "image/jpeg",
+        source: "photo",
+        telegramFileUniqueId: typeof photo.file_unique_id === "string" && photo.file_unique_id.trim() ? photo.file_unique_id : undefined,
+      };
+    }
+  }
+  if (typeof voice?.file_id === "string") {
+    const mimeType = typeof voice.mime_type === "string" && voice.mime_type.trim() ? voice.mime_type : "audio/ogg";
+    return {
+      fileId: voice.file_id,
+      originalName: `voice-${Date.now()}${inferExtensionFromMime(mimeType) || ".ogg"}`,
+      mimeType,
+      source: "voice",
+      telegramFileUniqueId: typeof voice.file_unique_id === "string" && voice.file_unique_id.trim() ? voice.file_unique_id : undefined,
+      durationSeconds: typeof voice.duration === "number" ? voice.duration : undefined,
+    };
+  }
+  if (typeof audio?.file_id === "string") {
+    const mimeType = typeof audio.mime_type === "string" && audio.mime_type.trim() ? audio.mime_type : "audio/mpeg";
+    return {
+      fileId: audio.file_id,
+      originalName: sanitizeFilename(typeof audio.file_name === "string" && audio.file_name.trim() ? audio.file_name : `audio-${Date.now()}${inferExtensionFromMime(mimeType) || ".audio"}`),
+      mimeType,
+      source: "audio",
+      telegramFileUniqueId: typeof audio.file_unique_id === "string" && audio.file_unique_id.trim() ? audio.file_unique_id : undefined,
+      audioTitle: typeof audio.title === "string" && audio.title.trim() ? audio.title.trim() : undefined,
+      audioPerformer: typeof audio.performer === "string" && audio.performer.trim() ? audio.performer.trim() : undefined,
+      durationSeconds: typeof audio.duration === "number" ? audio.duration : undefined,
+    };
+  }
+  if (typeof video?.file_id === "string") {
+    const mimeType = typeof video.mime_type === "string" && video.mime_type.trim() ? video.mime_type : "video/mp4";
+    return {
+      fileId: video.file_id,
+      originalName: sanitizeFilename(typeof video.file_name === "string" && video.file_name.trim() ? video.file_name : `video-${Date.now()}${inferExtensionFromMime(mimeType) || ".mp4"}`),
+      mimeType,
+      source: "video",
+      telegramFileUniqueId: typeof video.file_unique_id === "string" && video.file_unique_id.trim() ? video.file_unique_id : undefined,
+      durationSeconds: typeof video.duration === "number" ? video.duration : undefined,
+    };
   }
 
-  if (!fileId) return null;
+  return null;
+}
 
+async function persistTelegramFile(ctx: Context, config: AppConfig, fileMeta: Omit<UploadedFile, "savedPath" | "absolutePath" | "sizeBytes" | "filename"> & { fileId: string }): Promise<UploadedFile> {
   let file;
   try {
-    file = await ctx.api.getFile(fileId);
+    file = await ctx.api.getFile(fileMeta.fileId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/file is too big/i.test(message)) {
@@ -154,25 +177,46 @@ export async function saveTelegramFile(
   }
 
   const bytes = await downloadTelegramFile(config.telegram.botToken, file.file_path);
-
   const dateDir = new Date().toISOString().slice(0, 10);
   const targetDir = path.join(config.paths.tmpDir, config.paths.uploadSubdir, dateDir);
   await mkdir(targetDir, { recursive: true });
-  const unique = await uniquePath(targetDir, originalName);
+  const unique = await uniquePath(targetDir, fileMeta.originalName);
   await writeFile(unique.filePath, bytes);
 
-  return {
+  const uploaded = {
     savedPath: path.relative(config.paths.repoRoot, unique.filePath),
     absolutePath: unique.filePath,
-    originalName,
+    originalName: fileMeta.originalName,
     filename: unique.filename,
-    mimeType,
+    mimeType: fileMeta.mimeType,
     sizeBytes: bytes.byteLength,
-    source,
-    audioTitle,
-    audioPerformer,
-    durationSeconds,
-  };
+    source: fileMeta.source,
+    telegramFileUniqueId: fileMeta.telegramFileUniqueId,
+    audioTitle: fileMeta.audioTitle,
+    audioPerformer: fileMeta.audioPerformer,
+    durationSeconds: fileMeta.durationSeconds,
+  } satisfies UploadedFile;
+  await rememberTelegramFileRecord(config, uploaded);
+  return uploaded;
+}
+
+export async function saveTelegramFileFromMessage(
+  ctx: Context,
+  config: AppConfig,
+  message: unknown,
+): Promise<UploadedFile | null> {
+  const fileMeta = extractTelegramFileMetadata(message);
+  if (!fileMeta) return null;
+  const existing = await findTelegramFileByUniqueId(config, fileMeta.telegramFileUniqueId);
+  if (existing) return existing;
+  return persistTelegramFile(ctx, config, fileMeta);
+}
+
+export async function saveTelegramFile(
+  ctx: Context,
+  config: AppConfig,
+): Promise<UploadedFile | null> {
+  return saveTelegramFileFromMessage(ctx, config, ctx.message);
 }
 
 export async function uploadedFileToAiAttachment(file: UploadedFile): Promise<AiAttachment> {

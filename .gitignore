@@ -29,6 +29,9 @@ assets/**
 system/**
 !system/
 !system/.gitkeep
+!system/files.json
 !system/schemas/
 !system/schemas/**
+
+.nfs*
 

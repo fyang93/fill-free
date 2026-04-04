@@ -17,6 +17,7 @@ import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";
 import { createWaitingMessageController } from "./waiting";
 import { rememberTelegramParticipants } from "interaction/telegram/identity";
 import { buildTelegramReplyContextBlock, summarizeIncomingText, telegramReplySummary } from "interaction/telegram/reply_context";
+import { saveTelegramFileFromMessage, uploadedFileToAiAttachment } from "interaction/telegram/transport";
 import { PendingConversationMerge } from "./pending_merge";
 import { ingestTelegramFile, logFilePromptScheduling } from "interaction/telegram/ingress";
 import { ActiveConversationTasks } from "./active";
@@ -35,7 +36,20 @@ type ReactionCapableApi = Bot<Context>["api"] & {
   setMessageReaction?: (chatId: number, messageId: number, reaction: Array<{ type: "emoji"; emoji: string }>, isBig?: boolean) => Promise<unknown>;
 };
 
+type AnyRecord = Record<string, unknown>;
+type MediaGroupEntry = {
+  uploaded: UploadedFile;
+  attachment: AiAttachment;
+};
+
+type MediaGroupCacheEntry = {
+  files: Map<number, MediaGroupEntry>;
+  updatedAt: number;
+};
+
 const TEXT_ATTACHMENT_MERGE_WINDOW_MS = 1200;
+const MEDIA_GROUP_CACHE_TTL_MS = 60 * 60 * 1000;
+const MEDIA_GROUP_CACHE_MAX_GROUPS = 200;
 
 function isExpectedFileIngressError(message: string): boolean {
   return /file is too big|bot download limit|exceeds limit of/i.test(message);
@@ -66,6 +80,7 @@ export class ConversationController {
   private readonly waiting;
   private readonly pendingMerge;
   private readonly activeTasks;
+  private readonly mediaGroups = new Map<string, MediaGroupCacheEntry>();
 
   constructor(private readonly deps: ConversationControllerDeps) {
     this.waiting = createWaitingMessageController(
@@ -80,10 +95,10 @@ export class ConversationController {
       },
     );
     this.activeTasks = new ActiveConversationTasks(
-      this.deps.config,
       this.deps.bot,
       this.deps.agentService,
       (task) => this.waiting.stop(task),
+      (chatId, messageId, emoji) => this.setReactionByMessageSafe(chatId, messageId, emoji),
     );
   }
 
@@ -101,10 +116,14 @@ export class ConversationController {
   async setReactionByMessageSafe(chatId: number, messageId: number, emoji: string): Promise<void> {
     try {
       const api = this.deps.bot.api as ReactionCapableApi;
-      if (!api.setMessageReaction) return;
+      if (!api.setMessageReaction) {
+        await logger.warn(`reaction unsupported chat=${chatId} message=${messageId} emoji=${emoji}`);
+        return;
+      }
       await api.setMessageReaction(chatId, messageId, [{ type: "emoji", emoji }], false);
-    } catch {
-      // ignore reaction failures
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await logger.warn(`reaction failed chat=${chatId} message=${messageId} emoji=${emoji}: ${message}`);
     }
   }
 
@@ -143,22 +162,24 @@ export class ConversationController {
       rememberTelegramParticipants(this.deps.config, ctx);
       const scope = this.conversationScope(ctx);
       const { files: validRecentUploads, attachments } = await buildRecentAttachments(scope.key);
+      const replyContext = await this.repliedMessageContext(ctx);
+      const allUploadedFiles = [...validRecentUploads, ...replyContext.uploadedFiles];
+      const allAttachments = [...attachments, ...replyContext.attachments];
       const messageTime = await this.messageReferenceTime(ctx);
-      const replyContext = this.repliedMessageContext(ctx);
-      const effectiveText = replyContext
+      const effectiveText = replyContext.text
         ? [
             "Current user message:",
             text,
             "",
-            replyContext,
+            replyContext.text,
           ].join("\n")
         : text;
-      await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} chatType=${ctx.chat?.type ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${telegramReplySummary(ctx)} replyContextIncluded=${replyContext ? "yes" : "no"}`);
-      if (validRecentUploads.length === 0 && attachments.length === 0) {
+      await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} chatType=${ctx.chat?.type ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${telegramReplySummary(ctx)} replyContextIncluded=${replyContext.text ? "yes" : "no"} replyFiles=${replyContext.uploadedFiles.length}`);
+      if (allUploadedFiles.length === 0 && allAttachments.length === 0) {
         this.pendingMerge.schedule(scope.key, ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, messageTime);
         return;
       }
-      this.startConversationTask(ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, validRecentUploads, attachments, messageTime);
+      this.startConversationTask(ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, allUploadedFiles, allAttachments, messageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await logger.error(`text handling failed: ${message}`);
@@ -204,6 +225,7 @@ export class ConversationController {
       const saved = await ingestTelegramFile(ctx, this.deps.config, scope.key);
       if (!saved) return;
       const { uploaded, attachment } = saved;
+      this.rememberMediaGroupFile(ctx, uploaded, attachment);
 
       if (!caption) {
         const mergedPending = this.pendingMerge.consumeForFile(scope.key, ctx, "", await this.messageReferenceTime(ctx), scope.label);
@@ -212,7 +234,6 @@ export class ConversationController {
           return;
         }
         await this.setReactionSafe(ctx, "🥰");
-        await replyFormatted(ctx, t(this.deps.config, "file_saved", { path: uploaded.savedPath, waiting_message: this.deps.config.telegram.waitingMessage }));
         return;
       }
 
@@ -256,8 +277,94 @@ export class ConversationController {
     return sessionId;
   }
 
-  private repliedMessageContext(ctx: Context): string {
-    return buildTelegramReplyContextBlock(ctx);
+  private asRecord(value: unknown): AnyRecord | undefined {
+    return value && typeof value === "object" ? value as AnyRecord : undefined;
+  }
+
+  private mediaGroupKey(chatId: number, mediaGroupId: string): string {
+    return `${chatId}:${mediaGroupId}`;
+  }
+
+  private pruneMediaGroups(now = Date.now()): void {
+    for (const [key, entry] of this.mediaGroups.entries()) {
+      if (now - entry.updatedAt > MEDIA_GROUP_CACHE_TTL_MS) {
+        this.mediaGroups.delete(key);
+      }
+    }
+    if (this.mediaGroups.size <= MEDIA_GROUP_CACHE_MAX_GROUPS) return;
+    const overflow = this.mediaGroups.size - MEDIA_GROUP_CACHE_MAX_GROUPS;
+    const oldest = Array.from(this.mediaGroups.entries())
+      .sort((a, b) => a[1].updatedAt - b[1].updatedAt)
+      .slice(0, overflow);
+    for (const [key] of oldest) this.mediaGroups.delete(key);
+  }
+
+  private rememberMediaGroupFile(ctx: Context, uploaded: UploadedFile, attachment: AiAttachment): void {
+    const chatId = ctx.chat?.id;
+    const message = this.asRecord(ctx.message);
+    const mediaGroupId = typeof message?.media_group_id === "string" ? message.media_group_id : undefined;
+    const messageId = typeof message?.message_id === "number" ? message.message_id : undefined;
+    if (!chatId || !mediaGroupId || !messageId) return;
+    const now = Date.now();
+    this.pruneMediaGroups(now);
+    const key = this.mediaGroupKey(chatId, mediaGroupId);
+    const existing = this.mediaGroups.get(key) || { files: new Map<number, MediaGroupEntry>(), updatedAt: now };
+    existing.files.set(messageId, { uploaded, attachment });
+    existing.updatedAt = now;
+    this.mediaGroups.set(key, existing);
+  }
+
+  private formatUploadedFileLine(uploaded: UploadedFile): string {
+    return `- ${uploaded.savedPath} (${uploaded.mimeType}, ${Math.ceil(uploaded.sizeBytes / 1024)} KB, source=${uploaded.source}${typeof uploaded.durationSeconds === "number" ? `, duration=${uploaded.durationSeconds}s` : ""}${uploaded.audioTitle ? `, title=${JSON.stringify(uploaded.audioTitle)}` : ""}${uploaded.audioPerformer ? `, performer=${JSON.stringify(uploaded.audioPerformer)}` : ""})`;
+  }
+
+  private async repliedMessageContext(ctx: Context): Promise<{ text: string; uploadedFiles: UploadedFile[]; attachments: AiAttachment[] }> {
+    const base = buildTelegramReplyContextBlock(ctx);
+    const message = this.asRecord(ctx.message);
+    const repliedMessage = this.asRecord(message?.reply_to_message);
+    const chatId = ctx.chat?.id;
+    if (!repliedMessage || !chatId) return { text: base, uploadedFiles: [], attachments: [] };
+
+    const mediaGroupId = typeof repliedMessage.media_group_id === "string" ? repliedMessage.media_group_id : undefined;
+    if (mediaGroupId) {
+      this.pruneMediaGroups();
+      const cached = this.mediaGroups.get(this.mediaGroupKey(chatId, mediaGroupId));
+      if (cached && cached.files.size > 0) {
+        const entries = Array.from(cached.files.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([, entry]) => entry);
+        const fileSummary = [
+          "Reply-attached files saved for this request:",
+          ...entries.map((entry) => this.formatUploadedFileLine(entry.uploaded)),
+          "Treat these saved files as the full file set contained in the replied media group.",
+        ].join("\n");
+        await logger.info(`resolved replied media group chat=${chatId} mediaGroupId=${mediaGroupId} files=${entries.length}`);
+        return {
+          text: [base, fileSummary].filter(Boolean).join("\n\n"),
+          uploadedFiles: entries.map((entry) => entry.uploaded),
+          attachments: entries.map((entry) => entry.attachment),
+        };
+      }
+      await logger.warn(`replied media group cache miss chat=${chatId} mediaGroupId=${mediaGroupId}; falling back to the replied message only`);
+    }
+
+    const uploaded = await saveTelegramFileFromMessage(ctx, this.deps.config, repliedMessage);
+    if (!uploaded) return { text: base, uploadedFiles: [], attachments: [] };
+
+    const attachment = await uploadedFileToAiAttachment(uploaded);
+    const fileSummary = [
+      "Reply-attached files saved for this request:",
+      this.formatUploadedFileLine(uploaded),
+      mediaGroupId
+        ? "Treat this saved file as the replied media item. The full media group was not available in cache."
+        : "Treat this saved file as the file contained in the replied message.",
+    ].join("\n");
+    await logger.info(`saved replied message file ${uploaded.savedPath}`);
+    return {
+      text: [base, fileSummary].filter(Boolean).join("\n\n"),
+      uploadedFiles: [uploaded],
+      attachments: [attachment],
+    };
   }
 
   private async messageReferenceTime(ctx: Context): Promise<string> {

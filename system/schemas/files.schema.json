@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/files.schema.json",
+  "title": "Files Store",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["telegramFilesByUniqueId"],
+  "properties": {
+    "telegramFilesByUniqueId": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "savedPath",
+          "originalName",
+          "filename",
+          "mimeType",
+          "sizeBytes",
+          "source",
+          "telegramFileUniqueId",
+          "firstSavedAt",
+          "lastSeenAt"
+        ],
+        "properties": {
+          "savedPath": { "type": "string" },
+          "originalName": { "type": "string" },
+          "filename": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "source": { "type": "string", "enum": ["document", "photo", "voice", "audio", "video"] },
+          "telegramFileUniqueId": { "type": "string" },
+          "audioTitle": { "type": "string" },
+          "audioPerformer": { "type": "string" },
+          "durationSeconds": { "type": "number", "minimum": 0 },
+          "firstSavedAt": { "type": "string", "format": "date-time" },
+          "lastSeenAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

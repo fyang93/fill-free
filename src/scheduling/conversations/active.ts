@@ -1,22 +1,16 @@
 import { logger } from "scheduling/app/logger";
-import { t } from "scheduling/app/i18n";
-import type { AppConfig } from "scheduling/app/types";
 import type { AiService } from "support/ai";
 import type { Bot, Context } from "grammy";
 import type { ActiveConversationTask } from "roles/responder";
-
-type ReactionCapableApi = Bot<Context>["api"] & {
-  setMessageReaction?: (chatId: number, messageId: number, reaction: Array<{ type: "emoji"; emoji: string }>, isBig?: boolean) => Promise<unknown>;
-};
 
 export class ActiveConversationTasks {
   private readonly tasks = new Map<string, ActiveConversationTask>();
 
   constructor(
-    private readonly config: AppConfig,
     private readonly bot: Bot<Context>,
     private readonly agentService: AiService,
     private readonly stopWaiting: (task: ActiveConversationTask) => void,
+    private readonly setReaction: (chatId: number, messageId: number, emoji: string) => Promise<void>,
   ) {}
 
   hasAny(): boolean {
@@ -49,24 +43,14 @@ export class ActiveConversationTasks {
       this.tasks.delete(key);
       await logger.warn(`interrupting active task ${running.id} for ${running.scopeLabel}: ${reason}`);
       await this.agentService.abortCurrentSession(running.scopeKey, running.scopeLabel);
-      await this.setReaction(running.chatId, running.sourceMessageId, "😞");
+      await this.setReaction(running.chatId, running.sourceMessageId, "😢");
       if (typeof running.waitingMessageId === "number") {
         try {
-          await this.bot.api.editMessageText(running.chatId, running.waitingMessageId, t(this.config, "task_interrupted"));
+          await this.bot.api.deleteMessage(running.chatId, running.waitingMessageId);
         } catch {
-          // ignore message edit failures
+          // ignore waiting-message deletion failures
         }
       }
-    }
-  }
-
-  private async setReaction(chatId: number, messageId: number, emoji: string): Promise<void> {
-    try {
-      const api = this.bot.api as ReactionCapableApi;
-      if (!api.setMessageReaction) return;
-      await api.setMessageReaction(chatId, messageId, [{ type: "emoji", emoji }], false);
-    } catch {
-      // ignore reaction failures
     }
   }
 }

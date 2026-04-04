@@ -85,6 +85,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   const adminUserId = typeof adminUserIdValue === "number" && adminUserIdValue > 0 ? adminUserIdValue : null;
   const defaultTimezone = stringOr(bot.default_timezone, "Asia/Tokyo").trim() || "Asia/Tokyo";
   const maintenanceIdleAfterMinutes = numberOr(maintenance.idle_after_minutes, 15);
+  const tmpRetentionDays = Math.max(1, numberOr(maintenance.tmp_retention_days, 7));
 
   const config: AppConfig = {
     telegram: {
@@ -110,6 +111,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
     maintenance: {
       enabled: booleanOr(maintenance.enabled, true),
       idleAfterMs: Math.max(0, maintenanceIdleAfterMinutes) * 60 * 1000,
+      tmpRetentionDays,
     },
     opencode: {
       baseUrl: stringOr(opencode.base_url, "http://127.0.0.1:4096").trim() || "http://127.0.0.1:4096",
