@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/inverted-index.schema.json",
+  "title": "Inverted Index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["terms"],
+  "properties": {
+    "terms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["paths", "updatedAt"],
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "lastConfirmedAt": { "type": "string", "format": "date-time" },
+          "lastUsedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

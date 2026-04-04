@@ -17,7 +17,13 @@ Use this skill for reminder interpretation and reminder management.
 ## Operating Principles
 
 - Prefer repository-local sources first for reminders, user memory, files, logs, and project behavior.
-- If wording, reminder timing habits, coordination defaults, or delivery preferences may matter, check `memory/preferences.md`.
+- If wording, reminder timing habits, coordination defaults, or delivery preferences may matter, check `system/rules.json` first, then `memory/preferences/` notes if needed.
+- For reminder-related standing habits, prefer task-scoped or narrowly targeted rules over broad global rules unless the user clearly intends a broad default.
+- Distinguish absolute reminders from local-time reminders.
+- Treat relative one-time requests like “in two hours” as absolute. Treat routine schedules, birthdays, anniversaries, festivals, and memorials as local unless the user clearly anchors them to a fixed instant.
+- For local reminders, consider timezone clues in this order: explicit timezone from the user, clearly known event-subject timezone, reminder recipient timezone, requester timezone, then system default.
+- Only use subject timezone when it is clearly supported by repository-local evidence. Do not invent timezone from weak identity assumptions.
+- If local evidence clearly supports an event-subject timezone, include `subjectTimezone` in the reminder draft.
 - Let the model handle intent extraction and ambiguity: event kind, schedule shape, offsets, timezone clues, and whether clarification is necessary.
 - Let code own reminder defaults, validation, normalization, timezone memory, and persistence.
 - Prefer the smallest sufficient clarification. Ask only when the reminder cannot yet be represented safely.

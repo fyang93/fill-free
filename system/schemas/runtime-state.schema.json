@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/runtime-state.schema.json",
+  "title": "Runtime State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["model", "lastMaintainedAt", "lastMaintenanceFingerprint", "pendingAuthorizations"],
+  "properties": {
+    "model": { "type": ["string", "null"] },
+    "lastMaintainedAt": { "type": ["string", "null"], "format": "date-time" },
+    "lastMaintenanceFingerprint": { "type": ["string", "null"] },
+    "pendingAuthorizations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "username", "createdBy", "createdAt", "expiresAt"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["allowed"] },
+          "username": { "type": "string" },
+          "createdBy": { "type": "integer" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

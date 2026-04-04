@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/users.schema.json",
+  "title": "Telegram Users Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["users"],
+  "properties": {
+    "users": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[0-9]+$" },
+      "additionalProperties": { "$ref": "#/$defs/user" }
+    }
+  },
+  "$defs": {
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memoryPath", "updatedAt"],
+      "properties": {
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "memoryPath": { "type": "string" },
+        "timezone": { "type": "string" },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

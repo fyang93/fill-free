@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/rules.schema.json",
+  "title": "Structured Rules",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rules"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "appliesTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain"],
+      "properties": {
+        "domain": { "type": "string" },
+        "selector": { "type": "string" },
+        "userIds": { "$ref": "#/$defs/stringArray" },
+        "chatIds": { "$ref": "#/$defs/stringArray" },
+        "taskIds": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "appliesTo", "topic", "content", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "appliesTo": { "$ref": "#/$defs/appliesTo" },
+        "topic": { "type": "string" },
+        "content": { "type": "object", "additionalProperties": true },
+        "createdBy": { "type": "string", "pattern": "^[0-9]+$" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

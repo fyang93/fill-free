@@ -13,8 +13,7 @@
       "required": ["targetKind", "targetId"],
       "properties": {
         "targetKind": { "type": "string", "enum": ["user", "chat"] },
-        "targetId": { "type": "integer" },
-        "displayName": { "type": "string" }
+        "targetId": { "type": "integer" }
       }
     },
     "notification": {

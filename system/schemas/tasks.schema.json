@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/tasks.schema.json",
+  "title": "Task Store",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tasks"],
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/task" }
+    }
+  },
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "id": { "type": "string" },
+        "scope": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requesterUserId": { "type": "integer" },
+        "chatId": { "type": "integer" },
+        "messageId": { "type": "integer" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message"],
+      "properties": {
+        "message": { "type": "string" },
+        "code": { "type": "string" },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "state",
+        "domain",
+        "operation",
+        "payload",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["queued", "running", "blocked", "done", "failed", "cancelled", "superseded"]
+        },
+        "domain": { "type": "string" },
+        "operation": { "type": "string" },
+        "subject": { "$ref": "#/$defs/subject" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dedupeKey": { "type": "string" },
+        "supersedesTaskIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source": { "$ref": "#/$defs/source" },
+        "result": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "error": { "$ref": "#/$defs/error" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

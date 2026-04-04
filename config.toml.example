@@ -1,30 +1,21 @@
 [telegram]
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
-# Users allowed to chat with the bot in privacy-restricted read-only mode
-# May be empty if you only use trusted/admin users
-allowed_user_ids = [111111111]
-# Users with trusted access (can read/write private memory, files, reminders, etc.)
-# These users do not need to also appear in allowed_user_ids
-trusted_user_ids = [222222222]
-# Optional admin user ID; admin is also treated as trusted and may change runtime config
-# The admin does not need to also appear in trusted_user_ids or allowed_user_ids
+# Bootstrap admin user. Durable user roles live in system/users.json.
 admin_user_id = 333333333
-max_file_size_mb = 200
+waiting_message = "机宝启动中..."
+waiting_message_candidates = ["还在想...", "再等我一下...", "马上就好..."]
+waiting_message_rotation_seconds = 5
+menu_page_size = 8
 
 [bot]
 persona_style = "Speak like the Defect from Slay the Spire."
 # Choose "zh" or "en"
 language = "zh"
-waiting_message = "机宝启动中..."
-waiting_message_candidates = ["还在想...", "再等我一下...", "马上就好..."]
-waiting_message_rotation_ms = 5000
-reminder_message_timeout_ms = 60000
-prompt_task_timeout_ms = 60000
-menu_page_size = 8
 default_timezone = "Asia/Tokyo"
 
-[dreaming]
+[maintenance]
 enabled = true
-idle_after_ms = 900000
-check_interval_ms = 60000
-timeout_ms = 300000
+idle_after_minutes = 15
+
+[opencode]
+base_url = "http://127.0.0.1:4096"

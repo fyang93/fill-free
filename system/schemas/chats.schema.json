@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/chats.schema.json",
+  "title": "Chat Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["chats"],
+  "properties": {
+    "chats": {
+      "type": "object",
+      "propertyNames": { "pattern": "^-?[0-9]+$" },
+      "additionalProperties": { "$ref": "#/$defs/chat" }
+    }
+  },
+  "$defs": {
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastInteractedAt"],
+      "properties": {
+        "lastInteractedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "chat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["updatedAt"],
+      "properties": {
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "memoryPath": { "type": "string" },
+        "participants": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[0-9]+$" },
+          "additionalProperties": { "$ref": "#/$defs/participant" }
+        },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

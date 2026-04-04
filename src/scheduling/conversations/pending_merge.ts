@@ -1,0 +1,114 @@
+import type { Context } from "grammy";
+import { logger } from "scheduling/app/logger";
+
+type PendingTextTask = {
+  timer: NodeJS.Timeout;
+  ctx: Context;
+  waitingTemplate: string;
+  promptText: string;
+  messageTime?: string;
+  sourceMessageId: number;
+  userId?: number;
+};
+
+export type PendingConversationInput = {
+  promptText: string;
+  messageTime?: string;
+};
+
+export type RejectedPendingInput = {
+  sourceMessageId: number;
+};
+
+export class PendingConversationMerge {
+  private pendingTextTasks = new Map<string, PendingTextTask>();
+
+  constructor(
+    private readonly mergeWindowMs: number,
+    private readonly startConversationTask: (
+      ctx: Context,
+      waitingTemplate: string,
+      promptText: string,
+      messageTime?: string,
+    ) => void,
+  ) {}
+
+  schedule(
+    scopeKey: string,
+    ctx: Context,
+    waitingTemplate: string,
+    promptText: string,
+    messageTime?: string,
+  ): void {
+    const sourceMessageId = ctx.message?.message_id;
+    if (!sourceMessageId) return;
+
+    this.clear(scopeKey, "replaced by newer text message");
+    const timer = setTimeout(() => {
+      const pending = this.pendingTextTasks.get(scopeKey);
+      if (!pending || pending.sourceMessageId !== sourceMessageId) return;
+      this.pendingTextTasks.delete(scopeKey);
+      this.startConversationTask(pending.ctx, pending.waitingTemplate, pending.promptText, pending.messageTime);
+    }, this.mergeWindowMs);
+
+    this.pendingTextTasks.set(scopeKey, {
+      timer,
+      ctx,
+      waitingTemplate,
+      promptText,
+      messageTime,
+      sourceMessageId,
+      userId: ctx.from?.id,
+    });
+  }
+
+  clear(scopeKey: string, reason?: string): void {
+    const pending = this.pendingTextTasks.get(scopeKey);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingTextTasks.delete(scopeKey);
+    if (reason) void logger.info(`cleared pending text task for ${scopeKey}: ${reason}`);
+  }
+
+  consumeForFile(
+    scopeKey: string,
+    ctx: Context,
+    caption: string,
+    messageTime?: string,
+    scopeLabel?: string,
+  ): PendingConversationInput | null {
+    const pending = this.pendingTextTasks.get(scopeKey);
+    if (!pending) return null;
+    if (pending.userId !== ctx.from?.id) return null;
+
+    clearTimeout(pending.timer);
+    this.pendingTextTasks.delete(scopeKey);
+    void logger.info(`merged pending text task ${pending.sourceMessageId} with file message ${ctx.message?.message_id ?? "unknown"} for ${scopeLabel || scopeKey}`);
+
+    const trimmedCaption = caption.trim();
+    const promptText = trimmedCaption
+      ? [pending.promptText, "", "Attached message content:", trimmedCaption].join("\n")
+      : pending.promptText;
+
+    return {
+      promptText,
+      messageTime: pending.messageTime || messageTime,
+    };
+  }
+
+  rejectForFileFailure(
+    scopeKey: string,
+    ctx: Context,
+    reason: string,
+    scopeLabel?: string,
+  ): RejectedPendingInput | null {
+    const pending = this.pendingTextTasks.get(scopeKey);
+    if (!pending) return null;
+    if (pending.userId !== ctx.from?.id) return null;
+
+    clearTimeout(pending.timer);
+    this.pendingTextTasks.delete(scopeKey);
+    void logger.info(`rejected pending text task ${pending.sourceMessageId} because file message ${ctx.message?.message_id ?? "unknown"} failed for ${scopeLabel || scopeKey}: ${reason}`);
+    return { sourceMessageId: pending.sourceMessageId };
+  }
+}

@@ -9,7 +9,8 @@
     "files",
     "reminders",
     "outboundMessages",
-    "pendingAuthorizations"
+    "pendingAuthorizations",
+    "tasks"
   ],
   "properties": {
     "message": {
@@ -38,6 +39,12 @@
       "items": {
         "$ref": "#/$defs/pendingAuthorizationDraft"
       }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/taskDraft"
+      }
     }
   },
   "$defs": {
@@ -47,8 +54,7 @@
       "properties": {
         "id": { "type": "integer" },
         "username": { "type": "string" },
-        "displayName": { "type": "string" },
-        "role": { "type": "string" }
+        "displayName": { "type": "string" }
       }
     },
     "notification": {
@@ -86,6 +92,7 @@
         "kind": { "type": "string", "enum": ["routine", "meeting", "birthday", "anniversary", "festival", "memorial", "task", "custom"] },
         "timeSemantics": { "type": "string", "enum": ["absolute", "local"] },
         "timezone": { "type": "string" },
+        "subjectTimezone": { "type": "string" },
         "notifications": {
           "type": "array",
           "items": { "$ref": "#/$defs/notification" }
@@ -117,6 +124,43 @@
       "properties": {
         "username": { "type": "string" },
         "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "taskSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "id": { "type": "string" },
+        "scope": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          }
+        }
+      }
+    },
+    "taskDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "operation"],
+      "properties": {
+        "domain": { "type": "string" },
+        "operation": { "type": "string" },
+        "subject": { "$ref": "#/$defs/taskSubject" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dedupeKey": { "type": "string" },
+        "supersedesTaskIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
       }
     }
   }

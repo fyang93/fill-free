@@ -11,6 +11,6 @@ alias s := serve
 install:
     bun install
 
-# Start the Telegram bot. Usage: `just serve`.
+# Start the bot. Usage: `just serve`.
 serve:
-    bun run telegram:bot
+    bun run bot

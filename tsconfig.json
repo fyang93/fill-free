@@ -6,7 +6,9 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": "src",
+    "ignoreDeprecations": "6.0"
   },
-  "include": ["src/telegram_bot/**/*.ts", "src/telegram_bot/**/*.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }
