@@ -20,20 +20,59 @@
 
 ```mermaid
 flowchart TD
-  I[交互]
-  S[调度]
-  R[角色]
-  U[支援]
-  O[事务]
-  D[档案]
+  subgraph I[交互]
+    IT[telegram]
+  end
 
-  I --> S --> R --> O --> D
-  R --> U
+  subgraph S[调度]
+    SC[conversation controller]
+    SR[reminder loop]
+  end
+
+  subgraph R[角色]
+    RS[responder]
+    RX[executor]
+    RC[responder-callback]
+    RM[maintainer]
+  end
+
+  subgraph U[支援]
+    UA[ai gateway]
+    UT[task runtime]
+  end
+
+  subgraph O[事务]
+    OM[memory/files]
+    OR[reminders]
+    OA[access]
+  end
+
+  subgraph D[档案]
+    DS[system/]
+    DM[memory/]
+  end
+
+  IT --> SC
+  SC --> RS
+  SC --> SR
+  RS --> UA
+  RS --> RX
+  RX --> RC
+  RX --> UT
+  RX --> OM
+  RX --> OR
+  RX --> OA
+  OM --> D
+  OR --> D
+  OA --> D
+  RM --> OM
+  RM --> OR
+  RM --> OA
+  RM --> DS
+
+  classDef role fill:#ffe08a,stroke:#b8860b,stroke-width:2px,color:#111;
+  class RS,RX,RC,RM role;
 ```
-
-- **角色**：`responder`、`executor`、`responder-callback`、`maintainer`
-- **档案**：规范状态保存在 `system/`，长期笔记保存在 `memory/`
-
 ### 会话作用域
 
 短期对话上下文由 OpenCode session 按作用域保存：
@@ -47,6 +86,28 @@ flowchart TD
 - `system/chats.json`
 - `system/rules.json`
 - reminder 相关状态
+
+## 架构中的一个例子
+
+对话示例：
+
+- 用户："提醒我明天早上 9 点提交申请。"
+- Bot："好，已经记下。我会在明天 9:00 提醒你。"
+
+```mermaid
+flowchart LR
+  U[User request\n"提醒我明天早上 9 点提交申请"] --> IT[telegram]
+  IT --> SC[conversation controller]
+  SC --> RS[responder]
+  RS --> UA[ai gateway]
+  UA --> RS
+  RS --> RX[executor]
+  RX --> OR[reminders]
+  OR --> DS[system/]
+  RX --> RC[responder-callback]
+  RC --> IT
+  IT --> V[User sees\n"好，已经记下。我会在明天 9:00 提醒你。"]
+```
 
 ## 快速开始
 
@@ -108,9 +169,7 @@ base_url = "http://127.0.0.1:4096"
 - `trusted user`：可以读取和修改记忆、文件、提醒及其他持久化数据
 - `admin user`：在 trusted 的基础上拥有管理权限
 
-没有出现在 `system/users.json` 且也不是 `telegram.admin_user_id` 的用户，无法访问 bot。
-
-admin 也可以对某个 `@username` 做临时授权。对方需要在临时授权过期前主动私聊 bot，这样系统才能把该账号关联起来并授予访问权限。
+admin 也可以对某个 `@username` 做临时授权。之后，对方只要在临时授权过期前和 bot 发生一次可识别交互，系统就能关联该账号并授予访问权限。这可以是私聊，也可以是在群里 `@bot`，或者在群里回复 bot 的消息。
 
 ## 使用示例
 

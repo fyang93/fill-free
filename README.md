@@ -20,20 +20,59 @@ The bot is organized as a small layered system: interaction, scheduling, roles, 
 
 ```mermaid
 flowchart TD
-  I[Interaction]
-  S[Scheduling]
-  R[Roles]
-  U[Support]
-  O[Operations]
-  D[Records]
+  subgraph I[Interaction]
+    IT[telegram]
+  end
 
-  I --> S --> R --> O --> D
-  R --> U
+  subgraph S[Scheduling]
+    SC[conversation controller]
+    SR[reminder loop]
+  end
+
+  subgraph R[Roles]
+    RS[responder]
+    RX[executor]
+    RC[responder-callback]
+    RM[maintainer]
+  end
+
+  subgraph U[Support]
+    UA[ai gateway]
+    UT[task runtime]
+  end
+
+  subgraph O[Operations]
+    OM[memory/files]
+    OR[reminders]
+    OA[access]
+  end
+
+  subgraph D[Records]
+    DS[system/]
+    DM[memory/]
+  end
+
+  IT --> SC
+  SC --> RS
+  SC --> SR
+  RS --> UA
+  RS --> RX
+  RX --> RC
+  RX --> UT
+  RX --> OM
+  RX --> OR
+  RX --> OA
+  OM --> D
+  OR --> D
+  OA --> D
+  RM --> OM
+  RM --> OR
+  RM --> OA
+  RM --> DS
+
+  classDef role fill:#ffe08a,stroke:#b8860b,stroke-width:2px,color:#111;
+  class RS,RX,RC,RM role;
 ```
-
-- **Roles**: `responder`, `executor`, `responder-callback`, `maintainer`
-- **Records**: canonical state lives in `system/` and `memory/`
-
 ### Conversation scoping
 
 Short-term conversational context is kept in OpenCode sessions by scope:
@@ -42,6 +81,28 @@ Short-term conversational context is kept in OpenCode sessions by scope:
 - **group / supergroup** -> one session per chat
 
 Long-term facts, access roles, reminders, and structured rules do **not** rely on model session history. They live in repository state such as `system/users.json`, `system/chats.json`, `system/rules.json`, and reminder data.
+
+## Example on the architecture
+
+Example dialogue:
+
+- User: "Remind me tomorrow at 9am to submit the application."
+- Bot: "Got it. I'll remind you tomorrow at 9:00."
+
+```mermaid
+flowchart LR
+  U[User request\n"Remind me tomorrow at 9am to submit the application"] --> IT[telegram]
+  IT --> SC[conversation controller]
+  SC --> RS[responder]
+  RS --> UA[ai gateway]
+  UA --> RS
+  RS --> RX[executor]
+  RX --> OR[reminders]
+  OR --> DS[system/]
+  RX --> RC[responder-callback]
+  RC --> IT
+  IT --> V[User sees\n"Got it. I'll remind you tomorrow at 9:00."]
+```
 
 ## Quick start
 
@@ -103,9 +164,7 @@ Useful optional settings:
 - `trusted user`: may read and modify memory, files, reminders, and other persistent data
 - `admin user`: trusted user plus admin-only operations
 
-Users without a role in `system/users.json` and who are not the configured `telegram.admin_user_id` cannot access the bot.
-
-The admin may also temporarily allow a `@username`. In that case, the user must send the bot a private message before the temporary authorization expires so the system can link that account and grant access.
+The admin may also temporarily allow a `@username`. After that, the user only needs to interact with the bot before the temporary authorization expires so the system can link the account and grant access. This can be a private chat, an `@bot` mention in a group, or a reply to the bot in a group.
 
 ## Example usage
 

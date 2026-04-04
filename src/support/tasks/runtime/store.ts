@@ -145,6 +145,10 @@ function taskLogContext(task: Pick<TaskRecord, "id" | "domain" | "operation" | "
   return `id=${task.id} state=${task.state} domain=${task.domain} operation=${task.operation} requester=${task.source?.requesterUserId ?? "unknown"} chat=${task.source?.chatId ?? "unknown"} message=${task.source?.messageId ?? "unknown"}`;
 }
 
+function shouldLogTaskAccepted(task: Pick<TaskRecord, "domain" | "operation">): boolean {
+  return !(task.domain === "reminders" && task.operation === "prepare-delivery-text");
+}
+
 async function mutateTaskStore<T>(config: AppConfig, operation: (store: TaskStore) => Promise<T>): Promise<T> {
   return queueTaskStoreWrite(async () => {
     const store = await loadTaskStore(config);
@@ -168,7 +172,9 @@ export async function enqueueTask(config: AppConfig, draft: Omit<TaskRecord, "id
     if (dedupeKey) {
       const existing = store.tasks.find((task) => task.dedupeKey === dedupeKey && ACTIVE_TASK_STATES.includes(task.state));
       if (existing) {
-        await logger.info(`task accepted existing ${taskLogContext(existing)} dedupe=yes`);
+        if (shouldLogTaskAccepted(existing)) {
+          await logger.info(`task accepted existing ${taskLogContext(existing)} dedupe=yes`);
+        }
         return existing;
       }
     }
@@ -201,7 +207,9 @@ export async function enqueueTask(config: AppConfig, draft: Omit<TaskRecord, "id
     };
     tasks.push(task);
     await writeTaskStore(config, { tasks });
-    await logger.info(`task accepted ${taskLogContext(task)} dependsOn=${task.dependsOn?.length || 0} superseded=${supersededTaskIds.length}`);
+    if (shouldLogTaskAccepted(task)) {
+      await logger.info(`task accepted ${taskLogContext(task)} dependsOn=${task.dependsOn?.length || 0} superseded=${supersededTaskIds.length}`);
+    }
     return task;
   });
 }

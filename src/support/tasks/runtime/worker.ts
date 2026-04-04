@@ -6,6 +6,16 @@ import { dequeueRunnableTask, markTaskState, pruneFinishedTasks, removeTask } fr
 import { runTaskWithHandlers } from "./handlers";
 import { sendTaskFailureReply, taskLogContext } from "./handlers/shared";
 
+function isQuietNoopTask(task: Awaited<ReturnType<typeof dequeueRunnableTask>>, result?: Record<string, unknown>): boolean {
+  if (!task) return false;
+  if (task.domain !== "reminders" || task.operation !== "prepare-delivery-text") return false;
+  return result?.changed === false;
+}
+
+function shouldLogTaskStart(task: Awaited<ReturnType<typeof dequeueRunnableTask>>): boolean {
+  return !(task && task.domain === "reminders" && task.operation === "prepare-delivery-text");
+}
+
 export function startTaskWorker(config: AppConfig, agentService: AiService, bot: Bot<Context>, intervalMs = 15_000): NodeJS.Timeout {
   let running = false;
   return setInterval(async () => {
@@ -17,12 +27,16 @@ export function startTaskWorker(config: AppConfig, agentService: AiService, bot:
       while (true) {
         const task = await dequeueRunnableTask(config);
         if (!task) break;
-        await logger.info(`task worker start ${taskLogContext(task)}`);
+        if (shouldLogTaskStart(task)) {
+          await logger.info(`task worker start ${taskLogContext(task)}`);
+        }
         try {
           const output = await runTaskWithHandlers({ config, agentService, bot }, task);
           await markTaskState(config, task.id, "done", { result: output.result });
           await removeTask(config, task.id);
-          await logger.info(`task worker done ${taskLogContext(task)} result=${JSON.stringify(output.result || {})}`);
+          if (!isQuietNoopTask(task, output.result)) {
+            await logger.info(`task worker done ${taskLogContext(task)} result=${JSON.stringify(output.result || {})}`);
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await markTaskState(config, task.id, "failed", { error: { message } });
