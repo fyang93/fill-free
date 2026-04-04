@@ -147,6 +147,7 @@ async function appendMaintenanceLogSection(
 }
 
 async function notifyMaintenanceChanges(
+  config: AppConfig,
   agentService: AiService,
   deps: MaintainerDeps,
   facts: string[],
@@ -155,7 +156,12 @@ async function notifyMaintenanceChanges(
 
   const draft = facts.join("\n");
   try {
-    const message = await agentService.composeUserReply(draft, []);
+    const adminUserId = config.telegram.adminUserId ?? undefined;
+    const message = await agentService.composeUserReply(draft, [], {
+      requesterUserId: adminUserId,
+      chatId: adminUserId,
+      chatType: "private",
+    });
     await deps.onChange(message.trim() || draft);
   } catch {
     await deps.onChange(draft);
@@ -406,13 +412,13 @@ async function runMaintainerCycle(
     }
   }
   if (!force && currentFingerprint === (state.lastMaintenanceFingerprint || "")) {
-    await notifyMaintenanceChanges(agentService, deps, preChanges);
+    await notifyMaintenanceChanges(config, agentService, deps, preChanges);
     return;
   }
   if (!force && changedFiles.length === 0) {
     state.lastMaintenanceFingerprint = currentFingerprint || null;
     await persistState(config.paths.stateFile);
-    await notifyMaintenanceChanges(agentService, deps, preChanges);
+    await notifyMaintenanceChanges(config, agentService, deps, preChanges);
     return;
   }
 
@@ -452,7 +458,7 @@ async function runMaintainerCycle(
     if (registryLinkRefresh.userUpdates > 0) facts.push(`Refreshed ${registryLinkRefresh.userUpdates} user registry links.`);
     if (registryLinkRefresh.chatUpdates > 0) facts.push(`Refreshed ${registryLinkRefresh.chatUpdates} chat registry links.`);
     if (force || facts.length > 0 || memoryChanged) {
-      await notifyMaintenanceChanges(agentService, deps, facts);
+      await notifyMaintenanceChanges(config, agentService, deps, facts);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

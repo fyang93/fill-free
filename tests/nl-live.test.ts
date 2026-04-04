@@ -268,6 +268,40 @@ describe("自然语言 live 回归测试", () => {
     }
   });
 
+  test("管理员自然语言添加农历提醒时能落成 lunar reminder", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    await writeFile(path.join(config.paths.repoRoot, "system", "users.json"), `${JSON.stringify({
+      users: {
+        "1": {
+          username: "admin_test",
+          displayName: "Admin Test",
+          timezone: "Asia/Tokyo",
+        },
+      },
+    }, null, 2)}\n`, "utf8");
+
+    const input = "每年农历八月十五晚上八点提醒我赏月";
+    const result = await runLiveScenarioWithRetries(config, agentService, input);
+    expect(result.answer.answerMode).toBe("needs-execution");
+    expect(result.answer.message.includes("UTC")).toBe(false);
+    expect(result.answer.message.includes("农历") || result.answer.message.includes("八月十五")).toBe(true);
+
+    const reminders = await readReminderEvents(config);
+    const reminder = reminders.find((item) => item.status === "active" && item.title.includes("赏月"));
+    expect(Boolean(reminder)).toBe(true);
+    expect(reminder?.timezone).toBe("Asia/Tokyo");
+    expect(reminder?.schedule.kind).toBe("lunarYearly");
+    if (reminder?.schedule.kind === "lunarYearly") {
+      expect(reminder.schedule.month).toBe(8);
+      expect(reminder.schedule.day).toBe(15);
+      expect(reminder.schedule.time.hour).toBe(20);
+      expect(reminder.schedule.time.minute).toBe(0);
+    }
+  });
+
   test("管理员自然语言设置明天解释规则后能写入 rules", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
     const config = await createTempConfig();
     const agentService = new AiService(config);
@@ -369,5 +403,24 @@ describe("自然语言 live 回归测试", () => {
     expect(updatedText).toContain("keywords:");
     const matched = await matchInvertedIndex(config.paths.repoRoot, "查一下测试流云的资料");
     expect(matched.paths).toContain("memory/people/test-keyword-source.md");
+  });
+
+  test("maintainer 回填 keywords 时不会把已有事实写错，例如羊帆不会被改成杨帆", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    const relativePath = path.join("memory", "people", "test-yangfan-facts.md");
+    await writeFile(path.join(config.paths.repoRoot, relativePath), "- name: 羊帆\n- alias: yangfan\n- note: 姓羊，不是杨。\n", "utf8");
+
+    const runner = createMaintainerRunner(config, agentService, { isBusy: () => false });
+    await runner.runNow();
+    if (runner.timer) clearInterval(runner.timer);
+
+    const updatedText = await readFile(path.join(config.paths.repoRoot, relativePath), "utf8");
+    expect(updatedText).toContain("keywords:");
+    expect(updatedText).toContain("羊帆");
+    expect(updatedText).toContain("姓羊，不是杨");
+    expect(updatedText.includes("- name: 杨帆") || updatedText.includes("name: 杨帆")).toBe(false);
   });
 });

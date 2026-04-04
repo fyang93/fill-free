@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/scheduling/app/types";
 import { buildReminderEvent, createReminderEvent, readReminderEvents } from "../src/operations/reminders/store";
+import { getCurrentOccurrence, reminderEventScheduleSummary } from "../src/operations/reminders";
 import { runReminderTask } from "../src/operations/reminders/task-actions";
 import type { TaskRecord } from "../src/support/tasks/runtime/store";
 
@@ -153,5 +154,28 @@ describe("reminder task matching", () => {
     const events = await readReminderEvents(config);
     expect(events.find((item) => item.id === april7.id)?.status).toBe("deleted");
     expect(events.find((item) => item.id === april8.id)?.status).toBe("active");
+  });
+
+  test("农历年度提醒可以正常计算下一次 occurrence 并保留可读摘要", async () => {
+    const config = await createTempConfig();
+    const event = buildReminderEvent(config, {
+      title: "中秋赏月",
+      kind: "festival",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "lunarYearly", month: 8, day: 15, time: { hour: 20, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: -60, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 872940661 }],
+    }, "Asia/Tokyo");
+    await createReminderEvent(event, config);
+
+    const occurrence = getCurrentOccurrence(event, new Date("2026-01-01T00:00:00.000Z"));
+    expect(occurrence).not.toBeNull();
+    expect(new Date(String(occurrence?.scheduledAt)).getTime()).toBeGreaterThan(new Date("2026-01-01T00:00:00.000Z").getTime());
+
+    const summary = reminderEventScheduleSummary(config, event);
+    expect(summary).toContain("农历");
+    expect(summary).toContain("八月");
+    expect(summary).toContain("十五");
   });
 });

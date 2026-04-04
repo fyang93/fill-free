@@ -235,7 +235,7 @@ export class AiService {
       "For file writes, each files item must include {path, content, operation?}.",
       "For reminders, each reminders item must be a creation draft, not a created reminder record.",
       "Each reminder draft must include at least {title, schedule}. The schedule must be an object such as {kind:'once', scheduledAt:'2026-04-09T14:00:00'} or another creation-ready schedule object.",
-      "For recurring reminders, use exact schedule shapes. Weekly example: {kind:'weekly', every:1, daysOfWeek:[5], time:{hour:18, minute:0}}. Monthly nth weekday example: {kind:'monthly', every:1, mode:'nthWeekday', weekOfMonth:1, dayOfWeek:1, time:{hour:9, minute:0}}.",
+      "For recurring reminders, use exact schedule shapes. Weekly example: {kind:'weekly', every:1, daysOfWeek:[5], time:{hour:18, minute:0}}. Monthly nth weekday example: {kind:'monthly', every:1, mode:'nthWeekday', weekOfMonth:1, dayOfWeek:1, time:{hour:9, minute:0}}. Lunar yearly example: {kind:'lunarYearly', month:8, day:15, time:{hour:20, minute:0}}.",
       "Use numeric weekday indexes in reminders schedules: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.",
       "Put timezone on the reminder draft itself, not inside schedule.",
       "Prefer one logical reminder event with notifications offsets over multiple separate reminder drafts for the same event.",
