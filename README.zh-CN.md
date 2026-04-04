@@ -20,22 +20,18 @@
 
 ```mermaid
 flowchart TD
-  I[交互\ntelegram]
-  S[调度]
+  I[💬 交互\n接收并发送用户消息]
+  S[⏱️ 调度\n协调循环、会话与任务时机]
 
   subgraph R[角色]
-    RS[responder]
-    RX[executor]
-    RC[responder-callback]
-    RM[maintainer]
+    RS[🗣️ responder\n理解请求并起草结构化结果]
+    RC[🗣️ responder-callback\n把执行事实整理成最终回复]
+    RX[🔧 executor\n执行动作并完成持久写入]
+    RM[🧹 maintainer\n处理空闲时的清理与一致性维护]
   end
 
-  O[事务]
-
-  subgraph D[档案]
-    DS[system/]
-    DM[memory/]
-  end
+  O[📦 事务\n承接 reminders、access、memory、files 等领域逻辑]
+  D[💾 档案\n保存规范持久状态与长期笔记]
 
   I --> S --> RS --> RX --> O --> D
   RX --> RC

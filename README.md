@@ -20,22 +20,18 @@ The bot is organized as a small layered system: interaction, scheduling, roles, 
 
 ```mermaid
 flowchart TD
-  I[Interaction\ntelegram]
-  S[Scheduling]
+  I[💬 Interaction\nreceive and deliver user messages]
+  S[⏱️ Scheduling\ncoordinate loops, sessions, and task timing]
 
   subgraph R[Roles]
-    RS[responder]
-    RX[executor]
-    RC[responder-callback]
-    RM[maintainer]
+    RS[🗣️ responder\nunderstand the request and draft structured output]
+    RC[🗣️ responder-callback\nturn execution facts into the final reply]
+    RX[🔧 executor\nperform actions and durable writes]
+    RM[🧹 maintainer\nhandle idle-time cleanup and consistency work]
   end
 
-  O[Operations]
-
-  subgraph D[Records]
-    DS[system/]
-    DM[memory/]
-  end
+  O[📦 Operations\napply domain logic for reminders, access, memory, and files]
+  D[💾 Records\nstore canonical persistent state and notes]
 
   I --> S --> RS --> RX --> O --> D
   RX --> RC
