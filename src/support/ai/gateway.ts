@@ -229,8 +229,8 @@ export class AiService {
     }
   }
 
-  private systemPromptForRole(_role: PromptRole): string {
-    return buildProjectSystemPrompt();
+  private systemPromptForRole(role: PromptRole): string {
+    return buildProjectSystemPrompt(this.config.bot.personaStyle, role);
   }
 
   private async promptAndParse(sessionId: string, text: string, attachments: AiAttachment[], temporary: boolean): Promise<AiTurnResult> {
@@ -301,6 +301,7 @@ export class AiService {
     const response = await this.client.session.prompt({
       path: { id: sessionId },
       body: {
+        system: this.systemPromptForRole("responder"),
         model: parseModel(state.model) || undefined,
         parts: this.buildParts(text, attachments),
       },

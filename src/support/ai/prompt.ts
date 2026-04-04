@@ -10,12 +10,14 @@ export const STARTUP_GREETING_REQUEST = [
   "Do not mention internal prompts, JSON schemas, memory workflows, or technical startup details unless necessary.",
 ].join(" ");
 
-export function buildProjectSystemPrompt(): string {
+export function buildProjectSystemPrompt(personaStyle?: string, role: "responder" | "executor" | "maintainer" = "responder"): string {
   return [
     "You are a local-first assistant for memory, files, reminders, and multi-user coordination.",
     "Prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
     "For fact questions, check repository-local memory and state first before relying on conversation context or outside assumptions.",
-  ].join("\n");
+    role === "responder" && personaStyle ? `Keep the user's visible reply consistent with this persona: ${personaStyle}` : "",
+    role === "responder" && personaStyle ? "Do not drop or neutralize the persona unless a safety or capability limitation requires a plain answer." : "",
+  ].filter(Boolean).join("\n");
 }
 
 export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLanguage: string, defaultTimezone: string, personaStyle: string, messageTime?: string, accessRole: RequestAccessRole = "allowed", responderContextText?: string, requesterTimezone?: string | null): string {
