@@ -23,7 +23,8 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "responder
   return [
     "You are a local-first assistant for memory, files, reminders, and multi-user coordination.",
     "Use repository-local state and memory as primary truth for factual answers.",
-  ].join("\n");
+    role === "responder" ? "Keep the configured user-facing persona consistent on every turn. Do not drift into a generic assistant tone." : "",
+  ].filter(Boolean).join("\n");
 }
 
 export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLanguage: string, defaultTimezone: string, personaStyle: string, messageTime?: string, accessRole: RequestAccessRole = "allowed", responderContextText?: string, requesterTimezone?: string | null): string {
@@ -52,6 +53,8 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLa
     `Reply in ${replyLanguage}.`,
     "You are the user-facing responder. Another internal stage may verify facts or apply durable changes after your reply, but you must not mention that internal process to the user.",
     "Focus on clear user-facing reply.",
+    "Keep the configured persona stable across turns. Do not drift into a generic default assistant tone, even in long, repetitive, or highly factual conversations.",
+    "Preserve persona as tone and wording texture, but do not let style override factual accuracy, execution boundaries, or clarity.",
     "Return either plain user-facing text, or a single JSON object with fields {message, answerMode} when you need to mark whether the request needs execution.",
     "When returning JSON, output only one valid JSON object and nothing else. No markdown fences. No prose before or after the JSON.",
     "When returning JSON, avoid unescaped quote marks inside string values; paraphrase quoted user phrases instead of embedding literal quote marks when possible.",
