@@ -7,7 +7,7 @@ import type { AppConfig } from "scheduling/app/types";
 import { logger } from "scheduling/app/logger";
 import { persistState, state } from "scheduling/app/state";
 import { loadChats, loadUsers } from "operations/context/store";
-import { pruneInvalidInvertedIndex } from "operations/context/inverted-index";
+import { backfillMemoryKeywords, extractMemoryKeywords, rebuildInvertedIndexFromMemoryKeywords, pruneInvalidInvertedIndex } from "operations/context/inverted-index";
 import { pruneFinishedTasks } from "support/tasks";
 import { pruneMissingTelegramFileRecords } from "operations/files/store";
 
@@ -27,6 +27,21 @@ function recentlyChangedFiles(snapshot: MemorySnapshot, lastMaintainedAt: string
     .filter(([, info]) => info.mtimeMs > since)
     .map(([filePath]) => filePath)
     .sort((a, b) => a.localeCompare(b));
+}
+
+async function backfillMissingMemoryKeywords(config: AppConfig, agentService: AiService, changedFiles: string[]): Promise<{ updatedFiles: string[] }> {
+  const updatedFiles: string[] = [];
+  const candidates = changedFiles.filter((filePath) => filePath.startsWith("memory/") && filePath.endsWith(".md"));
+  for (const filePath of candidates) {
+    const absolutePath = path.join(config.paths.repoRoot, filePath);
+    const text = await readFile(absolutePath, "utf8").catch(() => "");
+    if (!text.trim() || extractMemoryKeywords(text).length > 0) continue;
+    const keywords = await agentService.generateMemoryKeywords(filePath, text);
+    if (keywords.length === 0) continue;
+    const changed = await backfillMemoryKeywords(config.paths.repoRoot, filePath, keywords);
+    if (changed) updatedFiles.push(filePath);
+  }
+  return { updatedFiles };
 }
 
 async function buildMaintenanceRequest(repoRoot: string, lastMaintainedAt: string | null, changedFiles: string[]): Promise<string> {
@@ -378,6 +393,18 @@ async function runMaintainerCycle(
   const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
   const currentFingerprint = snapshotFingerprint(beforeSnapshot);
   const changedFiles = force ? [...beforeSnapshot.keys()].sort((a, b) => a.localeCompare(b)) : recentlyChangedFiles(beforeSnapshot, state.lastMaintainedAt);
+  if (force || changedFiles.length > 0) {
+    const keywordBackfill = await backfillMissingMemoryKeywords(config, agentService, changedFiles);
+    if (keywordBackfill.updatedFiles.length > 0) {
+      await logger.info(`maintainer loop backfilled memory keywords files=${keywordBackfill.updatedFiles.length}`);
+      preChanges.push(`Backfilled keywords for ${keywordBackfill.updatedFiles.length} memory files.`);
+    }
+    const rebuiltIndex = await rebuildInvertedIndexFromMemoryKeywords(config.paths.repoRoot);
+    await logger.info(`maintainer loop rebuilt inverted index from memory keywords terms=${rebuiltIndex.terms} files=${rebuiltIndex.files}`);
+    if (rebuiltIndex.terms > 0) {
+      preChanges.push(`Rebuilt the inverted index from memory keywords across ${rebuiltIndex.files} files.`);
+    }
+  }
   if (!force && currentFingerprint === (state.lastMaintenanceFingerprint || "")) {
     await notifyMaintenanceChanges(agentService, deps, preChanges);
     return;

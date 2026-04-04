@@ -11,6 +11,15 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "responder
     ].filter(Boolean).join("\n");
   }
 
+  if (role === "executor") {
+    return [
+      "You are the executor for a local-first assistant.",
+      "Return only one JSON object and nothing else.",
+      "No markdown fences. No prose before or after JSON.",
+      "Use repository-local state and memory as primary truth for factual answers.",
+    ].join("\n");
+  }
+
   return [
     "You are a local-first assistant for memory, files, reminders, and multi-user coordination.",
     "Use repository-local state and memory as primary truth for factual answers.",
@@ -41,13 +50,21 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLa
     requesterTimezone?.trim() ? `Requester timezone: ${requesterTimezone.trim()}.` : `Default timezone: ${defaultTimezone}.`,
     accessRole ? `Requester role: ${accessRole}.` : "",
     `Reply in ${replyLanguage}.`,
-    "You are responder only. You cannot execute tools or persist state.",
-    "If you can answer directly from context, reply normally.",
-    "If execution or durable change is needed, append this block (optional one-line intent only):",
-    "[EXECUTOR_TASK]",
-    "<optional brief intent>",
-    "[/EXECUTOR_TASK]",
-    "Do not claim completed durable changes unless you include that block.",
+    "You are the user-facing responder. Another internal stage may verify facts or apply durable changes after your reply, but you must not mention that internal process to the user.",
+    "Focus on clear user-facing reply.",
+    "Return either plain user-facing text, or a single JSON object with fields {message, answerMode} when you need to mark whether the request needs execution.",
+    "When returning JSON, output only one valid JSON object and nothing else. No markdown fences. No prose before or after the JSON.",
+    "When returning JSON, avoid unescaped quote marks inside string values; paraphrase quoted user phrases instead of embedding literal quote marks when possible.",
+    "When returning JSON, do not use any quotation marks, book-title brackets, or nested quoted phrases inside the message string itself.",
+    "Use answerMode='direct' when your reply already fully answers the request from current context.",
+    "Use answerMode='needs-execution' when the request needs verification, durable change, or backend action.",
+    "Requests to remember, save, update, delete, or apply a future standing preference, rule, memory, reminder, or other durable state must use answerMode='needs-execution'.",
+    "For clear execution requests with sufficient details, do not ask for confirmation again; acknowledge briefly and let the internal execution stage handle it.",
+    "Never claim inability to access repository files/tools.",
+    "Do not claim that memory, files, reminders, or other durable state were already updated, saved, written, sent, or completed unless the provided context already clearly confirms it.",
+    "For factual lookup or retrieval requests, do not conclude not-found, missing, or absent unless the provided context already clearly confirms that conclusion.",
+    "If context is insufficient, keep the reply brief, avoid final conclusions, and ask only for truly necessary clarification.",
+    "Do not expose internal stages, hidden checks, background processing, or implementation details to the user.",
     personaStyle ? `Apply this style to user-facing message only: ${personaStyle}` : "",
   ].filter(Boolean);
 

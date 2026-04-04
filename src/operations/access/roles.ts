@@ -128,6 +128,34 @@ export async function clearStoredUserRole(
   return true;
 }
 
+export async function setStoredUserRoles(
+  config: AppConfig,
+  entries: Array<{ userId: number; role: StoredUserRole; patch?: UserRolePatch }>,
+): Promise<{ changedUserIds: number[]; unchangedUserIds: number[] }> {
+  const changedUserIds: number[] = [];
+  const unchangedUserIds: number[] = [];
+  for (const entry of entries) {
+    const changed = await setStoredUserRole(config, entry.userId, entry.role, entry.patch || {});
+    if (changed) changedUserIds.push(entry.userId);
+    else unchangedUserIds.push(entry.userId);
+  }
+  return { changedUserIds, unchangedUserIds };
+}
+
+export async function clearStoredUserRoles(
+  config: AppConfig,
+  entries: Array<{ userId: number; patch?: Omit<UserRolePatch, "role"> }>,
+): Promise<{ changedUserIds: number[]; unchangedUserIds: number[] }> {
+  const changedUserIds: number[] = [];
+  const unchangedUserIds: number[] = [];
+  for (const entry of entries) {
+    const changed = await clearStoredUserRole(config, entry.userId, entry.patch || {});
+    if (changed) changedUserIds.push(entry.userId);
+    else unchangedUserIds.push(entry.userId);
+  }
+  return { changedUserIds, unchangedUserIds };
+}
+
 export function resolveStoredUserId(config: AppConfig, input: { userId?: number; username?: string }): number | null {
   if (Number.isInteger(input.userId) && (input.userId || 0) > 0) return input.userId || null;
   const username = normalizeUsername(input.username);

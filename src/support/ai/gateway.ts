@@ -147,13 +147,13 @@ export class AiService {
     uploadedFiles: UploadedFile[] = [],
     attachments: AiAttachment[] = [],
     messageTime?: string,
-    scopeKey?: string,
-    scopeLabel?: string,
+    _scopeKey?: string,
+    _scopeLabel?: string,
     accessRole: RequestAccessRole = "allowed",
     responderContextText?: string,
     requesterTimezone?: string | null,
   ): Promise<AiTurnResult> {
-    return this.structuredReasoner.run(text, uploadedFiles, attachments, messageTime, accessRole, scopeKey || scopeLabel, responderContextText, requesterTimezone);
+    return this.structuredReasoner.run(text, uploadedFiles, attachments, messageTime, accessRole, undefined, responderContextText, requesterTimezone);
   }
 
   async generateStartupGreeting(input?: ReplyComposerInputContext): Promise<string | null> {
@@ -162,6 +162,36 @@ export class AiService {
 
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string): Promise<string> {
     return this.replyComposer.generateReminderMessage(reminderText, scheduledAt, recurrenceDescription);
+  }
+
+  async generateMemoryKeywords(filePath: string, content: string): Promise<string[]> {
+    const prompt = [
+      "Extract concise retrieval keywords for one memory markdown file.",
+      "Return exactly one JSON object: {keywords:[...]}.",
+      "Output JSON only. No markdown fences. No extra text.",
+      "Use short keywords and aliases that help future retrieval.",
+      "Prefer names, usernames, nicknames, topics, projects, and distinctive nouns.",
+      "Do not include generic filler words.",
+      "Keep at most 8 keywords.",
+      `File path: ${filePath}`,
+      "Markdown content:",
+      content.length > 5000 ? `${content.slice(0, 5000)}\n\n...[truncated]` : content,
+    ].join("\n");
+    const raw = await this.promptInTemporaryTextSession(prompt, "maintainer");
+    const trimmed = raw.trim();
+    if (!/^\{[\s\S]*\}$/.test(trimmed) && !/^```(?:json)?\s*\{[\s\S]*\}\s*```$/i.test(trimmed)) {
+      return [];
+    }
+    const parsed = extractAiTurnResultFromText(raw);
+    const candidate = trimmed.startsWith("{") ? trimmed : raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+    try {
+      const data = JSON.parse(candidate) as { keywords?: unknown };
+      return Array.isArray(data.keywords)
+        ? Array.from(new Set(data.keywords.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()))).slice(0, 8)
+        : [];
+    } catch {
+      return parsed.message.trim() ? [parsed.message.trim()].slice(0, 1) : [];
+    }
   }
 
   async composeUserReply(baseMessage: string | null | undefined, facts: string[], input?: ReplyComposerInputContext): Promise<string> {
@@ -173,6 +203,10 @@ export class AiService {
     return this.replyComposer.composeUserReply(cleanDraft, facts, input);
   }
 
+  async composeExecutionCallbackReply(previousReply: string, facts: string[], input?: ReplyComposerInputContext): Promise<string> {
+    return this.replyComposer.composeExecutionCallbackReply(previousReply, facts, input);
+  }
+
   async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {
     return this.replyComposer.composeOutboundRelayMessage(baseMessage, recipientLabel);
   }
@@ -181,8 +215,7 @@ export class AiService {
     return (await this.promptInTemporaryTextSession(request, "maintainer")).trim();
   }
 
-  async planExecutorActionsFromText(input: {
-    taskText: string;
+  async planExecutorActions(input: {
     userRequestText: string;
     requesterUserId?: number;
     chatId?: number;
@@ -192,33 +225,66 @@ export class AiService {
     responderContextText?: string;
   }): Promise<AiTurnResult> {
     const prompt = [
-      "You are executor planning. Convert task intent into executable structured actions.",
-      "Output exactly one JSON object with top-level fields: message, files, reminders, outboundMessages, pendingAuthorizations, tasks.",
-      "Set message to an empty string unless clarification is required.",
-      "Do not include markdown fences.",
+      "Execute the user's request by returning structured actions.",
+      "Return exactly one JSON object with fields: message, files, reminders, outboundMessages, pendingAuthorizations, tasks.",
+      "Output JSON only. No markdown fences. No extra text.",
+      "All JSON must be syntactically valid. Escape all string values correctly and avoid unescaped quote marks inside strings.",
+      "Use message only for concise findings for the current requester.",
+      "Use outboundMessages only for delivery to other users or chats, never for replying to the current requester.",
+      "If you found the answer for the current requester, put it in message, not outboundMessages.",
+      "For file writes, each files item must include {path, content, operation?}.",
+      "For reminders, each reminders item must be a creation draft, not a created reminder record.",
+      "Each reminder draft must include at least {title, schedule}. The schedule must be an object such as {kind:'once', scheduledAt:'2026-04-09T14:00:00'} or another creation-ready schedule object.",
+      "For recurring reminders, use exact schedule shapes. Weekly example: {kind:'weekly', every:1, daysOfWeek:[5], time:{hour:18, minute:0}}. Monthly nth weekday example: {kind:'monthly', every:1, mode:'nthWeekday', weekOfMonth:1, dayOfWeek:1, time:{hour:9, minute:0}}.",
+      "Use numeric weekday indexes in reminders schedules: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.",
+      "Put timezone on the reminder draft itself, not inside schedule.",
+      "Prefer one logical reminder event with notifications offsets over multiple separate reminder drafts for the same event.",
+      "For example, for a meeting at 2026-04-09T14:00:00, create one reminder with schedule.scheduledAt='2026-04-09T14:00:00' and notifications like [{offsetMinutes:-1440},{offsetMinutes:-60}] rather than two once reminders at the notification times.",
+      "Do not include created reminder fields like id, scheduleSummary, or reminderOffsets inside reminders.",
+      "To modify or delete existing reminders, use tasks entries instead of reminders drafts.",
+      "Do not rely on opaque reminder ids in reminder tasks.",
+      "For reminder update or deletion, emit a task with semantic match fields such as {domain:'reminders', operation:'delete', payload:{match:{title:'...', titleContains:'...', scheduledDate:'YYYY-MM-DD', timeframe:'tomorrow'}}}.",
+      "Prefer scheduledDate over scheduledAt unless an exact timestamp is truly necessary.",
+      "Prefer semantic reminder matching fields over internal ids.",
+      "For structured user rules or standing preferences, emit tasks entries instead of prose-only answers.",
+      "For rule creation or update, emit a task like {domain:'rules', operation:'upsert', payload:{topic:'...', appliesTo:{domain:'users', selector:'one', userIds:['REQUESTER_ID']}, content:{instruction:'...'}}}.",
+      "For rule deletion, emit a task like {domain:'rules', operation:'delete', payload:{id:'...'}} or use {topic, appliesTo} when the rule slot is known.",
+      "For batch actions, return one valid JSON object with a tasks array containing one task per target item. Do not add diagnostic commentary, analysis, or prose outside the JSON.",
+      "For batch access role changes, emit multiple tasks like {domain:'access', operation:'set-role', payload:{username:'...', role:'trusted'}}.",
+      "For deleting multiple reminders, emit multiple reminder delete tasks, each with a concrete semantic match object. Prefer title + scheduledDate per reminder over broad vague matches.",
       "",
-      "Execution context:",
+      "Context:",
       `requesterUserId=${input.requesterUserId ?? "unknown"}`,
       `chatId=${input.chatId ?? "unknown"}`,
       `chatType=${input.chatType || "unknown"}`,
       `accessRole=${input.accessRole}`,
       input.messageTime ? `messageTime=${input.messageTime}` : "",
       "",
-      "Original user request:",
+      "User request:",
       input.userRequestText.trim(),
       "",
-      "Responder delegated task text:",
-      input.taskText.trim(),
-      "",
-      input.responderContextText?.trim() ? "Responder context:" : "",
+      input.responderContextText?.trim() ? "Context JSON:" : "",
       input.responderContextText?.trim() || "",
     ].filter(Boolean).join("\n");
     const raw = await this.promptInTemporaryTextSession(prompt, "executor");
+    const trimmed = raw.trim();
+    const strictJsonOnly = /^\{[\s\S]*\}$/.test(trimmed)
+      || /^```(?:json)?\s*\{[\s\S]*\}\s*```$/i.test(trimmed);
+    if (!strictJsonOnly) {
+      throw new Error("Executor output protocol violation: expected JSON object only.");
+    }
     const parsed = extractAiTurnResultFromText(raw);
-    return {
-      ...parsed,
-      executorTaskText: "",
-    };
+    const parsedStructured = parsed.message.trim()
+      || parsed.files.length > 0
+      || parsed.fileWrites.length > 0
+      || parsed.reminders.length > 0
+      || parsed.outboundMessages.length > 0
+      || parsed.pendingAuthorizations.length > 0
+      || parsed.tasks.length > 0;
+    if (!parsedStructured) {
+      throw new Error("Executor output protocol violation: invalid JSON object.");
+    }
+    return parsed;
   }
 
   stop(): void {
@@ -322,7 +388,7 @@ export class AiService {
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, temporary);
 
-    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0 || parsed.executorTaskText.trim()) {
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
       return parsed;
     }
     throw new Error("Model returned no displayable output.");
@@ -339,7 +405,7 @@ export class AiService {
     touchActivity();
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, false);
-    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0 || parsed.executorTaskText.trim()) {
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
       return parsed;
     }
     throw new Error("Model returned no displayable output.");
@@ -393,6 +459,6 @@ export class AiService {
   private async logParsedAiTurnResult(rawText: string, parsed: AiTurnResult, temporary: boolean): Promise<void> {
     const label = temporary ? "opencode temporary prompt" : "opencode prompt";
     await logger.info(`${label} raw=${JSON.stringify(rawText)}`);
-    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} fileWrites=${parsed.fileWrites.length} reminders=${parsed.reminders.length} outboundMessages=${parsed.outboundMessages.length} pendingAuthorizations=${parsed.pendingAuthorizations.length} tasks=${parsed.tasks.length} executorTaskChars=${parsed.executorTaskText.length}`);
+    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} answerMode=${parsed.answerMode} files=${JSON.stringify(parsed.files)} fileWrites=${parsed.fileWrites.length} reminders=${parsed.reminders.length} outboundMessages=${parsed.outboundMessages.length} pendingAuthorizations=${parsed.pendingAuthorizations.length} tasks=${parsed.tasks.length}`);
   }
 }

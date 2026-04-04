@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type InvertedIndexEntry = {
@@ -30,6 +30,119 @@ function normalizePath(value: string): string | undefined {
 
 export function normalizeIndexTerm(value: string): string {
   return value.trim().replace(/\s+/g, " ");
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return Array.from(new Set(values.map(normalizeIndexTerm).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+async function walkMemoryFiles(root: string, dir = root): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walkMemoryFiles(root, fullPath);
+    if (!entry.isFile() || !entry.name.endsWith(".md")) return [];
+    return [path.relative(root, fullPath).replace(/\\/g, "/")];
+  }));
+  return nested.flat().sort((a, b) => a.localeCompare(b));
+}
+
+function extractFrontmatterBlock(text: string): { block: string; body: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("---\n") && !trimmed.startsWith("---\r\n")) return null;
+  const match = trimmed.match(/^(---\r?\n([\s\S]*?)\r?\n---)(?:\r?\n|$)/);
+  if (!match) return null;
+  return { block: match[1], body: match[2] || "" };
+}
+
+export function extractMemoryKeywords(text: string): string[] {
+  const frontmatter = extractFrontmatterBlock(text);
+  if (!frontmatter) return [];
+  const lines = frontmatter.body.split(/\r?\n/);
+  const keywords: string[] = [];
+  let inKeywords = false;
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (!inKeywords) {
+      if (/^keywords\s*:\s*$/.test(trimmedLine)) {
+        inKeywords = true;
+        continue;
+      }
+      if (/^keywords\s*:\s*\[.*\]\s*$/.test(trimmedLine)) {
+        const inline = trimmedLine.replace(/^keywords\s*:\s*\[/, "").replace(/\]\s*$/, "");
+        const values = inline.split(",").map((item) => item.trim().replace(/^['\"]|['\"]$/g, "")).filter(Boolean);
+        keywords.push(...values);
+      }
+      continue;
+    }
+    if (!trimmedLine) continue;
+    if (!trimmedLine.startsWith("- ")) break;
+    keywords.push(trimmedLine.slice(2).trim().replace(/^['\"]|['\"]$/g, ""));
+  }
+  return uniqueSorted(keywords);
+}
+
+export function upsertMemoryKeywords(text: string, keywords: string[]): string {
+  const normalizedKeywords = uniqueSorted(keywords).slice(0, 8);
+  if (normalizedKeywords.length === 0) return text;
+  const keywordsBlock = ["keywords:", ...normalizedKeywords.map((keyword) => `  - ${keyword}`)].join("\n");
+  const frontmatter = extractFrontmatterBlock(text);
+  if (!frontmatter) {
+    const trimmed = text.trimStart();
+    return `---\n${keywordsBlock}\n---\n${trimmed}${trimmed.endsWith("\n") ? "" : "\n"}`;
+  }
+  if (/^keywords\s*:/m.test(frontmatter.body)) return text;
+  const replacement = `---\n${keywordsBlock}\n${frontmatter.body ? `${frontmatter.body}\n` : ""}---`;
+  return text.replace(frontmatter.block, replacement);
+}
+
+export async function backfillMemoryKeywords(repoRoot: string, relativePath: string, keywords: string[]): Promise<boolean> {
+  const normalizedPath = normalizePath(relativePath);
+  if (!normalizedPath) return false;
+  const filePath = path.join(repoRoot, normalizedPath);
+  const text = await readFile(filePath, "utf8").catch(() => "");
+  if (!text.trim() || extractMemoryKeywords(text).length > 0) return false;
+  const next = upsertMemoryKeywords(text, keywords);
+  if (next === text) return false;
+  await writeFile(filePath, next, "utf8");
+  return true;
+}
+
+export async function rebuildInvertedIndexFromMemoryKeywords(repoRoot: string): Promise<{ terms: number; files: number }> {
+  const memoryRoot = path.join(repoRoot, "memory");
+  const files = await walkMemoryFiles(memoryRoot);
+  const nextTerms: Record<string, InvertedIndexEntry> = {};
+  const now = new Date().toISOString();
+  const previous = await loadIndex(repoRoot);
+
+  for (const relativePath of files) {
+    const normalizedPath = normalizePath(path.join("memory", relativePath).replace(/\\/g, "/"));
+    if (!normalizedPath) continue;
+    const absolutePath = path.join(repoRoot, normalizedPath);
+    const text = await readFile(absolutePath, "utf8").catch(() => "");
+    if (!text.trim()) continue;
+    const keywords = extractMemoryKeywords(text);
+    for (const keyword of keywords) {
+      const normalizedTerm = normalizeIndexTerm(keyword);
+      if (!normalizedTerm) continue;
+      const previousEntry = previous.terms[normalizedTerm];
+      const current = nextTerms[normalizedTerm];
+      nextTerms[normalizedTerm] = {
+        paths: uniqueSorted([...(current?.paths || []), normalizedPath]),
+        updatedAt: now,
+        lastConfirmedAt: previousEntry?.lastConfirmedAt || now,
+        lastUsedAt: previousEntry?.lastUsedAt,
+      };
+    }
+  }
+
+  await writeIndex(repoRoot, { terms: nextTerms });
+  return { terms: Object.keys(nextTerms).length, files: files.length };
 }
 
 async function loadIndex(repoRoot: string): Promise<InvertedIndex> {

@@ -4,6 +4,7 @@ import { reminderPreparationTaskHandler, remindersTaskHandler } from "operations
 import { outboundSendTaskHandler } from "./outbound";
 import { accessGrantTemporaryTaskHandler, accessSetRoleTaskHandler } from "operations/access";
 import { queryAnswerFromRepoTaskHandler } from "operations/query";
+import { rulesTaskHandler } from "./rules";
 
 const taskHandlers: TaskHandler[] = [
   reminderPreparationTaskHandler,
@@ -12,6 +13,7 @@ const taskHandlers: TaskHandler[] = [
   accessGrantTemporaryTaskHandler,
   accessSetRoleTaskHandler,
   queryAnswerFromRepoTaskHandler,
+  rulesTaskHandler,
 ];
 
 export function getTaskHandlers(): TaskHandler[] {

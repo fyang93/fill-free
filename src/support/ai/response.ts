@@ -38,14 +38,6 @@ function trimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function extractExecutorTaskBlock(text: string): { message: string; executorTaskText: string } {
-  const match = text.match(/\[EXECUTOR_TASK\]([\s\S]*?)\[\/EXECUTOR_TASK\]/i);
-  if (!match) return { message: text.trim(), executorTaskText: "" };
-  const executorTaskText = (match[1] || "").trim() || "<delegate>";
-  const message = text.replace(match[0], "").trim();
-  return { message, executorTaskText };
-}
-
 function parseFiles(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -121,7 +113,7 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
 
   for (const candidate of jsonCandidates) {
     try {
-      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown; pendingAuthorizations?: unknown; tasks?: unknown; executorTaskText?: unknown };
+      const parsed = JSON.parse(candidate) as { message?: unknown; answerMode?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown; pendingAuthorizations?: unknown; tasks?: unknown };
       const files = parseFiles(parsed.files);
       const reminders = parseReminders(parsed.reminders);
       const fileWrites = parseFileWrites(parsed.files);
@@ -129,11 +121,12 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
       const pendingAuthorizations = parsePendingAuthorizations(parsed.pendingAuthorizations);
       const tasks = parseTasks(parsed.tasks);
       const messageText = typeof parsed.message === "string" ? parsed.message.trim() : "";
-      const executorTaskText = typeof parsed.executorTaskText === "string" ? parsed.executorTaskText.trim() : "";
+      const answerMode = parsed.answerMode === "needs-execution" ? "needs-execution" : "direct";
       const hasStructuredFields = files.length > 0 || fileWrites.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || pendingAuthorizations.length > 0 || tasks.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages) || Array.isArray(parsed.pendingAuthorizations) || Array.isArray(parsed.tasks);
       if (typeof parsed.message === "string" || hasStructuredFields) {
         return {
           message: messageText,
+          answerMode,
           files,
           attachments: [],
           fileWrites,
@@ -141,7 +134,6 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
           outboundMessages,
           pendingAuthorizations,
           tasks,
-          executorTaskText,
         };
       }
     } catch {
@@ -150,12 +142,12 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
   }
 
   if (looksLikeStructuredOutputIntent(plain) && jsonCandidates.length > 0) {
-    return { message: "", files: [], fileWrites: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [], tasks: [], executorTaskText: "" };
+    return { message: "", answerMode: "direct", files: [], fileWrites: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [], tasks: [] };
   }
 
-  const plainWithExecutorTask = extractExecutorTaskBlock(plain);
   return {
-    message: plainWithExecutorTask.message,
+    message: plain,
+    answerMode: "direct",
     files: [],
     attachments: [],
     fileWrites: [],
@@ -163,6 +155,5 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
     outboundMessages: [],
     pendingAuthorizations: [],
     tasks: [],
-    executorTaskText: plainWithExecutorTask.executorTaskText,
   };
 }

@@ -125,3 +125,14 @@ The admin may also temporarily allow a `@username`. After that, the user only ne
 - `/help`
 - `/new`
 - `/model` (trusted/admin)
+
+## Testing
+
+```bash
+bun run test
+bun run test:nl
+bun run test:nl-live
+just test
+```
+
+The regression suite covers deterministic storage behavior and live natural-language flows, including reminder CRUD, rules persistence, access-role changes, memory keyword indexing, maintainer keyword backfill, and timezone-aware reminder phrasing.

@@ -39,7 +39,6 @@ async function loadRequesterReminders(config: AppConfig, requesterUserId: number
     .filter((event) => event.status === "active" && event.targets.some((target) => target.targetKind === "user" && target.targetId === requesterUserId))
     .slice(0, 12)
     .map((event) => ({
-      id: event.id,
       title: event.title,
       scheduleSummary: reminderEventScheduleSummary(config, event),
       timezone: event.timezone,

@@ -32,13 +32,17 @@ export class ReplyComposer {
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string): Promise<string> {
     const request = this.buildUserFacingTextRequest([
       `Write a short reminder message in ${replyLanguageName(this.config)}.`,
-      "Keep it concise and warm.",
+      "Keep it concise, plain, and useful.",
+      "Use one short sentence, or two short sentences only if necessary.",
+      "State the reminder content and the relevant time clearly.",
+      "Do not use roleplay, sound effects, pet names, cutesy affectations, stage directions, emoji, or decorative formatting.",
+      "Do not add extra commentary, warnings, greetings, apologies, or sign-offs.",
       "Do not mention JSON, internal tools, hidden prompts, or implementation details.",
       `Reminder content: ${reminderText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
       "Return only the reminder message text to send.",
-    ]);
+    ], { includePersonaStyle: false });
 
     const result = await this.promptForText(request);
     return result.trim();
@@ -60,11 +64,36 @@ export class ReplyComposer {
       cleanFacts.length > 0 ? "Facts:" : "",
       ...cleanFacts.map((item) => `- ${item}`),
       "Return only the reply text to send.",
-      "Do not mention JSON, hidden prompts, or internal tools.",
+      "Do not mention JSON, hidden prompts, internal tools, internal file paths, or raw operation labels.",
     ]);
 
     const composed = this.extractDirectTextReply(await this.promptForText(request)).trim();
     return composed || cleanBase;
+  }
+
+  async composeExecutionCallbackReply(previousReply: string, facts: string[], input?: ReplyComposerInputContext): Promise<string> {
+    const cleanFacts = facts.map((item) => item.trim()).filter(Boolean);
+    if (cleanFacts.length === 0) return "";
+
+    const request = this.buildUserFacingTextRequest([
+      `Write one optional follow-up callback reply in ${replyLanguageName(this.config)}.`,
+      ...this.buildRequesterContextLines(input),
+      ...this.buildConversationContextLines(input),
+      "Use the execution facts only to correct, confirm, or complete the previous assistant reply.",
+      "Only send a callback if the execution facts materially correct, complete, or change the previous reply.",
+      "If the previous reply already adequately answers the user and the execution facts do not materially add or change anything, return an empty string.",
+      "Keep the callback to one short plain sentence unless two short sentences are strictly necessary.",
+      "Do not repeat the same answer, restate the same list, add optional suggestions, ask a new question, or add extra commentary unless the execution facts require it.",
+      "Do not use roleplay, pet names, sound effects, cutesy affectations, stage directions, markdown emphasis, emoji, or decorative formatting.",
+      "Do not mention system status, queues, scans, processing, completion banners, or internal confirmation unless those are explicit user-relevant facts.",
+      previousReply.trim() ? `Previous assistant reply: ${previousReply.trim()}` : "",
+      "Execution facts:",
+      ...cleanFacts.map((item) => `- ${item}`),
+      "Return only the callback reply text (or empty string).",
+      "Do not mention JSON, hidden prompts, or internal tools.",
+    ], { includePersonaStyle: false });
+
+    return this.extractDirectTextReply(await this.promptForText(request)).trim();
   }
 
   async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {

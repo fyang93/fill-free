@@ -17,8 +17,9 @@ const OUTBOUND_TRUST_REQUIRED_FACT = "Requester does not have outbound permissio
 const MEMORY_WRITE_ALLOWED_FACT = "Requester does not have permission to write memory.";
 
 export type ActionExecutionResult = {
+  message: string;
   facts: string[];
-  replyAppendix: string;
+  hasSideEffectfulActions: boolean;
 };
 
 export type ExecuteAiActionsInput = {
@@ -32,6 +33,7 @@ export type ExecuteAiActionsInput = {
   accessRole: RequestAccessRole;
   userRequestText: string;
   responderContextText?: string;
+  isTaskCurrent?: () => boolean;
 };
 
 type TaskEnqueueResult = {
@@ -184,10 +186,10 @@ async function applyFileWrites(
     await mkdir(path.dirname(targetPath), { recursive: true });
     if (operation.includes("overwrite") || operation.includes("replace") || operation === "write") {
       await writeFile(targetPath, `${content}\n`, "utf8");
-      accepted.push(`Wrote memory file: ${normalized}`);
+      accepted.push(`memory_write overwrite path=${normalized}`);
     } else {
       await appendFile(targetPath, `${content}\n`, "utf8");
-      accepted.push(`Appended memory file: ${normalized}`);
+      accepted.push(`memory_write append path=${normalized}`);
     }
   }
 
@@ -222,8 +224,8 @@ async function enqueueGenericTasks(
       },
     });
     accepted.push(task.domain === "query" && task.operation === "answer-from-repo"
-      ? "Accepted query task; a follow-up result will be delivered later."
-      : `Accepted task: ${task.domain}/${task.operation}`);
+      ? "task_queued query.answer-from-repo"
+      : `task_queued ${task.domain}.${task.operation}`);
   }
   return { accepted, clarifications: [] };
 }
@@ -231,38 +233,47 @@ async function enqueueGenericTasks(
 // Executor role: durably accept actions and collect confirmed facts for the responder handoff.
 export async function executeAiActions(input: ExecuteAiActionsInput): Promise<ActionExecutionResult> {
   const executorStartedAt = Date.now();
+  const taskStillCurrent = () => (input.isTaskCurrent ? input.isTaskCurrent() : true);
 
   let effectiveAnswer = input.answer;
-  if (effectiveAnswer.executorTaskText.trim()) {
-    const planned = await input.agentService.planExecutorActionsFromText({
-      taskText: effectiveAnswer.executorTaskText,
-      userRequestText: input.userRequestText,
-      requesterUserId: input.requesterUserId,
-      chatId: input.ctx.chat?.id,
-      chatType: input.ctx.chat?.type,
-      accessRole: input.accessRole,
-      messageTime: input.messageTime,
-      responderContextText: input.responderContextText,
-    });
-    effectiveAnswer = {
-      ...effectiveAnswer,
-      reminders: [...effectiveAnswer.reminders, ...planned.reminders],
-      outboundMessages: [...effectiveAnswer.outboundMessages, ...planned.outboundMessages],
-      pendingAuthorizations: [...effectiveAnswer.pendingAuthorizations, ...planned.pendingAuthorizations],
-      tasks: [...effectiveAnswer.tasks, ...planned.tasks],
-      files: [...effectiveAnswer.files, ...planned.files],
-      fileWrites: [...effectiveAnswer.fileWrites, ...planned.fileWrites],
-      executorTaskText: "",
-    };
-    await logger.info(`executor task-text interpreted reminders=${planned.reminders.length} outboundMessages=${planned.outboundMessages.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
+  const planned = await input.agentService.planExecutorActions({
+    userRequestText: input.userRequestText,
+    requesterUserId: input.requesterUserId,
+    chatId: input.ctx.chat?.id,
+    chatType: input.ctx.chat?.type,
+    accessRole: input.accessRole,
+    messageTime: input.messageTime,
+    responderContextText: input.responderContextText,
+  });
+  if (!taskStillCurrent()) {
+    await logger.warn("executor result ignored because task is stale");
+    return { message: "", facts: [], hasSideEffectfulActions: false };
   }
+  effectiveAnswer = {
+    ...effectiveAnswer,
+    reminders: [...effectiveAnswer.reminders, ...planned.reminders],
+    outboundMessages: [...effectiveAnswer.outboundMessages, ...planned.outboundMessages],
+    pendingAuthorizations: [...effectiveAnswer.pendingAuthorizations, ...planned.pendingAuthorizations],
+    tasks: [...effectiveAnswer.tasks, ...planned.tasks],
+    files: [...effectiveAnswer.files, ...planned.files],
+    fileWrites: [...effectiveAnswer.fileWrites, ...planned.fileWrites],
+  };
+  await logger.info(`executor actions interpreted reminders=${planned.reminders.length} outboundMessages=${planned.outboundMessages.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
 
   const fileWriteStartedAt = Date.now();
+  if (!taskStillCurrent()) {
+    await logger.warn("executor file writes skipped because task is stale");
+    return { message: "", facts: [], hasSideEffectfulActions: false };
+  }
   const fileWriteResult = await applyFileWrites(input.config, input.accessRole, effectiveAnswer.fileWrites);
   const fileWriteMs = Date.now() - fileWriteStartedAt;
   await logger.info(`executor file writes done ms=${fileWriteMs} accepted=${fileWriteResult.accepted.length} clarifications=${fileWriteResult.clarifications.length} drafts=${effectiveAnswer.fileWrites.length}`);
 
   const reminderStartedAt = Date.now();
+  if (!taskStillCurrent()) {
+    await logger.warn("executor reminders skipped because task is stale");
+    return { message: "", facts: [], hasSideEffectfulActions: false };
+  }
   const reminderResult = await createStructuredReminders(
     input.config,
     input.agentService,
@@ -275,6 +286,10 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   await logger.info(`executor reminders done ms=${reminderMs} created=${reminderResult.created.length} clarifications=${reminderResult.clarifications.length} drafts=${effectiveAnswer.reminders.length}`);
 
   const outboundStartedAt = Date.now();
+  if (!taskStillCurrent()) {
+    await logger.warn("executor outbound skipped because task is stale");
+    return { message: "", facts: [], hasSideEffectfulActions: false };
+  }
   const outboundResult = input.canDeliverOutbound
     ? await enqueueOutboundMessages(input.config, input.ctx, effectiveAnswer.outboundMessages, input.requesterUserId)
     : effectiveAnswer.outboundMessages.length > 0
@@ -283,6 +298,10 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   const outboundMs = Date.now() - outboundStartedAt;
   await logger.info(`executor outbound done ms=${outboundMs} accepted=${outboundResult.accepted.length} clarifications=${outboundResult.clarifications.length} drafts=${effectiveAnswer.outboundMessages.length} enabled=${input.canDeliverOutbound ? "yes" : "no"}`);
   const authStartedAt = Date.now();
+  if (!taskStillCurrent()) {
+    await logger.warn("executor authorizations skipped because task is stale");
+    return { message: "", facts: [], hasSideEffectfulActions: false };
+  }
   const pendingAuthorizationResult = await enqueuePendingAuthorizations(
     input.config,
     effectiveAnswer.pendingAuthorizations,
@@ -293,24 +312,29 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   const authMs = Date.now() - authStartedAt;
   await logger.info(`executor authorizations done ms=${authMs} accepted=${pendingAuthorizationResult.accepted.length} clarifications=${pendingAuthorizationResult.clarifications.length} drafts=${effectiveAnswer.pendingAuthorizations.length}`);
   const taskStartedAt = Date.now();
+  if (!taskStillCurrent()) {
+    await logger.warn("executor tasks skipped because task is stale");
+    return { message: "", facts: [], hasSideEffectfulActions: false };
+  }
   const genericTaskResult = await enqueueGenericTasks(input.config, input.ctx, effectiveAnswer.tasks, input.requesterUserId);
   const taskMs = Date.now() - taskStartedAt;
   await logger.info(`executor tasks done ms=${taskMs} accepted=${genericTaskResult.accepted.length} clarifications=${genericTaskResult.clarifications.length} drafts=${effectiveAnswer.tasks.length}`);
   await logger.info(`executor role total ms=${Date.now() - executorStartedAt}`);
 
+  const facts = [
+    ...fileWriteResult.clarifications,
+    ...reminderResult.clarifications,
+    ...outboundResult.clarifications,
+    ...pendingAuthorizationResult.clarifications,
+    ...genericTaskResult.clarifications,
+  ].filter(Boolean);
   return {
-    facts: [
-      summarizeFactBlock("Multiple file writes accepted", fileWriteResult.accepted),
-      summarizeFactBlock("Multiple reminders accepted", reminderResult.created),
-      summarizeFactBlock("Multiple outbound messages accepted", outboundResult.accepted),
-      summarizeFactBlock("Multiple temporary authorizations accepted", pendingAuthorizationResult.accepted),
-      summarizeFactBlock("Multiple queued tasks accepted", genericTaskResult.accepted),
-      ...fileWriteResult.clarifications,
-      ...reminderResult.clarifications,
-      ...outboundResult.clarifications,
-      ...pendingAuthorizationResult.clarifications,
-      ...genericTaskResult.clarifications,
-    ].filter(Boolean),
-    replyAppendix: "",
+    message: planned.message.trim(),
+    facts,
+    hasSideEffectfulActions: effectiveAnswer.fileWrites.length > 0
+      || effectiveAnswer.reminders.length > 0
+      || effectiveAnswer.outboundMessages.length > 0
+      || effectiveAnswer.pendingAuthorizations.length > 0
+      || effectiveAnswer.tasks.length > 0,
   };
 }

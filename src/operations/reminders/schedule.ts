@@ -14,6 +14,7 @@ const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 const zonedDateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+const displayDateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
 
 function clampPositiveInteger(value: unknown, fallback = 1): number {
   const parsed = Number(value);
@@ -75,6 +76,27 @@ function getZonedParts(date: Date, timezone: string): ZonedParts {
     second: Number(byType.second),
     weekday: WEEKDAY_INDEX[byType.weekday] ?? 0,
   };
+}
+
+function displayDateTimeFormatter(config: AppConfig, timezone: string): Intl.DateTimeFormat {
+  const key = `${uiLocaleTag(config)}::${timezone}`;
+  const existing = displayDateTimeFormatters.get(key);
+  if (existing) return existing;
+  const created = new Intl.DateTimeFormat(uiLocaleTag(config), {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  displayDateTimeFormatters.set(key, created);
+  return created;
+}
+
+function formatDisplayDateTime(config: AppConfig, iso: string, timezone: string): string {
+  return displayDateTimeFormatter(config, timezone).format(new Date(iso));
 }
 
 function compareLocalDateTime(a: LocalDateTimeParts, b: LocalDateTimeParts): number {
@@ -545,7 +567,7 @@ function reminderTimeLabel(schedule: ReminderSchedule): string {
 export function reminderEventScheduleSummary(config: AppConfig, event: ReminderEvent): string {
   const schedule = event.schedule;
   if (schedule.kind === "once") {
-    return new Date(schedule.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false });
+    return formatDisplayDateTime(config, schedule.scheduledAt, event.timezone || config.bot.defaultTimezone);
   }
   if (schedule.kind === "interval") {
     if (schedule.unit === "day" && schedule.every === 1) return t(config, "reminder_created_daily", { time: reminderTimeLabel(schedule) });
@@ -600,7 +622,7 @@ function notificationLabel(config: AppConfig, instance: ReminderNotificationInst
 export function formatReminderEvent(config: AppConfig, event: ReminderEvent): string {
   const occurrence = getCurrentOccurrence(event);
   const when = occurrence
-    ? new Date(occurrence.scheduledAt).toLocaleString(uiLocaleTag(config), { hour12: false }).slice(0, 16)
+    ? formatDisplayDateTime(config, occurrence.scheduledAt, event.timezone || config.bot.defaultTimezone).slice(0, 16)
     : reminderEventScheduleSummary(config, event);
   const notifications = occurrence
     ? listNotificationInstances(event, occurrence).map((item) => notificationLabel(config, item)).join("、")

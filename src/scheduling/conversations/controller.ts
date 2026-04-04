@@ -436,6 +436,7 @@ export class ConversationController {
         onPruneRecentUploads: (taskScopeKey) => pruneRecentUploads(taskScopeKey),
         onStopWaiting: (runningTask) => this.waiting.stop(runningTask),
         onSetReaction: (reactionCtx, emoji) => this.setReactionSafe(reactionCtx, emoji),
+        onReleaseActiveTask: (taskScopeKey, taskId) => this.activeTasks.deleteIfCurrent(taskScopeKey, taskId),
       });
     } finally {
       this.activeTasks.deleteIfCurrent(scope.key, task.id);

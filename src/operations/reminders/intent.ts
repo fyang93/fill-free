@@ -94,6 +94,11 @@ export async function createStructuredReminders(
 
     const primaryTarget = targetResult.resolved[0] || resolveReminderTargetUser(config, raw.targetUser, ctx, userId);
     const recipientUserId = targets.find((target) => target.targetKind === "user")?.targetId;
+    const isSelfOnlyTarget = targets.length === 1 && targets[0]?.targetKind === "user" && targets[0]?.targetId === userId;
+    const scheduleKind = typeof (scheduleRaw as Record<string, unknown>).kind === "string" ? String((scheduleRaw as Record<string, unknown>).kind).trim() : "";
+    const normalizedTimezone = isSelfOnlyTarget && scheduleKind && scheduleKind !== "once"
+      ? resolveReminderTimezone(config, { subjectTimezone, messageTime, timeSemantics, recipientUserId, userId })
+      : resolveReminderTimezone(config, { explicitTimezone, subjectTimezone, messageTime, timeSemantics, recipientUserId, userId });
     await enqueueReminderCreateTask(config, {
       title,
       note: typeof raw.note === "string" ? raw.note.trim() || undefined : undefined,
@@ -102,7 +107,7 @@ export async function createStructuredReminders(
       specialKind: raw.specialKind === "birthday" || raw.specialKind === "festival" || raw.specialKind === "anniversary" || raw.specialKind === "memorial" ? raw.specialKind : undefined,
       kind: raw.kind === "routine" || raw.kind === "meeting" || raw.kind === "birthday" || raw.kind === "anniversary" || raw.kind === "festival" || raw.kind === "memorial" || raw.kind === "task" || raw.kind === "custom" ? raw.kind : undefined,
       timeSemantics,
-      timezone: resolveReminderTimezone(config, { explicitTimezone, subjectTimezone, messageTime, timeSemantics, recipientUserId, userId }),
+      timezone: normalizedTimezone,
       targets,
       notifications: buildReminderNotifications(raw.notifications),
     }, {

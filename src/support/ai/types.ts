@@ -57,6 +57,7 @@ export type FileWriteDraft = {
 
 export type AiTurnResult = {
   message: string;
+  answerMode: "direct" | "needs-execution";
   files: string[];
   fileWrites: FileWriteDraft[];
   attachments: AiAttachment[];
@@ -64,5 +65,4 @@ export type AiTurnResult = {
   outboundMessages: OutboundMessageDraft[];
   pendingAuthorizations: PendingAuthorizationDraft[];
   tasks: TaskDraft[];
-  executorTaskText: string;
 };

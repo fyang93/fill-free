@@ -1,6 +1,6 @@
 import type { AppConfig } from "scheduling/app/types";
 import { buildReminderScheduleFromExternal } from "./schedule_parser";
-import { createReminderEventWithDefaults, getReminderEvent, readReminderEvents, resolveReminderTimezone, updateReminderEvent } from ".";
+import { createReminderEventWithDefaults, deleteReminderEvent, readReminderEvents, resolveReminderTimezone, updateReminderEvent } from ".";
 import type { ReminderEvent, ReminderNotification, ReminderTarget } from ".";
 import type { TaskRecord } from "support/tasks/runtime/store";
 import { enqueueTask } from "support/tasks/runtime/store";
@@ -19,6 +19,30 @@ function normalizeDateKey(date: Date, timezone: string): string {
 function extractScheduledDate(event: ReminderEvent): string | undefined {
   if (event.schedule.kind !== "once") return undefined;
   return event.schedule.scheduledAt.slice(0, 10);
+}
+
+function extractScheduledAt(event: ReminderEvent): string | undefined {
+  if (event.schedule.kind !== "once") return undefined;
+  return event.schedule.scheduledAt;
+}
+
+function extractLocalScheduledAt(event: ReminderEvent, fallbackTimezone: string): string | undefined {
+  if (event.schedule.kind !== "once") return undefined;
+  const date = new Date(event.schedule.scheduledAt);
+  if (!Number.isFinite(date.getTime())) return undefined;
+  const timezone = event.timezone || fallbackTimezone;
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}T${byType.hour}:${byType.minute}:${byType.second}`;
 }
 
 function reminderTargetSubject(targets: ReminderTarget[]): TaskRecord["subject"] {
@@ -43,8 +67,6 @@ async function resolveReminderForUpdate(config: AppConfig, task: TaskRecord): Pr
   const match = payload.match && typeof payload.match === "object" && !Array.isArray(payload.match)
     ? payload.match as Record<string, unknown>
     : {};
-  const reminderId = typeof match.reminderId === "string" && match.reminderId.trim() ? match.reminderId.trim() : task.subject?.kind === "reminder" ? task.subject.id : undefined;
-  if (reminderId) return getReminderEvent(config, reminderId);
 
   const requesterUserId = task.source?.requesterUserId;
   const events = await readReminderEvents(config);
@@ -54,6 +76,13 @@ async function resolveReminderForUpdate(config: AppConfig, task: TaskRecord): Pr
     if (!titleMatches(event, match)) return false;
     const scheduledDate = typeof match.scheduledDate === "string" && match.scheduledDate.trim() ? match.scheduledDate.trim() : undefined;
     if (scheduledDate && extractScheduledDate(event) !== scheduledDate) return false;
+    const scheduledAt = typeof match.scheduledAt === "string" && match.scheduledAt.trim() ? match.scheduledAt.trim() : undefined;
+    if (scheduledAt) {
+      const normalizedScheduledAt = scheduledAt.replace(/\.000Z$/, "").replace(/Z$/, "");
+      const eventScheduledAt = extractScheduledAt(event)?.replace(/\.000Z$/, "").replace(/Z$/, "");
+      const localScheduledAt = extractLocalScheduledAt(event, config.bot.defaultTimezone);
+      if (eventScheduledAt !== normalizedScheduledAt && localScheduledAt !== normalizedScheduledAt) return false;
+    }
     if (match.timeframe === "tomorrow") {
       const timezone = event.timezone || config.bot.defaultTimezone;
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -176,6 +205,13 @@ export async function runReminderTask(config: AppConfig, task: TaskRecord): Prom
     await updateReminderEvent(config, event);
     await enqueueReminderPreparationTask(config, event.id, task.source, [task.id]);
     return { changed: true, reminderId: event.id };
+  }
+
+  if (task.operation === "delete") {
+    const event = await resolveReminderForUpdate(config, task);
+    if (!event) return { skipped: true, reason: "reminder-not-resolved" };
+    const changed = await deleteReminderEvent(config, event.id);
+    return { changed, reminderId: event.id };
   }
 
   return { skipped: true, reason: "unsupported-reminder-operation" };
