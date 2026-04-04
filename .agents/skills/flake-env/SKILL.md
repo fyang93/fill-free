@@ -5,52 +5,44 @@ description: Use when a repo-level CLI, system tool, or dev-shell dependency sho
 
 # Flake Environment
 
-Use this skill when the task is about managing this repository's development environment.
+Use this skill when the task is about this repository's reproducible development environment.
 
-## When to Use
+## When to use
 
-- The user asks to install or add a CLI/tool for this repository
-- A command is missing locally and the tool should exist in the reproducible repo environment
-- The task is about the dev shell, `flake.nix`, nixpkgs package selection, or repo-level tooling setup
+- The user asks to install or add a repo-level CLI or system tool.
+- A command is missing locally and it should exist in the repo environment.
+- The task is about `flake.nix`, the dev shell, package selection, or repo-level tooling setup.
 
 Do not use this skill for:
-- Python package installation that is better handled by `uv`
-- Node/npm package installation that is better handled by `bun`
-- One-off ad-hoc system installs outside the repository environment model
 
-## Scope
+- Python package installation better handled by `uv`
+- Node package installation better handled by `bun`
+- One-off system installs outside the repository environment model
 
-- Add or remove development tools from `flake.nix`
-- Resolve requests like "install X", "add tool Y", or "this command is missing" when the tool should exist in the repo environment
-- Look up the correct Nix package through the NixOS MCP before editing `flake.nix`
-- Keep environment decisions in repo configuration, not in prompt-time workaround text or ad-hoc shell advice
+## Principles
 
-## Permission Rule
+- Keep environment decisions in repo configuration, not in prompt-time workarounds.
+- Use `flake.nix` for repo-level tools that should be reproducible across sessions.
+- Prefer the smallest clean edit.
+- Keep the environment understandable and avoid duplicate packages.
 
-- This skill is admin-only for any environment-changing action.
-- If the requester is not `admin`, do not modify `flake.nix`, `flake.lock`, or environment-management files. State briefly that environment changes require an admin user.
+## Access rule
 
-## Package Selection Rules
+- Environment-changing actions are admin-only.
+- If the requester is not `admin`, do not modify environment-management files. State briefly that environment changes require an admin user.
 
-- For Python packages and Python project tooling, prefer `uv` first when that satisfies the request.
-- For npm / Node packages, prefer `bun` first when that satisfies the request.
-- Use `flake.nix` for repo-level system tools, CLI programs, and other environment dependencies that should exist for this project across sessions.
-- Do not install ad-hoc system packages outside `flake.nix` when the task is really about the repo environment.
+## Procedure
 
-## Operating Procedure
+1. Find the correct nixpkgs package, using the NixOS MCP when available.
+2. Update `flake.nix` minimally and preserve the existing shape.
+3. Touch `flake.lock` only when inputs actually need updating.
+4. Verify with a lightweight check when practical.
 
-1. Use the NixOS MCP to find the correct package name in nixpkgs.
-2. Update `flake.nix` minimally, preserving the existing structure.
-3. Only touch `flake.lock` when inputs themselves need updating.
-4. Keep `buildInputs` organized and avoid duplicate packages.
-5. After editing, verify the result with a lightweight check when practical.
+## Repository convention
 
-## Current Repository Convention
-
-- This repository currently manages dev-shell tools via `flake.nix` under `devShell = pkgs.mkShell { buildInputs = with pkgs; [ ... ]; }`.
-- Add new repo-level tools to that `buildInputs` list unless the request clearly requires a different Nix structure.
+- This repository currently exposes dev-shell tools through `flake.nix` using `pkgs.mkShell` and `buildInputs`.
+- Add new repo-level tools there unless the request clearly needs a different Nix structure.
 
 ## Validation
 
-- Do not claim a tool was installed unless the repository was actually updated and the change is consistent.
-- Prefer the smallest clean edit that keeps the environment reproducible.
+- Do not claim a tool was installed unless the repository was actually updated and the result is consistent.
