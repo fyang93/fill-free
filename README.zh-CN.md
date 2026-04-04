@@ -58,28 +58,6 @@ flowchart TD
 - `system/rules.json`
 - reminder 相关状态
 
-## 架构中的一个例子
-
-对话示例：
-
-- 用户："提醒我明天早上 9 点提交申请。"
-- Bot："好，已经记下。我会在明天 9:00 提醒你。"
-
-```mermaid
-flowchart LR
-  U[User request\n"提醒我明天早上 9 点提交申请"] --> IT[telegram]
-  IT --> SC[conversation controller]
-  SC --> RS[responder]
-  RS --> UA[ai gateway]
-  UA --> RS
-  RS --> RX[executor]
-  RX --> OR[reminders]
-  OR --> DS[system/]
-  RX --> RC[responder-callback]
-  RC --> IT
-  IT --> V[User sees\n"好，已经记下。我会在明天 9:00 提醒你。"]
-```
-
 ## 快速开始
 
 ```bash

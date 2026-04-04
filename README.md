@@ -53,28 +53,6 @@ Short-term conversational context is kept in OpenCode sessions by scope:
 
 Long-term facts, access roles, reminders, and structured rules do **not** rely on model session history. They live in repository state such as `system/users.json`, `system/chats.json`, `system/rules.json`, and reminder data.
 
-## Example on the architecture
-
-Example dialogue:
-
-- User: "Remind me tomorrow at 9am to submit the application."
-- Bot: "Got it. I'll remind you tomorrow at 9:00."
-
-```mermaid
-flowchart LR
-  U[User request\n"Remind me tomorrow at 9am to submit the application"] --> IT[telegram]
-  IT --> SC[conversation controller]
-  SC --> RS[responder]
-  RS --> UA[ai gateway]
-  UA --> RS
-  RS --> RX[executor]
-  RX --> OR[reminders]
-  OR --> DS[system/]
-  RX --> RC[responder-callback]
-  RC --> IT
-  IT --> V[User sees\n"Got it. I'll remind you tomorrow at 9:00."]
-```
-
 ## Quick start
 
 ```bash
