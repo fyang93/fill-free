@@ -125,6 +125,8 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
       messageTime,
       canDeliverOutbound: isTrustedUserId(userId) || isAdminUserId(userId),
       accessRole,
+      userRequestText: promptText,
+      responderContextText,
     } satisfies ExecuteAiActionsInput);
     const executorMs = Date.now() - executorStartedAt;
     await logger.info(`conversation task ${task.id} role=executor state=done ms=${executorMs} facts=${actionResult.facts.length} appendixChars=${actionResult.replyAppendix.length}`);

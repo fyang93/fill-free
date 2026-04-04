@@ -48,12 +48,21 @@ export type TaskDraft = {
   supersedesTaskIds?: string[];
 };
 
+export type FileWriteDraft = {
+  path: string;
+  content: string;
+  operation?: string;
+  action?: string;
+};
+
 export type AiTurnResult = {
   message: string;
   files: string[];
+  fileWrites: FileWriteDraft[];
   attachments: AiAttachment[];
   reminders: ReminderDraft[];
   outboundMessages: OutboundMessageDraft[];
   pendingAuthorizations: PendingAuthorizationDraft[];
   tasks: TaskDraft[];
+  executorTaskText: string;
 };

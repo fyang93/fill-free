@@ -181,6 +181,46 @@ export class AiService {
     return (await this.promptInTemporaryTextSession(request, "maintainer")).trim();
   }
 
+  async planExecutorActionsFromText(input: {
+    taskText: string;
+    userRequestText: string;
+    requesterUserId?: number;
+    chatId?: number;
+    chatType?: string;
+    accessRole: RequestAccessRole;
+    messageTime?: string;
+    responderContextText?: string;
+  }): Promise<AiTurnResult> {
+    const prompt = [
+      "You are executor planning. Convert task intent into executable structured actions.",
+      "Output exactly one JSON object with top-level fields: message, files, reminders, outboundMessages, pendingAuthorizations, tasks.",
+      "Set message to an empty string unless clarification is required.",
+      "Do not include markdown fences.",
+      "",
+      "Execution context:",
+      `requesterUserId=${input.requesterUserId ?? "unknown"}`,
+      `chatId=${input.chatId ?? "unknown"}`,
+      `chatType=${input.chatType || "unknown"}`,
+      `accessRole=${input.accessRole}`,
+      input.messageTime ? `messageTime=${input.messageTime}` : "",
+      "",
+      "Original user request:",
+      input.userRequestText.trim(),
+      "",
+      "Responder delegated task text:",
+      input.taskText.trim(),
+      "",
+      input.responderContextText?.trim() ? "Responder context:" : "",
+      input.responderContextText?.trim() || "",
+    ].filter(Boolean).join("\n");
+    const raw = await this.promptInTemporaryTextSession(prompt, "executor");
+    const parsed = extractAiTurnResultFromText(raw);
+    return {
+      ...parsed,
+      executorTaskText: "",
+    };
+  }
+
   stop(): void {
     this.sessions.clear();
   }
@@ -199,7 +239,7 @@ export class AiService {
     return parts;
   }
 
-  private async promptInTemporaryTextSession(text: string, role: "maintainer"): Promise<string> {
+  private async promptInTemporaryTextSession(text: string, role: "executor" | "maintainer"): Promise<string> {
     return this.promptInDisposableTextSession({
       title: role === "maintainer" ? "Maintainer" : "Executor",
       requestLog: `opencode ${role} text prompt request`,
@@ -282,7 +322,7 @@ export class AiService {
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, temporary);
 
-    if (parsed.message.trim() || parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0 || parsed.executorTaskText.trim()) {
       return parsed;
     }
     throw new Error("Model returned no displayable output.");
@@ -299,7 +339,7 @@ export class AiService {
     touchActivity();
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, false);
-    if (parsed.message.trim() || parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0 || parsed.executorTaskText.trim()) {
       return parsed;
     }
     throw new Error("Model returned no displayable output.");
@@ -353,6 +393,6 @@ export class AiService {
   private async logParsedAiTurnResult(rawText: string, parsed: AiTurnResult, temporary: boolean): Promise<void> {
     const label = temporary ? "opencode temporary prompt" : "opencode prompt";
     await logger.info(`${label} raw=${JSON.stringify(rawText)}`);
-    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} reminders=${parsed.reminders.length} outboundMessages=${parsed.outboundMessages.length} pendingAuthorizations=${parsed.pendingAuthorizations.length} tasks=${parsed.tasks.length}`);
+    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} files=${JSON.stringify(parsed.files)} fileWrites=${parsed.fileWrites.length} reminders=${parsed.reminders.length} outboundMessages=${parsed.outboundMessages.length} pendingAuthorizations=${parsed.pendingAuthorizations.length} tasks=${parsed.tasks.length} executorTaskChars=${parsed.executorTaskText.length}`);
   }
 }

@@ -1,8 +1,10 @@
 import type { Context } from "grammy";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { logger } from "scheduling/app/logger";
 import type { AiService } from "support/ai";
 import type { RequestAccessRole } from "support/ai/prompt";
-import type { ActionTargetReference, OutboundMessageDraft, PendingAuthorizationDraft, AiTurnResult, TaskDraft } from "support/ai/types";
+import type { ActionTargetReference, FileWriteDraft, OutboundMessageDraft, PendingAuthorizationDraft, AiTurnResult, TaskDraft } from "support/ai/types";
 import { createStructuredReminders } from "operations/reminders/intent";
 import { PENDING_AUTH_ADMIN_ONLY_FACT } from "operations/access/authorizations";
 import { enqueueTask } from "support/tasks";
@@ -10,8 +12,9 @@ import { resolveChatDisplayName, resolveUserDisplayName } from "operations/conte
 import { resolveTelegramTargetUsers } from "interaction/telegram/identity";
 import type { AppConfig } from "scheduling/app/types";
 
-const OUTBOUND_TARGET_REQUIRED_FACT = "缺少转发目标；请通过 @提及或回复目标消息明确接收方。";
-const OUTBOUND_TRUST_REQUIRED_FACT = "当前请求者没有转发权限；只有 trusted 或 admin 才能要求 bot 向其他 Telegram 用户或群聊发送消息。";
+const OUTBOUND_TARGET_REQUIRED_FACT = "Missing outbound target. Mention @username or reply to a target message.";
+const OUTBOUND_TRUST_REQUIRED_FACT = "Requester does not have outbound permission. Only trusted or admin can request outbound delivery.";
+const MEMORY_WRITE_ALLOWED_FACT = "Requester does not have permission to write memory.";
 
 export type ActionExecutionResult = {
   facts: string[];
@@ -27,6 +30,8 @@ export type ExecuteAiActionsInput = {
   messageTime?: string;
   canDeliverOutbound: boolean;
   accessRole: RequestAccessRole;
+  userRequestText: string;
+  responderContextText?: string;
 };
 
 type TaskEnqueueResult = {
@@ -81,7 +86,7 @@ async function enqueueOutboundMessages(
           : [];
     const sendAt = typeof outbound.sendAt === "string" && outbound.sendAt.trim() ? outbound.sendAt.trim() : undefined;
     if (sendAt && !Number.isFinite(Date.parse(sendAt))) {
-      clarifications.push(`定时发送时间无效：${sendAt}`);
+      clarifications.push(`Invalid scheduled send time: ${sendAt}`);
       continue;
     }
     if (rawTargets.length === 0) {
@@ -113,8 +118,8 @@ async function enqueueOutboundMessages(
         },
       });
       accepted.push(sendAt
-        ? `已受理定时发送目标：${recipientLabel}（${sendAt}）`
-        : `已受理转发目标：${recipientLabel}`);
+        ? `Accepted scheduled outbound target: ${recipientLabel} (${sendAt})`
+        : `Accepted outbound target: ${recipientLabel}`);
     }
   }
 
@@ -149,9 +154,44 @@ async function enqueuePendingAuthorizations(
         messageId: ctx.message?.message_id,
       },
     });
-    accepted.push(`已受理临时授权：@${username}`);
+    accepted.push(`Accepted temporary authorization: @${username}`);
   }
   return { accepted, clarifications: [] };
+}
+
+async function applyFileWrites(
+  config: AppConfig,
+  accessRole: RequestAccessRole,
+  fileWrites: FileWriteDraft[],
+): Promise<TaskEnqueueResult> {
+  if (fileWrites.length === 0) return { accepted: [], clarifications: [] };
+  if (accessRole === "allowed") return { accepted: [], clarifications: [MEMORY_WRITE_ALLOWED_FACT] };
+
+  const accepted: string[] = [];
+  const clarifications: string[] = [];
+  const repoRoot = config.paths.repoRoot;
+
+  for (const item of fileWrites) {
+    const normalized = item.path.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+    if (!normalized.startsWith("memory/") || !normalized.endsWith(".md")) {
+      clarifications.push(`Ignored non-memory file write: ${normalized}`);
+      continue;
+    }
+    const targetPath = path.join(repoRoot, normalized);
+    const operation = (item.operation || item.action || "append").toLowerCase();
+    const content = item.content.trim();
+    if (!content) continue;
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    if (operation.includes("overwrite") || operation.includes("replace") || operation === "write") {
+      await writeFile(targetPath, `${content}\n`, "utf8");
+      accepted.push(`Wrote memory file: ${normalized}`);
+    } else {
+      await appendFile(targetPath, `${content}\n`, "utf8");
+      accepted.push(`Appended memory file: ${normalized}`);
+    }
+  }
+
+  return { accepted, clarifications };
 }
 
 async function enqueueGenericTasks(
@@ -182,8 +222,8 @@ async function enqueueGenericTasks(
       },
     });
     accepted.push(task.domain === "query" && task.operation === "answer-from-repo"
-      ? "已受理查询任务；后续会补充结果。"
-      : `已受理任务：${task.domain}/${task.operation}`);
+      ? "Accepted query task; a follow-up result will be delivered later."
+      : `Accepted task: ${task.domain}/${task.operation}`);
   }
   return { accepted, clarifications: [] };
 }
@@ -192,48 +232,80 @@ async function enqueueGenericTasks(
 export async function executeAiActions(input: ExecuteAiActionsInput): Promise<ActionExecutionResult> {
   const executorStartedAt = Date.now();
 
+  let effectiveAnswer = input.answer;
+  if (effectiveAnswer.executorTaskText.trim()) {
+    const planned = await input.agentService.planExecutorActionsFromText({
+      taskText: effectiveAnswer.executorTaskText,
+      userRequestText: input.userRequestText,
+      requesterUserId: input.requesterUserId,
+      chatId: input.ctx.chat?.id,
+      chatType: input.ctx.chat?.type,
+      accessRole: input.accessRole,
+      messageTime: input.messageTime,
+      responderContextText: input.responderContextText,
+    });
+    effectiveAnswer = {
+      ...effectiveAnswer,
+      reminders: [...effectiveAnswer.reminders, ...planned.reminders],
+      outboundMessages: [...effectiveAnswer.outboundMessages, ...planned.outboundMessages],
+      pendingAuthorizations: [...effectiveAnswer.pendingAuthorizations, ...planned.pendingAuthorizations],
+      tasks: [...effectiveAnswer.tasks, ...planned.tasks],
+      files: [...effectiveAnswer.files, ...planned.files],
+      fileWrites: [...effectiveAnswer.fileWrites, ...planned.fileWrites],
+      executorTaskText: "",
+    };
+    await logger.info(`executor task-text interpreted reminders=${planned.reminders.length} outboundMessages=${planned.outboundMessages.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
+  }
+
+  const fileWriteStartedAt = Date.now();
+  const fileWriteResult = await applyFileWrites(input.config, input.accessRole, effectiveAnswer.fileWrites);
+  const fileWriteMs = Date.now() - fileWriteStartedAt;
+  await logger.info(`executor file writes done ms=${fileWriteMs} accepted=${fileWriteResult.accepted.length} clarifications=${fileWriteResult.clarifications.length} drafts=${effectiveAnswer.fileWrites.length}`);
+
   const reminderStartedAt = Date.now();
   const reminderResult = await createStructuredReminders(
     input.config,
     input.agentService,
-    input.answer.reminders,
+    effectiveAnswer.reminders,
     input.ctx,
     input.requesterUserId,
     input.messageTime,
   );
   const reminderMs = Date.now() - reminderStartedAt;
-  await logger.info(`executor reminders done ms=${reminderMs} created=${reminderResult.created.length} clarifications=${reminderResult.clarifications.length} drafts=${input.answer.reminders.length}`);
+  await logger.info(`executor reminders done ms=${reminderMs} created=${reminderResult.created.length} clarifications=${reminderResult.clarifications.length} drafts=${effectiveAnswer.reminders.length}`);
 
   const outboundStartedAt = Date.now();
   const outboundResult = input.canDeliverOutbound
-    ? await enqueueOutboundMessages(input.config, input.ctx, input.answer.outboundMessages, input.requesterUserId)
-    : input.answer.outboundMessages.length > 0
+    ? await enqueueOutboundMessages(input.config, input.ctx, effectiveAnswer.outboundMessages, input.requesterUserId)
+    : effectiveAnswer.outboundMessages.length > 0
       ? { accepted: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT] }
       : { accepted: [], clarifications: [] };
   const outboundMs = Date.now() - outboundStartedAt;
-  await logger.info(`executor outbound done ms=${outboundMs} accepted=${outboundResult.accepted.length} clarifications=${outboundResult.clarifications.length} drafts=${input.answer.outboundMessages.length} enabled=${input.canDeliverOutbound ? "yes" : "no"}`);
+  await logger.info(`executor outbound done ms=${outboundMs} accepted=${outboundResult.accepted.length} clarifications=${outboundResult.clarifications.length} drafts=${effectiveAnswer.outboundMessages.length} enabled=${input.canDeliverOutbound ? "yes" : "no"}`);
   const authStartedAt = Date.now();
   const pendingAuthorizationResult = await enqueuePendingAuthorizations(
     input.config,
-    input.answer.pendingAuthorizations,
+    effectiveAnswer.pendingAuthorizations,
     input.requesterUserId,
     input.accessRole,
     input.ctx,
   );
   const authMs = Date.now() - authStartedAt;
-  await logger.info(`executor authorizations done ms=${authMs} accepted=${pendingAuthorizationResult.accepted.length} clarifications=${pendingAuthorizationResult.clarifications.length} drafts=${input.answer.pendingAuthorizations.length}`);
+  await logger.info(`executor authorizations done ms=${authMs} accepted=${pendingAuthorizationResult.accepted.length} clarifications=${pendingAuthorizationResult.clarifications.length} drafts=${effectiveAnswer.pendingAuthorizations.length}`);
   const taskStartedAt = Date.now();
-  const genericTaskResult = await enqueueGenericTasks(input.config, input.ctx, input.answer.tasks, input.requesterUserId);
+  const genericTaskResult = await enqueueGenericTasks(input.config, input.ctx, effectiveAnswer.tasks, input.requesterUserId);
   const taskMs = Date.now() - taskStartedAt;
-  await logger.info(`executor tasks done ms=${taskMs} accepted=${genericTaskResult.accepted.length} clarifications=${genericTaskResult.clarifications.length} drafts=${input.answer.tasks.length}`);
+  await logger.info(`executor tasks done ms=${taskMs} accepted=${genericTaskResult.accepted.length} clarifications=${genericTaskResult.clarifications.length} drafts=${effectiveAnswer.tasks.length}`);
   await logger.info(`executor role total ms=${Date.now() - executorStartedAt}`);
 
   return {
     facts: [
+      summarizeFactBlock("Multiple file writes accepted", fileWriteResult.accepted),
       summarizeFactBlock("Multiple reminders accepted", reminderResult.created),
       summarizeFactBlock("Multiple outbound messages accepted", outboundResult.accepted),
       summarizeFactBlock("Multiple temporary authorizations accepted", pendingAuthorizationResult.accepted),
       summarizeFactBlock("Multiple queued tasks accepted", genericTaskResult.accepted),
+      ...fileWriteResult.clarifications,
       ...reminderResult.clarifications,
       ...outboundResult.clarifications,
       ...pendingAuthorizationResult.clarifications,

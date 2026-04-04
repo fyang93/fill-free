@@ -1,4 +1,4 @@
-import type { AiTurnResult, OutboundMessageDraft, PendingAuthorizationDraft, ReminderDraft, TaskDraft } from "./types";
+import type { AiTurnResult, FileWriteDraft, OutboundMessageDraft, PendingAuthorizationDraft, ReminderDraft, TaskDraft } from "./types";
 
 function extractJsonCandidates(text: string): string[] {
   const candidates: string[] = [];
@@ -38,10 +38,37 @@ function trimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function extractExecutorTaskBlock(text: string): { message: string; executorTaskText: string } {
+  const match = text.match(/\[EXECUTOR_TASK\]([\s\S]*?)\[\/EXECUTOR_TASK\]/i);
+  if (!match) return { message: text.trim(), executorTaskText: "" };
+  const executorTaskText = (match[1] || "").trim() || "<delegate>";
+  const message = text.replace(match[0], "").trim();
+  return { message, executorTaskText };
+}
+
 function parseFiles(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function parseFileWrites(value: unknown): FileWriteDraft[] {
+  if (!Array.isArray(value)) return [];
+  const drafts: FileWriteDraft[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const filePath = typeof record.path === "string" ? record.path.trim() : "";
+    const content = typeof record.content === "string" ? record.content : "";
+    if (!filePath || !content.trim()) continue;
+    drafts.push({
+      path: filePath,
+      content,
+      operation: typeof record.operation === "string" ? record.operation.trim() : undefined,
+      action: typeof record.action === "string" ? record.action.trim() : undefined,
+    });
+  }
+  return drafts;
 }
 
 function parseReminders(value: unknown): ReminderDraft[] {
@@ -94,23 +121,27 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
 
   for (const candidate of jsonCandidates) {
     try {
-      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown; pendingAuthorizations?: unknown; tasks?: unknown };
+      const parsed = JSON.parse(candidate) as { message?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown; pendingAuthorizations?: unknown; tasks?: unknown; executorTaskText?: unknown };
       const files = parseFiles(parsed.files);
       const reminders = parseReminders(parsed.reminders);
+      const fileWrites = parseFileWrites(parsed.files);
       const outboundMessages = parseOutboundMessages(parsed.outboundMessages);
       const pendingAuthorizations = parsePendingAuthorizations(parsed.pendingAuthorizations);
       const tasks = parseTasks(parsed.tasks);
       const messageText = typeof parsed.message === "string" ? parsed.message.trim() : "";
-      const hasStructuredFields = files.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || pendingAuthorizations.length > 0 || tasks.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages) || Array.isArray(parsed.pendingAuthorizations) || Array.isArray(parsed.tasks);
+      const executorTaskText = typeof parsed.executorTaskText === "string" ? parsed.executorTaskText.trim() : "";
+      const hasStructuredFields = files.length > 0 || fileWrites.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || pendingAuthorizations.length > 0 || tasks.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages) || Array.isArray(parsed.pendingAuthorizations) || Array.isArray(parsed.tasks);
       if (typeof parsed.message === "string" || hasStructuredFields) {
         return {
           message: messageText,
           files,
           attachments: [],
+          fileWrites,
           reminders,
           outboundMessages,
           pendingAuthorizations,
           tasks,
+          executorTaskText,
         };
       }
     } catch {
@@ -119,8 +150,19 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
   }
 
   if (looksLikeStructuredOutputIntent(plain) && jsonCandidates.length > 0) {
-    return { message: "", files: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [], tasks: [] };
+    return { message: "", files: [], fileWrites: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [], tasks: [], executorTaskText: "" };
   }
 
-  return { message: plain, files: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [], tasks: [] };
+  const plainWithExecutorTask = extractExecutorTaskBlock(plain);
+  return {
+    message: plainWithExecutorTask.message,
+    files: [],
+    attachments: [],
+    fileWrites: [],
+    reminders: [],
+    outboundMessages: [],
+    pendingAuthorizations: [],
+    tasks: [],
+    executorTaskText: plainWithExecutorTask.executorTaskText,
+  };
 }
