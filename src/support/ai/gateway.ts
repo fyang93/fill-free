@@ -49,7 +49,11 @@ export class AiService {
       throwOnError: true,
       responseStyle: "data",
     });
-    this.replyComposer = new ReplyComposer(config, (text) => this.promptInLightTextSession(text));
+    this.replyComposer = new ReplyComposer(
+      config,
+      (text) => this.promptInLightTextSession(text, "responder"),
+      (text) => this.promptInLightTextSession(text),
+    );
     this.structuredReasoner = new StructuredReasoner(config, (promptText, attachments, scopeKey) => this.promptWithCurrentLightSession(promptText, attachments, scopeKey), (attachments) => this.attachmentLogSummary(attachments));
   }
 
@@ -202,12 +206,12 @@ export class AiService {
     });
   }
 
-  private async promptInLightTextSession(text: string): Promise<string> {
+  private async promptInLightTextSession(text: string, role?: PromptRole): Promise<string> {
     return this.promptInDisposableTextSession({
       title: "Light text",
       requestLog: "opencode light text prompt request",
       rawLogLabel: "opencode light text prompt",
-      execute: (sessionId) => this.promptSessionForLightText(sessionId, text, []),
+      execute: (sessionId) => this.promptSessionForLightText(sessionId, text, [], role),
     });
   }
 
@@ -295,13 +299,13 @@ export class AiService {
     return rawText;
   }
 
-  private async promptSessionForLightText(sessionId: string, text: string, attachments: AiAttachment[]): Promise<string> {
+  private async promptSessionForLightText(sessionId: string, text: string, attachments: AiAttachment[], role?: PromptRole): Promise<string> {
     const startedAt = Date.now();
-    await logger.info(`opencode text prompt start sessionId=${sessionId} model=${JSON.stringify(state.model || "default")} textChars=${text.length} attachments=${attachments.length} mode=light`);
+    await logger.info(`opencode text prompt start sessionId=${sessionId} model=${JSON.stringify(state.model || "default")} textChars=${text.length} attachments=${attachments.length} mode=light${role ? ` role=${role}` : ""}`);
     const response = await this.client.session.prompt({
       path: { id: sessionId },
       body: {
-        system: this.systemPromptForRole("responder"),
+        system: role ? this.systemPromptForRole(role) : undefined,
         model: parseModel(state.model) || undefined,
         parts: this.buildParts(text, attachments),
       },

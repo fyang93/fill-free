@@ -11,6 +11,7 @@ export class ReplyComposer {
   constructor(
     private config: AppConfig,
     private readonly promptForText: (text: string) => Promise<string>,
+    private readonly promptForStartupText: (text: string) => Promise<string> = promptForText,
   ) {}
 
   updateConfig(config: AppConfig): void {
@@ -24,7 +25,7 @@ export class ReplyComposer {
       STARTUP_GREETING_REQUEST,
       "Return only the greeting text to send.",
     ], " ");
-    const message = this.extractDirectTextReply(await this.promptForText(request)).trim();
+    const message = this.extractDirectTextReply(await this.promptForStartupText(request)).trim();
     return message || null;
   }
 
