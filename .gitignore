@@ -10,7 +10,6 @@ node_modules/
 config.toml
 .env
 logs/
-.telegram-state.json
 
 tmp/*
 !tmp/.gitkeep
@@ -19,7 +18,6 @@ memory/**
 !memory/**/
 !memory/.gitkeep
 !memory/**/.gitkeep
-!memory/preferences.md
 
 assets/**
 !assets/**/
@@ -29,7 +27,6 @@ assets/**
 system/**
 !system/
 !system/.gitkeep
-!system/files.json
 !system/schemas/
 !system/schemas/**
 
