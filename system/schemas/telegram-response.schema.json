@@ -110,11 +110,19 @@
       "required": ["message"],
       "properties": {
         "message": { "type": "string" },
+        "target": {
+          "oneOf": [
+            { "$ref": "#/$defs/target" },
+            { "type": "string" },
+            { "type": "integer" }
+          ]
+        },
         "targetUser": { "$ref": "#/$defs/target" },
         "targetUsers": {
           "type": "array",
           "items": { "$ref": "#/$defs/target" }
-        }
+        },
+        "sendAt": { "type": "string", "format": "date-time" }
       }
     },
     "pendingAuthorizationDraft": {

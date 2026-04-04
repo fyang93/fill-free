@@ -20,14 +20,8 @@
 
 ```mermaid
 flowchart TD
-  subgraph I[交互]
-    IT[telegram]
-  end
-
-  subgraph S[调度]
-    SC[conversation controller]
-    SR[reminder loop]
-  end
+  I[交互\ntelegram]
+  S[调度]
 
   subgraph R[角色]
     RS[responder]
@@ -36,39 +30,16 @@ flowchart TD
     RM[maintainer]
   end
 
-  subgraph U[支援]
-    UA[ai gateway]
-    UT[task runtime]
-  end
-
-  subgraph O[事务]
-    OM[memory/files]
-    OR[reminders]
-    OA[access]
-  end
+  O[事务]
 
   subgraph D[档案]
     DS[system/]
     DM[memory/]
   end
 
-  IT --> SC
-  SC --> RS
-  SC --> SR
-  RS --> UA
-  RS --> RX
+  I --> S --> RS --> RX --> O --> D
   RX --> RC
-  RX --> UT
-  RX --> OM
-  RX --> OR
-  RX --> OA
-  OM --> D
-  OR --> D
-  OA --> D
-  RM --> OM
-  RM --> OR
-  RM --> OA
-  RM --> DS
+  RM --> O
 
   classDef role fill:#ffe08a,stroke:#b8860b,stroke-width:2px,color:#111;
   class RS,RX,RC,RM role;

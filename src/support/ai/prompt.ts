@@ -52,6 +52,8 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLa
     "When returning structured output, message must already be the user-facing reply text.",
     "Use files only when the bot should send a local file now.",
     "For reminders include at least title and schedule. For outboundMessages include message and target.",
+    "Reminder schedule must be an object, not a string.",
+    "For delayed outbound delivery, use outboundMessages[].sendAt. Do not invent fields like triggerOnReminder.",
     "If required details are missing, ask a brief follow-up question before returning the structured action.",
     "Use tasks for deferred or durable follow-up work.",
     "Do not claim durable changes unless you also return the corresponding structured action.",

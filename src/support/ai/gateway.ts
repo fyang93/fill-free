@@ -50,7 +50,7 @@ export class AiService {
       responseStyle: "data",
     });
     this.replyComposer = new ReplyComposer(config, (text) => this.promptInLightTextSession(text));
-    this.structuredReasoner = new StructuredReasoner(config, (promptText, attachments, scopeKey) => this.promptWithCurrentSession(promptText, attachments, scopeKey), (attachments) => this.attachmentLogSummary(attachments));
+    this.structuredReasoner = new StructuredReasoner(config, (promptText, attachments, scopeKey) => this.promptWithCurrentLightSession(promptText, attachments, scopeKey), (attachments) => this.attachmentLogSummary(attachments));
   }
 
   reloadConfig(config: AppConfig): void {
@@ -263,6 +263,18 @@ export class AiService {
   private async promptWithCurrentSession(text: string, attachments: AiAttachment[], scopeKey?: string): Promise<AiTurnResult> {
     const entry = await this.getOrCreateSession(scopeKey, scopeKey);
     return this.promptAndParse(entry.sessionId, text, attachments, false);
+  }
+
+  private async promptWithCurrentLightSession(text: string, attachments: AiAttachment[], scopeKey?: string): Promise<AiTurnResult> {
+    const entry = await this.getOrCreateSession(scopeKey, scopeKey);
+    const rawText = await this.promptSessionForLightText(entry.sessionId, text, attachments);
+    touchActivity();
+    const parsed = extractAiTurnResultFromText(rawText);
+    await this.logParsedAiTurnResult(rawText, parsed, false);
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
+      return parsed;
+    }
+    throw new Error("Model returned no displayable output.");
   }
 
   private async promptSessionForText(sessionId: string, text: string, attachments: AiAttachment[], role: "executor" | "maintainer"): Promise<string> {

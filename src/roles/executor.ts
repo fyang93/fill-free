@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { logger } from "scheduling/app/logger";
 import type { AiService } from "support/ai";
 import type { RequestAccessRole } from "support/ai/prompt";
-import type { OutboundMessageDraft, PendingAuthorizationDraft, AiTurnResult, TaskDraft } from "support/ai/types";
+import type { ActionTargetReference, OutboundMessageDraft, PendingAuthorizationDraft, AiTurnResult, TaskDraft } from "support/ai/types";
 import { createStructuredReminders } from "operations/reminders/intent";
 import { PENDING_AUTH_ADMIN_ONLY_FACT } from "operations/access/authorizations";
 import { enqueueTask } from "support/tasks";
@@ -34,6 +34,26 @@ type TaskEnqueueResult = {
   clarifications: string[];
 };
 
+function normalizeOutboundTargetReference(raw: unknown): ActionTargetReference | undefined {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const record = raw as Record<string, unknown>;
+    const id = Number(record.id);
+    const username = typeof record.username === "string" && record.username.trim() ? record.username.trim().replace(/^@+/, "") : undefined;
+    const displayName = typeof record.displayName === "string" && record.displayName.trim() ? record.displayName.trim() : undefined;
+    if (Number.isInteger(id)) return { id, username, displayName };
+    if (username || displayName) return { username, displayName };
+    return undefined;
+  }
+  if (typeof raw === "number" && Number.isInteger(raw)) return { id: raw };
+  if (typeof raw === "string" && raw.trim()) {
+    const trimmed = raw.trim();
+    if (/^-?\d+$/.test(trimmed)) return { id: Number(trimmed) };
+    if (/^@/.test(trimmed)) return { username: trimmed.replace(/^@+/, "") };
+    return { displayName: trimmed };
+  }
+  return undefined;
+}
+
 function summarizeFactBlock(plural: string, items: string[]): string {
   if (items.length === 0) return "";
   if (items.length === 1) return items[0] || "";
@@ -56,7 +76,14 @@ async function enqueueOutboundMessages(
       ? outbound.targetUsers
       : outbound.targetUser
         ? [outbound.targetUser]
-        : [];
+        : outbound.target != null
+          ? [normalizeOutboundTargetReference(outbound.target)].filter((item): item is ActionTargetReference => Boolean(item))
+          : [];
+    const sendAt = typeof outbound.sendAt === "string" && outbound.sendAt.trim() ? outbound.sendAt.trim() : undefined;
+    if (sendAt && !Number.isFinite(Date.parse(sendAt))) {
+      clarifications.push(`定时发送时间无效：${sendAt}`);
+      continue;
+    }
     if (rawTargets.length === 0) {
       clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
       continue;
@@ -77,14 +104,17 @@ async function enqueueOutboundMessages(
         operation: "send",
         subject: { kind: target.chatId != null ? "chat" : "user", id: String(recipientId) },
         payload: { recipientId, recipientLabel, message: text },
-        dedupeKey: `outbound:send:${recipientId}:${text}`,
+        availableAt: sendAt,
+        dedupeKey: `outbound:send:${recipientId}:${sendAt || "now"}:${text}`,
         source: {
           requesterUserId,
           chatId: ctx.chat?.id,
           messageId: ctx.message?.message_id,
         },
       });
-      accepted.push(`已受理转发目标：${recipientLabel}`);
+      accepted.push(sendAt
+        ? `已受理定时发送目标：${recipientLabel}（${sendAt}）`
+        : `已受理转发目标：${recipientLabel}`);
     }
   }
 

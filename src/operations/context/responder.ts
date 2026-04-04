@@ -3,7 +3,7 @@ import path from "node:path";
 import type { AppConfig } from "scheduling/app/types";
 import { reminderEventScheduleSummary, readReminderEvents } from "operations/reminders";
 import { matchInvertedIndex } from "./inverted-index";
-import { resolveChat, resolveUser } from "./store";
+import { collectRelevantRules, resolveChat, resolveUser } from "./store";
 
 export type ResponderIndexContext = {
   matchedTerms: string[];
@@ -74,6 +74,19 @@ export async function buildResponderContextBlock(config: AppConfig, input: Respo
   }))).filter(Boolean);
   const indexedMatch = input.indexContext || { matchedTerms: [], paths: [] };
   const indexedFiles = (await Promise.all(indexedMatch.paths.slice(0, 3).map(async (filePath) => loadMarkdownFile(config.paths.repoRoot, filePath)))).filter(Boolean);
+  const relevantRules = [
+    ...collectRelevantRules(config.paths.repoRoot, { requesterUserId: input.requesterUserId, chatId: input.chatId }),
+    ...collectRelevantRules(config.paths.repoRoot, { requesterUserId: input.requesterUserId, chatId: input.chatId, taskId: "reminders" }),
+    ...collectRelevantRules(config.paths.repoRoot, { requesterUserId: input.requesterUserId, chatId: input.chatId, taskId: "outbound" }),
+  ].filter((rule, index, rules) => rules.findIndex((item) => item.id === rule.id) === index)
+    .slice(0, 8)
+    .map((rule) => ({
+      id: rule.id,
+      topic: rule.topic,
+      appliesTo: rule.appliesTo,
+      content: rule.content,
+      updatedAt: rule.updatedAt,
+    }));
 
   const payload = {
     requesterUser: requesterUser && input.requesterUserId != null ? {
@@ -91,6 +104,7 @@ export async function buildResponderContextBlock(config: AppConfig, input: Respo
       memoryPath: chat.memoryPath || null,
       activeUserIds: activeUsers.map(([userId]) => userId),
     } : null,
+    relevantRules,
     linkedMemoryFiles: [requesterFile, chatFile, ...activeUserFiles, ...indexedFiles].filter(Boolean),
     matchedIndexTerms: indexedMatch.matchedTerms,
   };

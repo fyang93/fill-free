@@ -8,8 +8,10 @@ export type ActionTargetReference = {
 
 export type OutboundMessageDraft = {
   message: string;
+  target?: ActionTargetReference | string | number;
   targetUser?: ActionTargetReference;
   targetUsers?: ActionTargetReference[];
+  sendAt?: string;
 };
 
 export type ReminderDraft = {

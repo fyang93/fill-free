@@ -73,6 +73,7 @@
           "type": "object",
           "additionalProperties": true
         },
+        "availableAt": { "type": "string", "format": "date-time" },
         "dependsOn": {
           "type": "array",
           "items": { "type": "string" }

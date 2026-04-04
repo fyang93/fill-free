@@ -20,14 +20,8 @@ The bot is organized as a small layered system: interaction, scheduling, roles, 
 
 ```mermaid
 flowchart TD
-  subgraph I[Interaction]
-    IT[telegram]
-  end
-
-  subgraph S[Scheduling]
-    SC[conversation controller]
-    SR[reminder loop]
-  end
+  I[Interaction\ntelegram]
+  S[Scheduling]
 
   subgraph R[Roles]
     RS[responder]
@@ -36,39 +30,16 @@ flowchart TD
     RM[maintainer]
   end
 
-  subgraph U[Support]
-    UA[ai gateway]
-    UT[task runtime]
-  end
-
-  subgraph O[Operations]
-    OM[memory/files]
-    OR[reminders]
-    OA[access]
-  end
+  O[Operations]
 
   subgraph D[Records]
     DS[system/]
     DM[memory/]
   end
 
-  IT --> SC
-  SC --> RS
-  SC --> SR
-  RS --> UA
-  RS --> RX
+  I --> S --> RS --> RX --> O --> D
   RX --> RC
-  RX --> UT
-  RX --> OM
-  RX --> OR
-  RX --> OA
-  OM --> D
-  OR --> D
-  OA --> D
-  RM --> OM
-  RM --> OR
-  RM --> OA
-  RM --> DS
+  RM --> O
 
   classDef role fill:#ffe08a,stroke:#b8860b,stroke-width:2px,color:#111;
   class RS,RX,RC,RM role;

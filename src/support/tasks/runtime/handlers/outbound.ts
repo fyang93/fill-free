@@ -12,6 +12,6 @@ export const outboundSendTaskHandler: TaskHandler = {
     const recipientLabel = readTrimmedPayloadString(task, "recipientLabel") || String(recipientId);
     const relayText = await agentService.composeOutboundRelayMessage(text, recipientLabel);
     await sendMessageFormatted(bot, recipientId, relayText);
-    return { result: { delivered: true, recipientId, recipientLabel } };
+    return { result: { delivered: true, recipientId, recipientLabel, scheduled: typeof task.availableAt === "string" } };
   },
 };

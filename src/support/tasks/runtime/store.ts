@@ -10,6 +10,7 @@ export type TaskRecord = {
   state: TaskState;
   domain: string;
   operation: string;
+  availableAt?: string;
   subject?: {
     kind?: string;
     id?: string;
@@ -86,6 +87,7 @@ function normalizeTask(raw: unknown): TaskRecord | null {
     : undefined;
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt.trim() : "";
   const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : createdAt;
+  const availableAt = typeof record.availableAt === "string" && record.availableAt.trim() ? record.availableAt.trim() : undefined;
   const result = record.result && typeof record.result === "object" && !Array.isArray(record.result)
     ? record.result as Record<string, unknown>
     : undefined;
@@ -106,6 +108,7 @@ function normalizeTask(raw: unknown): TaskRecord | null {
     operation,
     subject: normalizeSubject(record.subject),
     payload,
+    availableAt,
     dependsOn,
     dedupeKey,
     supersedesTaskIds,
@@ -196,6 +199,7 @@ export async function enqueueTask(config: AppConfig, draft: Omit<TaskRecord, "id
       operation: draft.operation,
       subject: draft.subject,
       payload: draft.payload,
+      availableAt: draft.availableAt,
       dependsOn: draft.dependsOn?.filter(Boolean),
       dedupeKey,
       supersedesTaskIds: draft.supersedesTaskIds?.filter(Boolean),
@@ -231,7 +235,10 @@ export async function markTaskState(config: AppConfig, taskId: string, state: Ta
 export async function dequeueRunnableTask(config: AppConfig): Promise<TaskRecord | null> {
   return mutateTaskStore(config, async (store) => {
     const done = new Set(store.tasks.filter((task) => task.state === "done").map((task) => task.id));
-    const next = store.tasks.find((task) => task.state === "queued" && (task.dependsOn || []).every((id) => done.has(id)));
+    const now = Date.now();
+    const next = store.tasks.find((task) => task.state === "queued"
+      && (!task.availableAt || (Number.isFinite(Date.parse(task.availableAt)) && Date.parse(task.availableAt) <= now))
+      && (task.dependsOn || []).every((id) => done.has(id)));
     if (!next) return null;
     next.state = "running";
     next.updatedAt = new Date().toISOString();
