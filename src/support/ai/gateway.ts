@@ -156,8 +156,8 @@ export class AiService {
     return this.structuredReasoner.run(text, uploadedFiles, attachments, messageTime, accessRole, scopeKey || scopeLabel, responderContextText, requesterTimezone);
   }
 
-  async generateStartupGreeting(): Promise<string | null> {
-    return this.replyComposer.generateStartupGreeting();
+  async generateStartupGreeting(input?: ReplyComposerInputContext): Promise<string | null> {
+    return this.replyComposer.generateStartupGreeting(input);
   }
 
   async generateReminderMessage(reminderText: string, scheduledAt: string, recurrenceDescription: string): Promise<string> {

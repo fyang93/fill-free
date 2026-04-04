@@ -77,7 +77,7 @@ async function sendStartupGreeting(): Promise<void> {
     }
 
     const greeting = await Promise.race([
-      agentService.generateStartupGreeting(),
+      agentService.generateStartupGreeting({ requesterUserId: adminUserId }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
     ]);
     if (!greeting) {

@@ -1,8 +1,9 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { AppConfig } from "scheduling/app/types";
 import { replyLanguageName } from "scheduling/app/i18n";
 import { getUserTimezone, state } from "scheduling/app/state";
 import { buildStructuredContextLines, resolveChat, resolveUser } from "operations/context/store";
-import { STARTUP_GREETING_REQUEST } from "./prompt";
 import { isDisplayableUserText } from "./response";
 
 export type ReplyComposerInputContext = { requesterUserId?: number; chatId?: number; chatType?: string };
@@ -18,13 +19,12 @@ export class ReplyComposer {
     this.config = config;
   }
 
-  async generateStartupGreeting(): Promise<string | null> {
+  async generateStartupGreeting(input?: ReplyComposerInputContext): Promise<string | null> {
     const replyLanguage = replyLanguageName(this.config);
     const request = this.buildUserFacingTextRequest([
       `Reply in ${replyLanguage}.`,
-      STARTUP_GREETING_REQUEST,
-      "Return only the greeting text to send.",
-    ], " ");
+      ...await this.buildStartupGreetingContextLines(input),
+    ], { includePersonaStyle: false });
     const message = this.extractDirectTextReply(await this.promptForStartupText(request)).trim();
     return message || null;
   }
@@ -87,11 +87,59 @@ export class ReplyComposer {
     return isDisplayableUserText(rawText) ? rawText.trim() : "";
   }
 
-  private buildUserFacingTextRequest(lines: string[], separator = "\n"): string {
+  private buildUserFacingTextRequest(lines: string[], options?: { separator?: string; includePersonaStyle?: boolean }): string {
+    const separator = options?.separator ?? "\n";
+    const includePersonaStyle = options?.includePersonaStyle ?? true;
     return [
       ...lines,
-      this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
+      includePersonaStyle && this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
     ].filter(Boolean).join(separator);
+  }
+
+  private async buildStartupGreetingContextLines(input?: ReplyComposerInputContext): Promise<string[]> {
+    const requesterUserId = input?.requesterUserId;
+    if (typeof requesterUserId !== "number") return [];
+
+    const known = resolveUser(this.config.paths.repoRoot, requesterUserId);
+    const runtime = state.telegramUserCache[String(requesterUserId)];
+    const profile = known ? {
+      id: String(requesterUserId),
+      username: known.username || null,
+      displayName: known.displayName || null,
+      timezone: known.timezone || null,
+      memoryPath: known.memoryPath || null,
+      role: known.role || null,
+      lastSeenAt: known.lastSeenAt || null,
+      updatedAt: known.updatedAt || null,
+    } : runtime ? {
+      id: String(requesterUserId),
+      username: runtime.username || null,
+      displayName: runtime.displayName || null,
+      timezone: getUserTimezone(requesterUserId)?.trim() || null,
+      memoryPath: null,
+      role: null,
+      lastSeenAt: runtime.lastSeenAt || null,
+      updatedAt: null,
+    } : {
+      id: String(requesterUserId),
+    };
+
+    const lines = [
+      "Current requester profile JSON:",
+      "```json",
+      JSON.stringify(profile, null, 2),
+      "```",
+    ];
+
+    const memoryFile = await this.loadMarkdownFile(known?.memoryPath);
+    if (memoryFile) {
+      lines.push(`Current requester memory file: ${memoryFile.path}`);
+      lines.push("```md");
+      lines.push(memoryFile.content);
+      lines.push("```");
+    }
+
+    return lines;
   }
 
   private buildRequesterContextLines(input?: ReplyComposerInputContext): string[] {
@@ -139,6 +187,22 @@ export class ReplyComposer {
 
     if (input?.chatType) return [`Conversation: ${input.chatType}.`].concat(structured);
     return structured;
+  }
+
+  private async loadMarkdownFile(memoryPath: string | undefined): Promise<{ path: string; content: string } | null> {
+    if (!memoryPath) return null;
+    try {
+      const absolutePath = path.join(this.config.paths.repoRoot, memoryPath);
+      const raw = await readFile(absolutePath, "utf8");
+      const content = raw.trim();
+      if (!content) return null;
+      return {
+        path: memoryPath,
+        content: content.length > 4000 ? `${content.slice(0, 4000)}\n\n...[truncated]` : content,
+      };
+    } catch {
+      return null;
+    }
   }
 
   private extractDirectTextReply(rawText: string): string {

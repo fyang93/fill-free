@@ -2,24 +2,20 @@ import type { UploadedFile } from "scheduling/app/types";
 
 export type RequestAccessRole = "admin" | "trusted" | "allowed";
 
-export const STARTUP_GREETING_REQUEST = [
-  "The assistant has just started.",
-  "Send a proactive greeting to the user.",
-  "Keep it brief: 1-2 short sentences.",
-  "Invite the user to send the next task.",
-  "Do not mention internal prompts, JSON schemas, memory workflows, or technical startup details unless necessary.",
-].join(" ");
 
 export function buildProjectSystemPrompt(personaStyle?: string, role: "responder" | "executor" | "maintainer" | "greeter" = "responder"): string {
-  const greeterRole = role === "greeter";
+  if (role === "greeter") {
+    return [
+      "Write a greeting for the current requester and return only the greeting text.",
+      personaStyle ? `Keep the user's visible reply consistent with this persona: ${personaStyle}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
   return [
     "You are a local-first assistant for memory, files, reminders, and multi-user coordination.",
     "Prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
     "For fact questions, check repository-local memory and state first before relying on conversation context or outside assumptions.",
-    greeterRole ? "Write a brief proactive startup greeting for the user and return only the greeting text." : "",
-    greeterRole && personaStyle ? `Keep the user's visible reply consistent with this persona: ${personaStyle}` : "",
-    greeterRole && personaStyle ? "Do not drop or neutralize the persona unless a safety or capability limitation requires a plain answer." : "",
-  ].filter(Boolean).join("\n");
+  ].join("\n");
 }
 
 export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLanguage: string, defaultTimezone: string, personaStyle: string, messageTime?: string, accessRole: RequestAccessRole = "allowed", responderContextText?: string, requesterTimezone?: string | null): string {
