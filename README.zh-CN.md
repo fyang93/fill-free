@@ -24,10 +24,10 @@ flowchart TD
   S[⏱️ 调度\n协调循环、会话与任务时机]
 
   subgraph R[角色]
-    RS[🗣️ responder\n理解请求并起草结构化结果]
-    RC[🗣️ responder-callback\n把执行事实整理成最终回复]
-    RX[🔧 executor\n执行动作并完成持久写入]
-    RM[🧹 maintainer\n处理空闲时的清理与一致性维护]
+    RS[🗣️ 响应器 responder\n理解请求并起草结构化结果]
+    RC[🗣️ 响应回调 responder-callback\n把执行事实整理成最终回复]
+    RX[🔧 执行器 executor\n执行动作并完成持久写入]
+    RM[🧹 维护器 maintainer\n处理空闲时的清理与一致性维护]
   end
 
   O[📦 事务\n承接 reminders、access、memory、files 等领域逻辑]
