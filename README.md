@@ -19,43 +19,32 @@ It runs through a local OpenCode server, keeps canonical state in the repository
 The bot is organized as a small layered system: interaction, scheduling, roles, support, operations, and records.
 
 ```text
-+----------------------+
-| 💬 Interaction       |
-| receive and deliver  |
-| user messages        |
-+----------+-----------+
-           |
-           v
-+----------------------+
-| ⏱️ Scheduling        |
-| coordinate loops,    |
-| sessions, and timing |
-+-----+-----------+----+
-      |           |
-      v           v
-+----------------------+   +----------------------+
-| 🗣️ fast lane         |   | 🔧 slow lane         |
-| responder            |   | executor             |
-| small-context quick  |   | full planning and    |
-| reply candidate      |   | final reply candidate|
-+----------+-----------+   +----------+-----------+
-           |                          |
-           +------------+-------------+
-                        |
-                        v
-              +----------------------+
-              | ⚖️ arbiter           |
-              | publish the first    |
-              | safe visible result  |
-              +----------------------+
-
-+----------------------+   +----------------------+   +----------------------+
-| 🧹 maintainer        |-->| 📦 Operations        |-->| 💾 Records           |
-| cleanup and repair   |   | domain logic and     |   | canonical state      |
-+----------------------+   | reminders/access/... |   +----------------------+
-                           +----------------------+
-
-slow lane / executor ------------------------------> operations -----------> records
+Interaction
+  receive and deliver user messages
+  |
+  v
+Scheduling
+  coordinate loops, sessions, and timing
+  |
+  +-- fast lane / responder
+  |     small-context quick reply candidate
+  |
+  +-- slow lane / executor
+  |     full planning and final reply candidate
+  |     |
+  |     +--> Operations
+  |     |      domain logic and reminders/access/...
+  |     |      |
+  |     |      +--> Records
+  |     |             canonical state
+  |     |
+  |     +--> Arbiter
+  |            publish the first safe visible result
+  |
+  +-- Maintainer
+         cleanup and repair
+         |
+         +--> Operations
 ```
 The conversation path now uses an asynchronous race:
 
