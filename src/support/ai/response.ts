@@ -56,6 +56,7 @@ export function isDisplayableUserText(text: string): boolean {
   if (!trimmed) return false;
   if (looksLikeStructuredOutputIntent(trimmed) && !/^\s*\{[\s\S]*\}\s*$/.test(trimmed)) return false;
   if (/(<invoke\b|<\/minimax:tool_call>|<tool_call\b|<function_calls?\b)/i.test(trimmed)) return false;
+  if (/<\/?[a-z][a-z0-9:_-]*\b[^>]*>/i.test(trimmed)) return false;
   if (/^<[^>]+>[\s\S]*<\/[^>]+>$/.test(trimmed)) return false;
   return true;
 }

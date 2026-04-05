@@ -236,6 +236,8 @@ export class AiService {
       "Use answerMode='needs-clarification' when required details are still missing and no durable action should be applied yet.",
       "Use answerMode='needs-execution' when the request should perform durable or backend work and the details are sufficient.",
       "Use message for the user-visible reply for this lane. For direct or clarification results, message should already be the final reply. For needs-execution, message should be the final post-execution reply grounded in what this lane actually confirmed or applied.",
+      "That user-visible message must follow the configured persona style and must not drift into a generic assistant tone.",
+      this.config.bot.personaStyle ? `Configured persona style: ${this.config.bot.personaStyle}` : "",
       "Use deliveries only for explicit message delivery to a user or chat recipient, never for replying to the current requester.",
       "If you found the answer for the current requester, put it in message, not deliveries.",
       "Each deliveries item must include exactly {content, recipient} and may also include sendAt. Use the field name content, not message.",

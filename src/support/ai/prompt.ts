@@ -20,7 +20,10 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "responder
       "Return only one JSON object and nothing else.",
       "No markdown fences. No prose before or after JSON.",
       "Use repository-local state and memory as primary truth for factual answers.",
-    ].join("\n");
+      "If your JSON contains a user-visible message field, that message must follow the configured persona rather than a generic assistant tone.",
+      "Apply persona only to the final visible message field, not to hidden reasoning or planning.",
+      personaStyle ? `Keep any user-visible message consistent with this persona: ${personaStyle}` : "",
+    ].filter(Boolean).join("\n");
   }
 
   return [

@@ -66,6 +66,10 @@ For maintainers and implementation decisions, not as automatic runtime instructi
 - Use runtime guards and tests to protect truth boundaries instead of forcing unnecessary serial orchestration.
 - Keep fast-lane context narrowly scoped and latency-oriented.
 - Prefer small Top-N relevant fact slices over broad context dumps.
+- Treat models as replaceable. Do not bake core correctness into workarounds for the quirks of one weaker model.
+- If a weaker model ignores prompt constraints and produces bad output, prefer rejecting, retrying, or failing safely over patching the output into correctness.
+- Do not add long-lived workaround logic just to compensate for model weakness when that logic is likely to become obsolete as models improve.
+- Avoid carving correctness out of malformed model output with content-specific repair rules; that is usually a brittle, future-hostile workaround.
 
 ## Memory organization
 

@@ -39,6 +39,27 @@ function createTestConfig(): AppConfig {
 }
 
 describe("reply composer sanitization", () => {
+  test("generateReminderMessage requests persona-aware reminder wording", async () => {
+    let captured = "";
+    const composer = new ReplyComposer(createTestConfig(), async (prompt) => {
+      captured = prompt;
+      return "18:00，记得 review 论文。";
+    });
+    await composer.generateReminderMessage("review论文", "2026-04-05T18:00:00", "一次性提醒");
+    expect(captured).toContain("Reply style: 冷静、简洁、稳定");
+    expect(captured).toContain("Keep the configured persona visible in the wording, but restrained.");
+  });
+
+  test("startup greeting request keeps persona enabled", async () => {
+    let captured = "";
+    const composer = new ReplyComposer(createTestConfig(), async () => "", async (prompt) => {
+      captured = prompt;
+      return "系统错误...欢迎回来。";
+    });
+    await composer.generateStartupGreeting({ requesterUserId: 1, chatId: 1, chatType: "private" });
+    expect(captured).toContain("Reply style: 冷静、简洁、稳定");
+  });
+
   test("generateReminderMessage rejects tool-call markup and returns empty string", async () => {
     const composer = new ReplyComposer(createTestConfig(), async () => '<invoke name="memory"><parameter name="query">x</parameter></invoke></minimax:tool_call>');
     const message = await composer.generateReminderMessage("review论文", "2026-04-05T18:00:00", "一次性提醒");
@@ -53,6 +74,16 @@ describe("reply composer sanitization", () => {
 
   test("startup greeting returns null when model emits non-displayable markup", async () => {
     const composer = new ReplyComposer(createTestConfig(), async () => "", async () => '<invoke name="memory"><parameter name="query">x</parameter></invoke></minimax:tool_call>');
+    const message = await composer.generateStartupGreeting({ requesterUserId: 1, chatId: 1, chatType: "private" });
+    expect(message).toBeNull();
+  });
+
+  test("startup greeting returns null when model leaks hidden tag markup before visible text", async () => {
+    const composer = new ReplyComposer(
+      createTestConfig(),
+      async () => "",
+      async () => '<hidden-note>use chinese persona</hidden-note>\n\n你好，羊帆。系统初始化中。',
+    );
     const message = await composer.generateStartupGreeting({ requesterUserId: 1, chatId: 1, chatType: "private" });
     expect(message).toBeNull();
   });

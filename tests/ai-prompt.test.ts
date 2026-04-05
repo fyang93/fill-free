@@ -13,6 +13,13 @@ describe("responder persona stability prompt", () => {
     expect(prompt).toContain("Apply persona to the final visible wording only. Do not narrate hidden reasoning, scanning, loading, or internal processing steps.");
   });
 
+  test("executor system prompt keeps user-visible message under persona constraints", () => {
+    const prompt = buildProjectSystemPrompt("模仿杀戮尖塔里的故障机器人说话。", "executor");
+    expect(prompt).toContain("If your JSON contains a user-visible message field, that message must follow the configured persona");
+    expect(prompt).toContain("Apply persona only to the final visible message field");
+    expect(prompt).toContain("模仿杀戮尖塔里的故障机器人说话");
+  });
+
   test("responder turn prompt reinforces persona stability in long conversations", () => {
     const prompt = buildPrompt(
       "帮我查一下提醒",

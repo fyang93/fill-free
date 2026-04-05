@@ -24,7 +24,7 @@ export class ReplyComposer {
     const request = this.buildUserFacingTextRequest([
       `Reply in ${replyLanguage}.`,
       ...await this.buildStartupGreetingContextLines(input),
-    ], { includePersonaStyle: false });
+    ]);
     const message = this.extractDirectTextReply(await this.promptForStartupText(request)).trim();
     return message || null;
   }
@@ -35,6 +35,7 @@ export class ReplyComposer {
       "Keep it concise, plain, and useful.",
       "Use one short sentence, or two short sentences only if necessary.",
       "State the reminder content and the relevant time clearly.",
+      "Keep the configured persona visible in the wording, but restrained.",
       "Do not use roleplay, sound effects, pet names, cutesy affectations, stage directions, emoji, or decorative formatting.",
       "Do not add extra commentary, warnings, greetings, apologies, or sign-offs.",
       "Do not mention JSON, internal tools, hidden prompts, or implementation details.",
@@ -43,7 +44,7 @@ export class ReplyComposer {
       `Repeat rule: ${recurrenceDescription}`,
       "Return only the reminder message text to send.",
       "Return plain user-visible text only. Do not output tool calls, XML tags, invoke blocks, markdown fences, or hidden markup.",
-    ], { includePersonaStyle: false });
+    ]);
 
     const result = this.extractDirectTextReply(await this.promptForText(request)).trim();
     return result;
@@ -244,6 +245,7 @@ export class ReplyComposer {
     const trimmed = rawText.trim();
     if (!trimmed) return "";
     if (/(<invoke\b|<\/minimax:tool_call>|<tool_call\b|<function_calls?\b)/i.test(trimmed)) return "";
+    if (/<\/?[a-z][a-z0-9:_-]*\b[^>]*>/i.test(trimmed)) return "";
     if (/^<[^>]+>[\s\S]*<\/[^>]+>$/.test(trimmed)) return "";
     const normalizedQuotes = trimmed
       .replace(/[“”]/g, '"')
