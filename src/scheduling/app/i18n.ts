@@ -13,7 +13,6 @@ const dictionaries: Record<Locale, Dictionary> = {
     localeTag: "zh-CN",
     replyLanguage: "Chinese",
     strings: {
-      help_text: "直接告诉我你想记录什么、整理什么、查什么，或者需要我何时提醒你。",
       choose_model: "请选择模型：",
       choose_provider: "请选择模型供应商：",
       choose_model_under_provider: "请选择 {provider} 的模型：",
@@ -33,7 +32,6 @@ const dictionaries: Record<Locale, Dictionary> = {
       file_saved_and_processing: "{waiting_message}",
       file_processing_failed: "文件处理失败：{error}",
       file_processing_too_large_telegram_limit: "文件处理失败：Telegram 官方 Bot API 在未使用本地 Bot API 后端时，上传/下载文件大小限制约为 20MB。这个文件超过了该限制，请压缩、分割，或改发外部下载链接。",
-      command_help: "查看帮助和使用说明",
       command_new: "新建会话",
       command_model: "查看或切换模型",
       trusted_only_command: "这个命令仅限可信用户使用。",
@@ -114,7 +112,6 @@ const dictionaries: Record<Locale, Dictionary> = {
     localeTag: "en-US",
     replyLanguage: "English",
     strings: {
-      help_text: "Just tell me what to remember, organize, look up, or when you want to be reminded.",
       choose_model: "Choose a model:",
       choose_provider: "Choose a model provider:",
       choose_model_under_provider: "Choose a model from {provider}:",
@@ -134,7 +131,6 @@ const dictionaries: Record<Locale, Dictionary> = {
       file_saved_and_processing: "{waiting_message}",
       file_processing_failed: "File processing failed: {error}",
       file_processing_too_large_telegram_limit: "File processing failed: without a local Telegram Bot API server, the official Telegram Bot API only supports uploads/downloads up to about 20 MB. This file exceeds that limit. Please compress it, split it, or send an external download link instead.",
-      command_help: "Show help and usage",
       command_new: "Create a new session",
       command_model: "View or switch model",
       trusted_only_command: "This command is only available to trusted users.",

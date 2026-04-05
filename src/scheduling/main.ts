@@ -109,19 +109,11 @@ function createMaintainerRunnerWithNotifications() {
   });
 }
 
-function helpText(): string {
-  return t(config, "help_text");
-}
-
 function isAdminUser(userId: number | undefined): boolean {
   return isAdminUserId(config, userId);
 }
 
 bot.use((ctx, next) => unauthorizedGuard(config, ctx, next));
-
-bot.command("help", async (ctx) => {
-  await replyFormatted(ctx, helpText());
-});
 
 bot.command("new", async (ctx) => {
   const sessionId = await conversationController.resetSession(ctx);
@@ -199,7 +191,6 @@ bot.catch(async (error) => {
 
 async function syncBotCommands(): Promise<void> {
   await bot.api.setMyCommands([
-    { command: "help", description: t(config, "command_help") },
     { command: "new", description: t(config, "command_new") },
     { command: "model", description: t(config, "command_model") },
   ]);
