@@ -1,4 +1,5 @@
 import type { UploadedFile } from "scheduling/app/types";
+import { formatIsoInTimezoneParts } from "scheduling/app/time";
 
 export type RequestAccessRole = "admin" | "trusted" | "allowed";
 
@@ -38,6 +39,8 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "responder
 
 export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLanguage: string, defaultTimezone: string, personaStyle: string, messageTime?: string, accessRole: RequestAccessRole = "allowed", responderContextText?: string, requesterTimezone?: string | null): string {
   const userRequest = text.trim() || "Handle the user input according to the project rules.";
+  const effectiveTimezone = requesterTimezone?.trim() || defaultTimezone;
+  const localMessageTime = formatIsoInTimezoneParts(messageTime, effectiveTimezone);
 
   const lines = [
     uploadedFiles.length > 0 ? "Saved files:" : "",
@@ -56,7 +59,7 @@ export function buildPrompt(text: string, uploadedFiles: UploadedFile[], replyLa
     "",
     responderContextText || "",
     responderContextText ? "" : "",
-    messageTime ? `Message time: ${messageTime}` : "",
+    localMessageTime ? `Requester-local message time: ${localMessageTime.localDateTime} ${localMessageTime.localWeekday} (${localMessageTime.timezone}).` : "",
     requesterTimezone?.trim() ? `Requester timezone: ${requesterTimezone.trim()}.` : `Default timezone: ${defaultTimezone}.`,
     "Stored absolute timestamps may be UTC or another canonical machine format, but when interpreting the current user's time words or clock-only replies and when speaking back to the user, use the requester timezone unless another timezone is explicitly provided.",
     "If the context provides a deterministic parsed local time, local date, or resolved UTC timestamp for the current turn, treat those values as the canonical time interpretation for this reply.",

@@ -1,6 +1,7 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { AppConfig, AiAttachment, UploadedFile } from "scheduling/app/types";
 import { logger } from "scheduling/app/logger";
+import { formatIsoInTimezoneParts } from "scheduling/app/time";
 import { state, touchActivity } from "scheduling/app/state";
 import { buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
 import { extractAiTurnResultFromText, isDisplayableUserText, looksLikeFakeProcessNarration, looksLikeInternalExecutionLeak, looksLikeUnconfirmedExecutionClaim } from "./response";
@@ -227,6 +228,7 @@ export class AiService {
     requesterTimezone?: string | null;
     responderContextText?: string;
   }): Promise<AiTurnResult> {
+    const localMessageTime = formatIsoInTimezoneParts(input.messageTime, input.requesterTimezone?.trim() || this.config.bot.defaultTimezone);
     const prompt = [
       "Evaluate the same user task as the fast lane, but with fuller structured planning and execution context.",
       "Return exactly one JSON object with fields: message, answerMode, files, reminders, deliveries, pendingAuthorizations, tasks.",
@@ -276,7 +278,7 @@ export class AiService {
       `chatId=${input.chatId ?? "unknown"}`,
       `chatType=${input.chatType || "unknown"}`,
       `accessRole=${input.accessRole}`,
-      input.messageTime ? `messageTime=${input.messageTime}` : "",
+      localMessageTime ? `requesterLocalMessageTime=${localMessageTime.localDateTime} ${localMessageTime.localWeekday} (${localMessageTime.timezone})` : "",
       input.requesterTimezone?.trim() ? `requesterTimezone=${input.requesterTimezone.trim()}` : "",
       "",
       "User request:",

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "scheduling/app/types";
+import { formatIsoInTimezoneParts } from "scheduling/app/time";
 import { reminderEventScheduleSummary, readReminderEvents } from "operations/reminders";
 import { getRecentClarification } from "scheduling/app/state";
 import { matchInvertedIndex } from "./inverted-index";
@@ -66,28 +67,20 @@ function clarificationScopeKey(chatType: string | undefined, requesterUserId: nu
 }
 
 function deterministicTurnTimeContext(messageTime: string | undefined, timezone: string | null | undefined): {
-  messageTimeUtc: string;
   requesterTimezone: string;
   localDate: string;
+  localTime: string;
+  localDateTime: string;
   localWeekday: string;
 } | null {
-  const resolvedTimezone = timezone?.trim();
-  if (!messageTime || !resolvedTimezone) return null;
-  const date = new Date(messageTime);
-  if (Number.isNaN(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: resolvedTimezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-  }).formatToParts(date);
-  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const parts = formatIsoInTimezoneParts(messageTime, timezone);
+  if (!parts) return null;
   return {
-    messageTimeUtc: date.toISOString(),
-    requesterTimezone: resolvedTimezone,
-    localDate: `${byType.year}-${byType.month}-${byType.day}`,
-    localWeekday: String(byType.weekday || ""),
+    requesterTimezone: parts.timezone,
+    localDate: parts.localDate,
+    localTime: parts.localTime,
+    localDateTime: parts.localDateTime,
+    localWeekday: parts.localWeekday,
   };
 }
 

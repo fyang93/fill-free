@@ -53,6 +53,23 @@ describe("responder persona stability prompt", () => {
     expect(prompt).toContain("if the user asks for today's news and current context does not already contain the news, use answerMode='needs-execution'");
   });
 
+  test("responder turn prompt injects requester-local message time instead of raw utc", () => {
+    const prompt = buildPrompt(
+      "帮我查一下提醒",
+      [],
+      "Chinese",
+      "Asia/Tokyo",
+      "冷静、简洁、带一点稳定的机械感",
+      "2026-04-05T16:51:25.000Z",
+      "admin",
+      undefined,
+      "Asia/Tokyo",
+    );
+
+    expect(prompt).toContain("Requester-local message time: 2026-04-06 01:51:25 Mon (Asia/Tokyo).");
+    expect(prompt).not.toContain("Message time: 2026-04-05T16:51:25.000Z");
+  });
+
   test("response parser keeps needs-clarification answer mode", () => {
     const parsed = extractAiTurnResultFromText('{"message":"请告诉我下午具体几点。","answerMode":"needs-clarification"}');
     expect(parsed.answerMode).toBe("needs-clarification");

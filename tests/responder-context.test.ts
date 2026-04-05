@@ -76,6 +76,9 @@ describe("responder clarification context", () => {
     expect(context).toContain("下午几点提醒你呢");
     expect(context).toContain('"turnTime"');
     expect(context).toContain('"localDate": "2026-04-06"');
+    expect(context).toContain('"localTime": "01:51:25"');
+    expect(context).toContain('"localDateTime": "2026-04-06 01:51:25"');
+    expect(context).not.toContain('"messageTimeUtc"');
   });
 
   test("clearing recent clarification removes it from responder context", async () => {
