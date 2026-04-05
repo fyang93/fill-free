@@ -30,6 +30,7 @@ export type ExecuteAiActionsInput = {
   ctx: Context;
   requesterUserId?: number;
   messageTime?: string;
+  requesterTimezone?: string | null;
   canDeliverOutbound: boolean;
   accessRole: RequestAccessRole;
   userRequestText: string;
@@ -244,6 +245,7 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
     chatType: input.ctx.chat?.type,
     accessRole: input.accessRole,
     messageTime: input.messageTime,
+    requesterTimezone: input.requesterTimezone,
     responderContextText: input.responderContextText,
   });
 

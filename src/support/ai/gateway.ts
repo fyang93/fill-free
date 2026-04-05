@@ -224,6 +224,7 @@ export class AiService {
     chatType?: string;
     accessRole: RequestAccessRole;
     messageTime?: string;
+    requesterTimezone?: string | null;
     responderContextText?: string;
   }): Promise<AiTurnResult> {
     const prompt = [
@@ -248,6 +249,7 @@ export class AiService {
       "Use numeric weekday indexes in reminders schedules: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.",
       "Put timezone on the reminder draft itself, not inside schedule.",
       "If the user supplies only a clock time such as 1700 or 21:00 as a clarification follow-up, interpret it as requester-local time in the requester timezone unless another timezone was explicitly given.",
+      "Use requester-local date, not raw UTC date, when interpreting words like today, tomorrow, and the day after tomorrow.",
       "Do not convert a requester-local clock-only reply into a different displayed local time when confirming it back to the user.",
       "Prefer one logical reminder event with notifications offsets over multiple separate reminder drafts for the same event.",
       "For example, for a meeting at 2026-04-09T14:00:00, create one reminder with schedule.scheduledAt='2026-04-09T14:00:00' and notifications like [{offsetMinutes:-1440},{offsetMinutes:-60}] rather than two once reminders at the notification times.",
@@ -273,6 +275,7 @@ export class AiService {
       `chatType=${input.chatType || "unknown"}`,
       `accessRole=${input.accessRole}`,
       input.messageTime ? `messageTime=${input.messageTime}` : "",
+      input.requesterTimezone?.trim() ? `requesterTimezone=${input.requesterTimezone.trim()}` : "",
       "",
       "User request:",
       input.userRequestText.trim(),
