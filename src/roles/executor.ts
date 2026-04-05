@@ -4,7 +4,7 @@ import path from "node:path";
 import { logger } from "scheduling/app/logger";
 import type { AiService } from "support/ai";
 import type { RequestAccessRole } from "support/ai/prompt";
-import type { ActionTargetReference, FileWriteDraft, OutboundMessageDraft, PendingAuthorizationDraft, AiTurnResult, TaskDraft } from "support/ai/types";
+import type { ActionTargetReference, FileWriteDraft, MessageDeliveryDraft, PendingAuthorizationDraft, AiTurnResult, TaskDraft } from "support/ai/types";
 import { createStructuredReminders } from "operations/reminders/intent";
 import { PENDING_AUTH_ADMIN_ONLY_FACT } from "operations/access/authorizations";
 import { enqueueTask } from "support/tasks";
@@ -67,62 +67,55 @@ function summarizeFactBlock(plural: string, items: string[]): string {
   return `${plural}:\n${items.map((item) => `- ${item}`).join("\n")}`;
 }
 
-async function enqueueOutboundMessages(
+async function enqueueMessageDeliveries(
   config: AppConfig,
   ctx: Context,
-  outboundMessages: OutboundMessageDraft[],
+  deliveries: MessageDeliveryDraft[],
   requesterUserId: number | undefined,
 ): Promise<TaskEnqueueResult> {
   const accepted: string[] = [];
   const clarifications: string[] = [];
 
-  for (const outbound of outboundMessages) {
-    const text = typeof outbound.message === "string" ? outbound.message.trim() : "";
+  for (const delivery of deliveries) {
+    const text = typeof delivery.content === "string" ? delivery.content.trim() : "";
     if (!text) continue;
-    const rawTargets = Array.isArray(outbound.targetUsers) && outbound.targetUsers.length > 0
-      ? outbound.targetUsers
-      : outbound.targetUser
-        ? [outbound.targetUser]
-        : outbound.target != null
-          ? [normalizeOutboundTargetReference(outbound.target)].filter((item): item is ActionTargetReference => Boolean(item))
-          : [];
-    const sendAt = typeof outbound.sendAt === "string" && outbound.sendAt.trim() ? outbound.sendAt.trim() : undefined;
+    const rawTarget = normalizeOutboundTargetReference(delivery.recipient);
+    const sendAt = typeof delivery.sendAt === "string" && delivery.sendAt.trim() ? delivery.sendAt.trim() : undefined;
     if (sendAt && !Number.isFinite(Date.parse(sendAt))) {
       clarifications.push(`Invalid scheduled send time: ${sendAt}`);
       continue;
     }
-    if (rawTargets.length === 0) {
+    if (!rawTarget) {
       clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
       continue;
     }
-    const targetResult = resolveTelegramTargetUsers(config, rawTargets, ctx, requesterUserId);
+    const targetResult = resolveTelegramTargetUsers(config, [rawTarget], ctx, requesterUserId);
     clarifications.push(...targetResult.clarifications);
-    for (const target of targetResult.resolved) {
-      const recipientId = target.status === "self" ? requesterUserId : target.chatId ?? target.userId;
-      if (!recipientId) {
-        clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
-        continue;
-      }
-      const recipientLabel = target.chatId != null
-        ? resolveChatDisplayName(config.paths.repoRoot, target.chatId) || target.displayName || String(recipientId)
-        : resolveUserDisplayName(config.paths.repoRoot, target.userId ?? requesterUserId) || target.displayName || String(recipientId);
-      await enqueueTask(config, {
-        domain: "outbound",
-        operation: "send",
-        subject: { kind: target.chatId != null ? "chat" : "user", id: String(recipientId) },
-        payload: { recipientId, recipientLabel, message: text },
-        availableAt: sendAt,
-        dedupeKey: `outbound:send:${recipientId}:${sendAt || "now"}:${text}`,
-        source: {
-          requesterUserId,
-          chatId: ctx.chat?.id,
-          messageId: ctx.message?.message_id,
-        },
-      });
-      accepted.push(sendAt
-        ? `Accepted scheduled outbound target: ${recipientLabel} (${sendAt})`
-        : `Accepted outbound target: ${recipientLabel}`);
+    const target = targetResult.resolved[0];
+    const recipientId = target?.status === "self" ? requesterUserId : target?.chatId ?? target?.userId;
+    if (!target || !recipientId) {
+      clarifications.push(OUTBOUND_TARGET_REQUIRED_FACT);
+      continue;
     }
+    const recipientLabel = target.chatId != null
+      ? resolveChatDisplayName(config.paths.repoRoot, target.chatId) || target.displayName || String(recipientId)
+      : resolveUserDisplayName(config.paths.repoRoot, target.userId ?? requesterUserId) || target.displayName || String(recipientId);
+    await enqueueTask(config, {
+      domain: "messages",
+      operation: "deliver",
+      subject: { kind: target.chatId != null ? "chat" : "user", id: String(recipientId) },
+      payload: { recipientId, recipientLabel, content: text },
+      availableAt: sendAt,
+      dedupeKey: `messages:deliver:${recipientId}:${sendAt || "now"}:${text}`,
+      source: {
+        requesterUserId,
+        chatId: ctx.chat?.id,
+        messageId: ctx.message?.message_id,
+      },
+    });
+    accepted.push(sendAt
+      ? `Accepted scheduled delivery target: ${recipientLabel} (${sendAt})`
+      : `Accepted delivery target: ${recipientLabel}`);
   }
 
   return { accepted, clarifications };
@@ -252,13 +245,13 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   effectiveAnswer = {
     ...effectiveAnswer,
     reminders: [...effectiveAnswer.reminders, ...planned.reminders],
-    outboundMessages: [...effectiveAnswer.outboundMessages, ...planned.outboundMessages],
+    deliveries: [...effectiveAnswer.deliveries, ...planned.deliveries],
     pendingAuthorizations: [...effectiveAnswer.pendingAuthorizations, ...planned.pendingAuthorizations],
     tasks: [...effectiveAnswer.tasks, ...planned.tasks],
     files: [...effectiveAnswer.files, ...planned.files],
     fileWrites: [...effectiveAnswer.fileWrites, ...planned.fileWrites],
   };
-  await logger.info(`executor actions interpreted reminders=${planned.reminders.length} outboundMessages=${planned.outboundMessages.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
+  await logger.info(`executor actions interpreted reminders=${planned.reminders.length} deliveries=${planned.deliveries.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
 
   const fileWriteStartedAt = Date.now();
   if (!taskStillCurrent()) {
@@ -285,18 +278,18 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   const reminderMs = Date.now() - reminderStartedAt;
   await logger.info(`executor reminders done ms=${reminderMs} created=${reminderResult.created.length} clarifications=${reminderResult.clarifications.length} drafts=${effectiveAnswer.reminders.length}`);
 
-  const outboundStartedAt = Date.now();
+  const deliveryStartedAt = Date.now();
   if (!taskStillCurrent()) {
-    await logger.warn("executor outbound skipped because task is stale");
+    await logger.warn("executor deliveries skipped because task is stale");
     return { message: "", facts: [], hasSideEffectfulActions: false };
   }
-  const outboundResult = input.canDeliverOutbound
-    ? await enqueueOutboundMessages(input.config, input.ctx, effectiveAnswer.outboundMessages, input.requesterUserId)
-    : effectiveAnswer.outboundMessages.length > 0
+  const deliveryResult = input.canDeliverOutbound
+    ? await enqueueMessageDeliveries(input.config, input.ctx, effectiveAnswer.deliveries, input.requesterUserId)
+    : effectiveAnswer.deliveries.length > 0
       ? { accepted: [], clarifications: [OUTBOUND_TRUST_REQUIRED_FACT] }
       : { accepted: [], clarifications: [] };
-  const outboundMs = Date.now() - outboundStartedAt;
-  await logger.info(`executor outbound done ms=${outboundMs} accepted=${outboundResult.accepted.length} clarifications=${outboundResult.clarifications.length} drafts=${effectiveAnswer.outboundMessages.length} enabled=${input.canDeliverOutbound ? "yes" : "no"}`);
+  const deliveryMs = Date.now() - deliveryStartedAt;
+  await logger.info(`executor deliveries done ms=${deliveryMs} accepted=${deliveryResult.accepted.length} clarifications=${deliveryResult.clarifications.length} drafts=${effectiveAnswer.deliveries.length} enabled=${input.canDeliverOutbound ? "yes" : "no"}`);
   const authStartedAt = Date.now();
   if (!taskStillCurrent()) {
     await logger.warn("executor authorizations skipped because task is stale");
@@ -324,7 +317,7 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   const facts = [
     ...fileWriteResult.clarifications,
     ...reminderResult.clarifications,
-    ...outboundResult.clarifications,
+    ...deliveryResult.clarifications,
     ...pendingAuthorizationResult.clarifications,
     ...genericTaskResult.clarifications,
   ].filter(Boolean);
@@ -333,7 +326,7 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
     facts,
     hasSideEffectfulActions: effectiveAnswer.fileWrites.length > 0
       || effectiveAnswer.reminders.length > 0
-      || effectiveAnswer.outboundMessages.length > 0
+      || effectiveAnswer.deliveries.length > 0
       || effectiveAnswer.pendingAuthorizations.length > 0
       || effectiveAnswer.tasks.length > 0,
   };

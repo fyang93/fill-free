@@ -6,11 +6,9 @@ export type ActionTargetReference = {
   displayName?: string;
 };
 
-export type OutboundMessageDraft = {
-  message: string;
-  target?: ActionTargetReference | string | number;
-  targetUser?: ActionTargetReference;
-  targetUsers?: ActionTargetReference[];
+export type MessageDeliveryDraft = {
+  content: string;
+  recipient: ActionTargetReference;
   sendAt?: string;
 };
 
@@ -61,7 +59,7 @@ export type AiTurnResult = {
   fileWrites: FileWriteDraft[];
   attachments: AiAttachment[];
   reminders: ReminderDraft[];
-  outboundMessages: OutboundMessageDraft[];
+  deliveries: MessageDeliveryDraft[];
   pendingAuthorizations: PendingAuthorizationDraft[];
   tasks: TaskDraft[];
 };

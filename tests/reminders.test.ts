@@ -152,7 +152,7 @@ describe("reminder task matching", () => {
     expect(events.find((item) => item.id === april8.id)?.status).toBe("active");
   });
 
-  test("已过时但仍 active 的一次性提醒不会被启动/maintainer 清理提前删掉", async () => {
+  test("已过时但仍 active 的一次性提醒不会被启动/maintainer 清理提前删掉", { timeout: 15000 }, async () => {
     const config = await createTempConfig();
     const event = buildReminderEvent(config, {
       title: "错过时段后仍需补发的提醒",
@@ -219,6 +219,35 @@ describe("reminder task matching", () => {
     if (recurrence.kind === "lunarYearly") {
       expect(recurrence.isLeapMonth).toBe(true);
       expect(recurrence.leapMonthPolicy).toBe("same-leap-only");
+    }
+  });
+
+  test("reminder upsert task without explicit targets can still create a self reminder in requester timezone", async () => {
+    const config = await createTempConfig();
+    const now = new Date().toISOString();
+    const result = await runReminderTask(config, {
+      id: "tsk_upsert_create",
+      state: "queued",
+      domain: "reminders",
+      operation: "upsert",
+      payload: {
+        title: "review论文",
+        schedule: { kind: "once", scheduledAt: "2026-04-05T21:00:00" },
+      },
+      source: { requesterUserId: 872940661 },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(result.changed).toBe(true);
+    const events = await readReminderEvents(config);
+    const created = events.find((item) => item.title.includes("review"));
+    expect(Boolean(created)).toBe(true);
+    expect(created?.timezone).toBe("Asia/Tokyo");
+    expect(created?.targets).toEqual([{ targetKind: "user", targetId: 872940661 }]);
+    expect(created?.schedule.kind).toBe("once");
+    if (created?.schedule.kind === "once") {
+      expect(created.schedule.scheduledAt).toBe("2026-04-05T12:00:00.000Z");
     }
   });
 

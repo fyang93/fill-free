@@ -55,7 +55,6 @@ Long-term facts, access roles, reminders, and structured rules do **not** rely o
 cp config.toml.example config.toml
 cp .env.example .env
 just install
-opencode serve --port 4096
 just serve
 ```
 
@@ -122,7 +121,6 @@ The admin may also temporarily allow a `@username`. After that, the user only ne
 
 ## Commands
 
-- `/help`
 - `/new`
 - `/model` (trusted/admin)
 

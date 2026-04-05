@@ -44,6 +44,13 @@ async function prepareResponderContext(config: AppConfig, input: {
   };
 }
 
+export async function publishResponderFirstReply(ctx: Context, task: ActiveConversationTask, message: string): Promise<void> {
+  await ctx.reply(message);
+  if (typeof task.waitingMessageId === "number") {
+    await ctx.api.deleteMessage(task.chatId, task.waitingMessageId).catch(() => {});
+  }
+}
+
 export type RunConversationTaskDeps = {
   config: AppConfig;
   ctx: Context;
@@ -110,7 +117,7 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
     );
     const responderMs = Date.now() - responderStartedAt;
     await logger.info(`conversation task ${task.id} role=responder source=model indexedContext=${hasIndexedContext ? "yes" : "no"}`);
-    await logger.info(`conversation task ${task.id} role=responder state=done ms=${responderMs} answerMode=${answer.answerMode} messageChars=${answer.message.length} files=${answer.files.length} reminders=${answer.reminders.length} outboundMessages=${answer.outboundMessages.length} pendingAuthorizations=${answer.pendingAuthorizations.length} tasks=${answer.tasks.length}`);
+    await logger.info(`conversation task ${task.id} role=responder state=done ms=${responderMs} answerMode=${answer.answerMode} messageChars=${answer.message.length} files=${answer.files.length} reminders=${answer.reminders.length} deliveries=${answer.deliveries.length} pendingAuthorizations=${answer.pendingAuthorizations.length} tasks=${answer.tasks.length}`);
     if (task.cancelled || !isTaskCurrent(task.scopeKey, task.id)) {
       await logger.warn(`discarding stale conversation result for task ${task.id}`);
       return;
@@ -123,11 +130,7 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
     } else {
       clearRecentClarification(task.scopeKey);
     }
-    if (typeof task.waitingMessageId === "number") {
-      await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, responderMessage);
-    } else {
-      await ctx.reply(responderMessage);
-    }
+    await publishResponderFirstReply(ctx, task, responderMessage);
     onReleaseActiveTask(task.scopeKey, task.id);
 
     let executorMs = 0;
@@ -201,10 +204,11 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
     const message = error instanceof Error ? error.message : String(error);
     await logger.error(`conversation handling failed: ${message}`);
     await onPruneRecentUploads(task.scopeKey);
+    const failureText = t(config, "task_failed", { error: message });
     if (typeof task.waitingMessageId === "number") {
-      await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, t(config, "task_failed", { error: message }));
+      await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, failureText);
     } else {
-      await ctx.reply(t(config, "task_failed", { error: message }));
+      await ctx.reply(failureText);
     }
     await onSetReaction(ctx, "😞");
   } finally {

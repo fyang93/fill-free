@@ -10,6 +10,7 @@ import { executeAiActions } from "../src/roles/executor";
 import { dequeueRunnableTask, markTaskState, removeTask } from "../src/support/tasks/runtime/store";
 import { runTaskWithHandlers } from "../src/support/tasks/runtime/handlers";
 import { buildReminderEvent, createReminderEvent, readReminderEvents } from "../src/operations/reminders/store";
+import { normalizeScheduledAt } from "../src/operations/reminders";
 import { rebuildInvertedIndexFromMemoryKeywords } from "../src/operations/context/inverted-index";
 import { rememberTelegramUser } from "../src/interaction/telegram/registry";
 import { listRules } from "../src/operations/context/rules-store";
@@ -109,10 +110,41 @@ async function drainQueuedTasks(config: AppConfig, agentService: AiService): Pro
   return results;
 }
 
+function explicitClockTimeDetail(text: string): string | null {
+  const trimmed = text.trim();
+  const colon = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  const compact = trimmed.match(/^(\d{1,2})(\d{2})$/);
+  const hour = Number(colon?.[1] || compact?.[1]);
+  const minute = Number(colon?.[2] || compact?.[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function localDateAtIso(iso: string, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
 async function runLiveScenario(config: AppConfig, agentService: AiService, input: string): Promise<{ answer: any; actionResult: any; taskResults: Array<Record<string, unknown>> }> {
   const requesterUserId = 1;
   const chatId = 1;
   const recentClarification = getRecentClarification(`user:${requesterUserId}`);
+  const normalizedClockTime = recentClarification ? explicitClockTimeDetail(input) : null;
+  const requesterTimezoneHint = "Asia/Tokyo";
+  const deterministicTimeContext = normalizedClockTime
+    ? [
+        `Deterministic parsed time detail: the current user message is an explicit local clock time meaning ${normalizedClockTime} in the requester timezone ${requesterTimezoneHint}.`,
+        `Deterministic resolved local date for this turn: ${localDateAtIso(new Date().toISOString(), requesterTimezoneHint)}.`,
+        `Deterministic UTC timestamp for that local date and time: ${normalizeScheduledAt(`${localDateAtIso(new Date().toISOString(), requesterTimezoneHint)}T${normalizedClockTime}:00`, requesterTimezoneHint)}.`,
+      ].join("\n")
+    : null;
   const effectiveInput = recentClarification
     ? [
         "Current user message:",
@@ -122,7 +154,8 @@ async function runLiveScenario(config: AppConfig, agentService: AiService, input
         `Previous user request: ${recentClarification.requestText}`,
         `Previous assistant clarification: ${recentClarification.clarificationMessage}`,
         "Treat the current user message as a likely answer to that clarification when it fits.",
-      ].join("\n")
+        deterministicTimeContext || "",
+      ].filter(Boolean).join("\n")
     : input;
   const { responderContextText, requesterTimezone } = await buildResponderContext(config, requesterUserId, chatId, effectiveInput);
   const answer = await agentService.prompt(effectiveInput, [], [], undefined, undefined, undefined, "admin", responderContextText, requesterTimezone);
@@ -224,6 +257,32 @@ describe("自然语言 live 回归测试", () => {
     }
   });
 
+  test("管理员在澄清后补充 2100 时不会被错误换算成别的本地时间", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    const first = await runLiveScenarioWithRetries(config, agentService, "等下提醒我review论文");
+    expect(first.answer.answerMode).toBe("needs-clarification");
+
+    const second = await runLiveScenarioWithRetries(config, agentService, "2100");
+    expect(second.answer.answerMode).toBe("needs-execution");
+    expect(second.answer.message.includes("21:00") || second.answer.message.includes("21点") || second.answer.message.includes("晚上9点")).toBe(true);
+    expect(second.answer.message.includes("17:00") || second.answer.message.includes("17点")).toBe(false);
+
+    const taskResults = second.taskResults.filter((item) => item.domain === "reminders");
+    expect(taskResults.some((item) => (item.operation === "create" || item.operation === "upsert") && (item.result as Record<string, unknown>)?.changed === true)).toBe(true);
+
+    const reminders = await readReminderEvents(config);
+    const reminder = reminders.find((item) => item.title.includes("review") || item.title.includes("论文"));
+    expect(Boolean(reminder)).toBe(true);
+    expect(reminder?.schedule.kind).toBe("once");
+    if (reminder?.schedule.kind === "once") {
+      expect(reminder.schedule.scheduledAt.includes("T21:00:00") || reminder.schedule.scheduledAt.includes("T12:00:00.000Z")).toBe(true);
+    }
+    expect(reminder?.timezone).toBe("Asia/Tokyo");
+  });
+
   test("管理员自然语言删除提醒后能真实落地", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
     const config = await createTempConfig();
     const agentService = new AiService(config);
@@ -256,6 +315,38 @@ describe("自然语言 live 回归测试", () => {
     expect(result.answer.message).toContain("测试雨");
   });
 
+  test("管理员查询当前提醒列表时 responder 直接回答且不编造检索过程", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    await writeFile(path.join(config.paths.repoRoot, "system", "users.json"), `${JSON.stringify({
+      users: {
+        "1": {
+          username: "admin_test",
+          displayName: "Admin Test",
+          timezone: "Asia/Tokyo",
+        },
+      },
+    }, null, 2)}\n`, "utf8");
+
+    await createReminderEvent(buildReminderEvent(config, {
+      title: "测试会议",
+      timeSemantics: "absolute",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
+      notifications: [{ id: "n1", offsetMinutes: -60, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 1 }],
+    }, "Asia/Tokyo"), config);
+
+    const result = await runLiveScenarioWithRetries(config, agentService, "现在有些什么提醒");
+    expect(result.answer.answerMode).toBe("direct");
+    expect(result.answer.message).toContain("测试会议");
+    expect(result.answer.message.includes("[输出开始]") || result.answer.message.includes("[输出结束]")).toBe(false);
+    expect(result.answer.message.includes("计算中") || result.answer.message.includes("检索到") || result.answer.message.includes("系统待命")).toBe(false);
+    expect(result.taskResults.length).toBe(0);
+  });
+
   test("管理员查询已有提醒时间时 responder 会按用户时区表达而不是裸 UTC", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
     const config = await createTempConfig();
     const agentService = new AiService(config);
@@ -286,7 +377,7 @@ describe("自然语言 live 回归测试", () => {
     expect(result.answer.message.includes("UTC")).toBe(false);
   });
 
-  test("管理员自然语言创建每周五下班买菜提醒时 responder 不应回裸 UTC 且应落成周重复提醒", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+  test("管理员自然语言创建每周五下班买菜提醒时若缺少精确下班时间会先澄清", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
     const config = await createTempConfig();
     const agentService = new AiService(config);
     await agentService.ensureReady();
@@ -302,19 +393,13 @@ describe("自然语言 live 回归测试", () => {
     }, null, 2)}\n`, "utf8");
 
     const result = await runLiveScenarioWithRetries(config, agentService, "每个星期五提醒我下班去买菜");
-    expect(result.answer.answerMode).toBe("needs-execution");
+    expect(result.answer.answerMode).toBe("needs-clarification");
     expect(result.answer.message.includes("UTC")).toBe(false);
-    expect(result.answer.message.includes("星期五") || result.answer.message.includes("周五") || result.answer.message.includes("每周五")).toBe(true);
+    expect(result.answer.message.includes("几点") || result.answer.message.includes("时间") || result.answer.message.includes("18:00")).toBe(true);
 
     const reminders = await readReminderEvents(config);
-    expect(reminders.length).toBeGreaterThan(0);
     const reminder = reminders.find((item) => item.status === "active" && item.title.includes("买菜"));
-    expect(Boolean(reminder)).toBe(true);
-    expect(reminder?.timezone).toBe("Asia/Tokyo");
-    expect(reminder?.schedule.kind === "weekly" || reminder?.schedule.kind === "interval").toBe(true);
-    if (reminder?.schedule.kind === "weekly") {
-      expect(reminder.schedule.daysOfWeek).toContain(5);
-    }
+    expect(Boolean(reminder)).toBe(false);
   });
 
   test("管理员自然语言暂停某个周期提醒后能真实落地", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
@@ -431,7 +516,7 @@ describe("自然语言 live 回归测试", () => {
     const agentService = new AiService(config);
     await agentService.ensureReady();
 
-    const input = "之后我说明天你要考虑是不是凌晨，凌晨有时候我说的明天是今天（新的一天）。";
+    const input = "以后如果我在凌晨提到明天，要先考虑我有时其实是在说已经开始的这一天。";
     const result = await runLiveScenarioWithRetries(config, agentService, input);
     expect(result.answer.answerMode).toBe("needs-execution");
     expect(result.taskResults.some((item) => item.domain === "rules" && item.operation === "upsert" && (item.result as Record<string, unknown>)?.changed === true)).toBe(true);

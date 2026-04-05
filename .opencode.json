@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "agent": {
+  "agents": {
     "responder": {
       "mode": "primary",
       "tools": {
@@ -20,8 +20,7 @@
         "question": false,
         "todowrite": false,
         "lsp": false,
-        "skill": false,
-        "exa*": false
+        "skill": false
       },
       "permission": {
         "read": "deny",
@@ -37,7 +36,6 @@
         "webfetch": "deny",
         "websearch": "deny",
         "codesearch": "deny",
-        "mcp": "deny",
         "lsp": "deny",
         "doom_loop": "deny",
         "skill": "deny"
@@ -62,8 +60,7 @@
         "question": false,
         "todowrite": false,
         "lsp": false,
-        "skill": false,
-        "exa*": false
+        "skill": false
       },
       "permission": {
         "read": "deny",
@@ -79,17 +76,30 @@
         "webfetch": "deny",
         "websearch": "deny",
         "codesearch": "deny",
-        "mcp": "deny",
         "lsp": "deny",
         "doom_loop": "deny",
         "skill": "deny"
       }
     }
   },
-  "mcp": {
+  "mcpServers": {
     "exa": {
       "type": "remote",
       "url": "https://mcp.exa.ai/mcp",
+      "enabled": true
+    },
+    "grep_app": {
+      "type": "remote",
+      "url": "https://mcp.grep.app",
+      "enabled": true
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}",
+        "Accept": "application/json, text/event-stream"
+      },
       "enabled": true
     }
   }

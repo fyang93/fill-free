@@ -11,8 +11,18 @@ alias s := serve
 install:
     bun install
 
-# Start the bot. Usage: `just serve`.
+# Start a fresh OpenCode server, then run the bot. Usage: `just serve`.
 serve:
+    mkdir -p logs; \
+    self=$$; \
+    pids=$(pgrep -f '/bin/.opencode serve --port 4096|node .*/opencode serve --port 4096|opencode serve --port 4096' | grep -vx "$self" || true); \
+    for pid in $pids; do \
+        kill "$pid" 2>/dev/null || true; \
+    done; \
+    opencode serve --port 4096 > logs/opencode-server.log 2>&1 & \
+    opencode_pid=$!; \
+    trap 'kill "$opencode_pid" 2>/dev/null || true' EXIT; \
+    sleep 2; \
     bun run bot
 
 # Run manual test suite, including live natural-language tests.

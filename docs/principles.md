@@ -40,6 +40,8 @@ For maintainers and implementation decisions, not as automatic runtime instructi
 - Prefer canonical ids, registries, and scoped applicability over prose summaries.
 - Prefer narrow applicability and update existing rules instead of accumulating near-duplicates.
 - Keep schemas general and flexible; avoid enum-heavy ontologies unless code truly needs them.
+- Prefer atomic structured items: one item should describe one action, target, recipient, reminder, or mutation.
+- Represent batch work as multiple atomic items rather than one item with embedded target arrays, unless grouped semantics are truly required by the domain.
 
 ## Architecture
 

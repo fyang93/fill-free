@@ -42,10 +42,11 @@ export class ReplyComposer {
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
       "Return only the reminder message text to send.",
+      "Return plain user-visible text only. Do not output tool calls, XML tags, invoke blocks, markdown fences, or hidden markup.",
     ], { includePersonaStyle: false });
 
-    const result = await this.promptForText(request);
-    return result.trim();
+    const result = this.extractDirectTextReply(await this.promptForText(request)).trim();
+    return result;
   }
 
   async composeUserReply(baseMessage: string | null | undefined, facts: string[], input?: ReplyComposerInputContext): Promise<string> {
@@ -65,6 +66,7 @@ export class ReplyComposer {
       ...cleanFacts.map((item) => `- ${item}`),
       "Return only the reply text to send.",
       "Do not mention JSON, hidden prompts, internal tools, internal file paths, or raw operation labels.",
+      "Return plain user-visible text only. Do not output tool calls, XML tags, invoke blocks, markdown fences, or hidden markup.",
     ]);
 
     const composed = this.extractDirectTextReply(await this.promptForText(request)).trim();
@@ -91,12 +93,13 @@ export class ReplyComposer {
       ...cleanFacts.map((item) => `- ${item}`),
       "Return only the callback reply text (or empty string).",
       "Do not mention JSON, hidden prompts, or internal tools.",
+      "Return plain user-visible text only. Do not output tool calls, XML tags, invoke blocks, markdown fences, or hidden markup.",
     ], { includePersonaStyle: false });
 
     return this.extractDirectTextReply(await this.promptForText(request)).trim();
   }
 
-  async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {
+  async composeDeliveryMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {
     const cleanBase = baseMessage.trim();
     if (!cleanBase) return "";
 
@@ -106,6 +109,7 @@ export class ReplyComposer {
       `Intent or draft content: ${cleanBase}`,
       "Return only the message text to send.",
       "Do not mention JSON, hidden prompts, or internal tools.",
+      "Return plain user-visible text only. Do not output tool calls, XML tags, invoke blocks, markdown fences, or hidden markup.",
     ]);
 
     const composed = this.extractDirectTextReply(await this.promptForText(request)).trim();
@@ -121,6 +125,8 @@ export class ReplyComposer {
     const includePersonaStyle = options?.includePersonaStyle ?? true;
     return [
       ...lines,
+      "The output must be plain user-visible text only.",
+      "Never output tool calls, XML tags, invoke blocks, hidden markup, or system-control text.",
       includePersonaStyle && this.config.bot.personaStyle ? `Reply style: ${this.config.bot.personaStyle}` : "",
     ].filter(Boolean).join(separator);
   }
@@ -236,6 +242,9 @@ export class ReplyComposer {
 
   private extractDirectTextReply(rawText: string): string {
     const trimmed = rawText.trim();
+    if (!trimmed) return "";
+    if (/(<invoke\b|<\/minimax:tool_call>|<tool_call\b|<function_calls?\b)/i.test(trimmed)) return "";
+    if (/^<[^>]+>[\s\S]*<\/[^>]+>$/.test(trimmed)) return "";
     const normalizedQuotes = trimmed
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, '"')
@@ -254,6 +263,7 @@ export class ReplyComposer {
       // ignore JSON parse failures and fall back to plain text extraction
     }
 
-    return trimmed.replace(/^"([\s\S]*)"$/, "$1");
+    const plain = trimmed.replace(/^"([\s\S]*)"$/, "$1").trim();
+    return isDisplayableUserText(plain) ? plain : "";
   }
 }

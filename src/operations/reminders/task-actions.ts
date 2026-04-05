@@ -53,6 +53,20 @@ function reminderTargetSubject(targets: ReminderTarget[]): TaskRecord["subject"]
   };
 }
 
+function reminderTargetsFromPayload(task: TaskRecord): ReminderTarget[] {
+  const payloadTargets = Array.isArray(task.payload.targets)
+    ? task.payload.targets.filter((target): target is ReminderTarget => Boolean(target) && typeof target === "object" && ((target as ReminderTarget).targetKind === "user" || (target as ReminderTarget).targetKind === "chat") && Number.isInteger((target as ReminderTarget).targetId))
+    : [];
+  if (payloadTargets.length > 0) return payloadTargets;
+  if (Number.isInteger(task.source?.requesterUserId)) {
+    return [{ targetKind: "user", targetId: Number(task.source?.requesterUserId) }];
+  }
+  if (Number.isInteger(task.source?.chatId)) {
+    return [{ targetKind: "chat", targetId: Number(task.source?.chatId) }];
+  }
+  return [];
+}
+
 function titleMatches(event: ReminderEvent, match: Record<string, unknown>): boolean {
   const title = event.title.trim().toLowerCase();
   const exact = typeof match.title === "string" && match.title.trim() ? match.title.trim().toLowerCase() : "";
@@ -162,9 +176,7 @@ export async function runReminderTask(config: AppConfig, task: TaskRecord): Prom
     const schedule = payload.schedule && typeof payload.schedule === "object" && !Array.isArray(payload.schedule)
       ? payload.schedule as Record<string, unknown>
       : null;
-    const targets = Array.isArray(payload.targets)
-      ? payload.targets.filter((target): target is ReminderTarget => Boolean(target) && typeof target === "object" && ((target as ReminderTarget).targetKind === "user" || (target as ReminderTarget).targetKind === "chat") && Number.isInteger((target as ReminderTarget).targetId))
-      : [];
+    const targets = reminderTargetsFromPayload(task);
     const notifications = Array.isArray(payload.notifications)
       ? payload.notifications.filter((item): item is ReminderNotification => Boolean(item) && typeof item === "object" && typeof (item as ReminderNotification).id === "string" && Number.isInteger((item as ReminderNotification).offsetMinutes))
       : undefined;
@@ -172,19 +184,32 @@ export async function runReminderTask(config: AppConfig, task: TaskRecord): Prom
     const specialKind = payload.specialKind === "birthday" || payload.specialKind === "festival" || payload.specialKind === "anniversary" || payload.specialKind === "memorial"
       ? payload.specialKind
       : undefined;
+    const resolvedTimezone = typeof payload.timezone === "string" && payload.timezone.trim()
+      ? payload.timezone.trim()
+      : resolveReminderTimezone(config, { userId: task.source?.requesterUserId, recipientUserId: task.source?.requesterUserId, timeSemantics: payload.timeSemantics === "absolute" || payload.timeSemantics === "local" ? payload.timeSemantics : undefined });
     const event = await createReminderEventWithDefaults(config, {
       title,
       note: typeof payload.note === "string" ? payload.note.trim() || undefined : undefined,
-      schedule: buildReminderScheduleFromExternal(schedule),
+      schedule: buildReminderScheduleFromExternal(schedule, resolvedTimezone),
       category: payload.category === "special" || specialKind ? "special" : payload.category === "routine" ? "routine" : undefined,
       specialKind,
       timeSemantics: payload.timeSemantics === "absolute" || payload.timeSemantics === "local" ? payload.timeSemantics : undefined,
-      timezone: typeof payload.timezone === "string" && payload.timezone.trim() ? payload.timezone.trim() : resolveReminderTimezone(config, { userId: task.source?.requesterUserId }),
+      timezone: resolvedTimezone,
       notifications,
       targets,
     });
     await enqueueReminderPreparationTask(config, event.id, task.source, [task.id]);
     return { changed: true, reminderId: event.id };
+  }
+
+  if (task.operation === "upsert") {
+    const payload = task.payload;
+    const hasMatch = Boolean(payload.match && typeof payload.match === "object" && !Array.isArray(payload.match));
+    const hasChanges = Boolean(payload.changes && typeof payload.changes === "object" && !Array.isArray(payload.changes));
+    if (hasMatch || hasChanges) {
+      return runReminderTask(config, { ...task, operation: "update" });
+    }
+    return runReminderTask(config, { ...task, operation: "create" });
   }
 
   if (task.operation === "update") {
@@ -199,9 +224,10 @@ export async function runReminderTask(config: AppConfig, task: TaskRecord): Prom
     if (typeof changes.timezone === "string" && changes.timezone.trim()) event.timezone = changes.timezone.trim();
     if (changes.timeSemantics === "absolute" || changes.timeSemantics === "local") event.timeSemantics = changes.timeSemantics;
     if (changes.schedule && typeof changes.schedule === "object" && !Array.isArray(changes.schedule)) {
-      event.schedule = buildReminderScheduleFromExternal(changes.schedule as Record<string, unknown>);
+      const resolvedTimezone = (typeof changes.timezone === "string" && changes.timezone.trim()) || event.timezone || resolveReminderTimezone(config, { userId: task.source?.requesterUserId });
+      event.schedule = buildReminderScheduleFromExternal(changes.schedule as Record<string, unknown>, resolvedTimezone);
       if (!event.timezone) {
-        event.timezone = resolveReminderTimezone(config, { userId: task.source?.requesterUserId });
+        event.timezone = resolvedTimezone;
       }
     }
     event.updatedAt = new Date().toISOString();

@@ -217,8 +217,23 @@ function eventTime(schedule: ReminderSchedule): { hour: number; minute: number }
   return schedule.time;
 }
 
-export function normalizeScheduledAt(input: string): string {
-  const parsed = Date.parse(input);
+export function normalizeScheduledAt(input: string, timezone?: string): string {
+  const trimmed = input.trim();
+  if (timezone && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (match) {
+      const utc = zonedLocalDateTimeToUtc({
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5]),
+        second: Number(match[6] || "0"),
+      }, timezone);
+      return utc.toISOString();
+    }
+  }
+  const parsed = Date.parse(trimmed);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Invalid reminder time: ${input}`);
   }

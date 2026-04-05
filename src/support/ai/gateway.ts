@@ -3,7 +3,7 @@ import type { AppConfig, AiAttachment, UploadedFile } from "scheduling/app/types
 import { logger } from "scheduling/app/logger";
 import { state, touchActivity } from "scheduling/app/state";
 import { buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
-import { extractAiTurnResultFromText } from "./response";
+import { extractAiTurnResultFromText, isDisplayableUserText, looksLikeFakeProcessNarration, looksLikeInternalExecutionLeak, looksLikeUnconfirmedExecutionClaim } from "./response";
 import type { AiTurnResult } from "./types";
 import { ReplyComposer, type ReplyComposerInputContext } from "./reply-composer";
 import { replyLanguageName } from "scheduling/app/i18n";
@@ -209,8 +209,8 @@ export class AiService {
     return this.replyComposer.composeExecutionCallbackReply(previousReply, facts, input);
   }
 
-  async composeOutboundRelayMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {
-    return this.replyComposer.composeOutboundRelayMessage(baseMessage, recipientLabel);
+  async composeDeliveryMessage(baseMessage: string, recipientLabel: string | undefined): Promise<string> {
+    return this.replyComposer.composeDeliveryMessage(baseMessage, recipientLabel);
   }
 
   async runMaintenancePass(request: string): Promise<string> {
@@ -228,12 +228,14 @@ export class AiService {
   }): Promise<AiTurnResult> {
     const prompt = [
       "Execute the user's request by returning structured actions.",
-      "Return exactly one JSON object with fields: message, files, reminders, outboundMessages, pendingAuthorizations, tasks.",
+      "Return exactly one JSON object with fields: message, files, reminders, deliveries, pendingAuthorizations, tasks.",
       "Output JSON only. No markdown fences. No extra text.",
       "All JSON must be syntactically valid. Escape all string values correctly and avoid unescaped quote marks inside strings.",
       "Use message only for concise findings for the current requester.",
-      "Use outboundMessages only for delivery to other users or chats, never for replying to the current requester.",
-      "If you found the answer for the current requester, put it in message, not outboundMessages.",
+      "Use deliveries only for explicit message delivery to a user or chat recipient, never for replying to the current requester.",
+      "If you found the answer for the current requester, put it in message, not deliveries.",
+      "Each deliveries item must include exactly {content, recipient} and may also include sendAt. Use the field name content, not message.",
+      "The recipient must be one target reference object such as {username:'someone'}, {displayName:'家庭群'}, or {id:123456}. If you need to send to multiple recipients, emit multiple deliveries items rather than one item with an array.",
       "For file writes, each files item must include {path, content, operation?}.",
       `When writing memory markdown files under memory/, prefer ${replyLanguageName(this.config)} for the markdown content unless the user explicitly asked for another language or the original note must preserve another language verbatim.`,
       "For reminders, each reminders item must be a creation draft, not a created reminder record.",
@@ -242,10 +244,13 @@ export class AiService {
       "For recurring reminders, use exact schedule shapes. Weekly example: {kind:'weekly', every:1, daysOfWeek:[5], time:{hour:18, minute:0}}. Monthly nth weekday example: {kind:'monthly', every:1, mode:'nthWeekday', weekOfMonth:1, dayOfWeek:1, time:{hour:9, minute:0}}. Lunar yearly example: {kind:'lunarYearly', month:8, day:15, time:{hour:20, minute:0}}.",
       "Use numeric weekday indexes in reminders schedules: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.",
       "Put timezone on the reminder draft itself, not inside schedule.",
+      "If the user supplies only a clock time such as 1700 or 21:00 as a clarification follow-up, interpret it as requester-local time in the requester timezone unless another timezone was explicitly given.",
+      "Do not convert a requester-local clock-only reply into a different displayed local time when confirming it back to the user.",
       "Prefer one logical reminder event with notifications offsets over multiple separate reminder drafts for the same event.",
       "For example, for a meeting at 2026-04-09T14:00:00, create one reminder with schedule.scheduledAt='2026-04-09T14:00:00' and notifications like [{offsetMinutes:-1440},{offsetMinutes:-60}] rather than two once reminders at the notification times.",
       "Do not include created reminder fields like id, scheduleSummary, or reminderOffsets inside reminders.",
       "To modify, pause, resume, or delete existing reminders, use tasks entries instead of reminders drafts.",
+      "For new reminder creation, use reminders drafts, not reminder tasks. Do not use reminders upsert tasks for a new reminder unless the runtime explicitly needs a task form.",
       "Do not rely on opaque reminder ids in reminder tasks.",
       "For reminder update, pause, resume, or deletion, emit a task with semantic match fields such as {domain:'reminders', operation:'pause', payload:{match:{title:'...', titleContains:'...', scheduledDate:'YYYY-MM-DD', timeframe:'tomorrow'}}}.",
       "If the request is missing required details and needs clarification, return no reminders and no tasks. Use message only to state the missing detail briefly.",
@@ -284,7 +289,7 @@ export class AiService {
       || parsed.files.length > 0
       || parsed.fileWrites.length > 0
       || parsed.reminders.length > 0
-      || parsed.outboundMessages.length > 0
+      || parsed.deliveries.length > 0
       || parsed.pendingAuthorizations.length > 0
       || parsed.tasks.length > 0;
     if (!parsedStructured) {
@@ -365,6 +370,7 @@ export class AiService {
       webfetch: false,
       websearch: false,
       codesearch: false,
+      mcp: false,
       task: false,
       question: false,
       todowrite: false,
@@ -394,7 +400,7 @@ export class AiService {
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, temporary);
 
-    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
+    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.deliveries.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
       return parsed;
     }
     throw new Error("Model returned no displayable output.");
@@ -406,19 +412,44 @@ export class AiService {
   }
 
   private async promptResponderTurn(text: string, attachments: AiAttachment[], _scopeKey?: string): Promise<AiTurnResult> {
-    const rawText = await this.promptInDisposableTextSession({
-      title: "",
-      requestLog: "opencode prompt request",
-      rawLogLabel: "opencode prompt",
-      execute: (sessionId) => this.promptSessionForLightText(sessionId, text, attachments, "responder"),
-    });
-    touchActivity();
-    const parsed = extractAiTurnResultFromText(rawText);
-    await this.logParsedAiTurnResult(rawText, parsed, false);
-    if (parsed.message.trim() || parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.outboundMessages.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0) {
-      return parsed;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const promptText = attempt === 1
+        ? text
+        : [
+            text,
+            "",
+            "Your previous reply was not valid user-visible output.",
+            "Return plain user-visible text only, or one valid JSON object with {message, answerMode} only when structured answerMode is necessary.",
+            "Do not output tool calls, invoke blocks, XML tags, hidden markup, markdown fences, or system-control text.",
+            "If answerMode is needs-execution, do not claim the action already succeeded or was already sent, delivered, saved, updated, or completed.",
+            "Do not mention internal ids, chat ids, recipient ids, hidden resolution steps, API names, or tool names in the user-facing reply.",
+          ].join("\n");
+      const rawText = await this.promptInDisposableTextSession({
+        title: "",
+        requestLog: attempt === 1 ? "opencode prompt request" : "opencode prompt retry request",
+        rawLogLabel: attempt === 1 ? "opencode prompt" : "opencode prompt retry",
+        execute: (sessionId) => this.promptSessionForLightText(sessionId, promptText, attachments, "responder"),
+      });
+      touchActivity();
+      const parsed = extractAiTurnResultFromText(rawText);
+      await this.logParsedAiTurnResult(rawText, parsed, false);
+      const hasStructuredContent = parsed.files.length > 0 || parsed.fileWrites.length > 0 || parsed.reminders.length > 0 || parsed.deliveries.length > 0 || parsed.pendingAuthorizations.length > 0 || parsed.tasks.length > 0;
+      const hasFakeProcessNarration = looksLikeFakeProcessNarration(parsed.message);
+      const hasUnconfirmedExecutionClaim = parsed.answerMode === "needs-execution" && looksLikeUnconfirmedExecutionClaim(parsed.message);
+      const hasInternalExecutionLeak = parsed.answerMode === "needs-execution" && looksLikeInternalExecutionLeak(parsed.message);
+      if ((isDisplayableUserText(parsed.message) && !hasFakeProcessNarration && !hasUnconfirmedExecutionClaim && !hasInternalExecutionLeak) || (parsed.message.trim() && hasStructuredContent)) {
+        return parsed;
+      }
+      const discardReason = hasFakeProcessNarration
+        ? "fake-process-narration"
+        : hasUnconfirmedExecutionClaim
+          ? "unconfirmed-execution-claim"
+          : hasInternalExecutionLeak
+            ? "internal-execution-leak"
+            : "non-displayable";
+      await logger.warn(`discarded responder output attempt=${attempt} reason=${discardReason}`);
     }
-    throw new Error("Model returned no displayable output.");
+    throw new Error("Model returned no displayable user reply.");
   }
 
   private async promptSessionForText(sessionId: string, text: string, attachments: AiAttachment[], role: "executor" | "maintainer"): Promise<string> {
@@ -445,6 +476,7 @@ export class AiService {
     const response = await this.client.session.prompt({
       path: { id: sessionId },
       body: {
+        agent: role === "responder" || role === "greeter" ? role : undefined,
         system: role ? this.systemPromptForRole(role) : undefined,
         model: parseModel(state.model) || undefined,
         tools: this.toolsForRole(role),
@@ -469,6 +501,6 @@ export class AiService {
   private async logParsedAiTurnResult(rawText: string, parsed: AiTurnResult, temporary: boolean): Promise<void> {
     const label = temporary ? "opencode temporary prompt" : "opencode prompt";
     await logger.info(`${label} raw=${JSON.stringify(rawText)}`);
-    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} answerMode=${parsed.answerMode} files=${JSON.stringify(parsed.files)} fileWrites=${parsed.fileWrites.length} reminders=${parsed.reminders.length} outboundMessages=${parsed.outboundMessages.length} pendingAuthorizations=${parsed.pendingAuthorizations.length} tasks=${parsed.tasks.length}`);
+    await logger.info(`${label} result message=${JSON.stringify(parsed.message)} answerMode=${parsed.answerMode} files=${JSON.stringify(parsed.files)} fileWrites=${parsed.fileWrites.length} reminders=${parsed.reminders.length} deliveries=${parsed.deliveries.length} pendingAuthorizations=${parsed.pendingAuthorizations.length} tasks=${parsed.tasks.length}`);
   }
 }

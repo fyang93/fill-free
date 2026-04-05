@@ -1,7 +1,7 @@
 import type { TaskHandler, TaskHandlerContext, TaskHandlerResult } from "./types";
 import type { TaskRecord } from "../store";
 import { reminderPreparationTaskHandler, remindersTaskHandler } from "operations/reminders";
-import { outboundSendTaskHandler } from "./outbound";
+import { messagesDeliverTaskHandler } from "./messages";
 import { accessGrantTemporaryTaskHandler, accessSetRoleTaskHandler } from "operations/access";
 import { queryAnswerFromRepoTaskHandler } from "operations/query";
 import { rulesTaskHandler } from "./rules";
@@ -9,7 +9,7 @@ import { rulesTaskHandler } from "./rules";
 const taskHandlers: TaskHandler[] = [
   reminderPreparationTaskHandler,
   remindersTaskHandler,
-  outboundSendTaskHandler,
+  messagesDeliverTaskHandler,
   accessGrantTemporaryTaskHandler,
   accessSetRoleTaskHandler,
   queryAnswerFromRepoTaskHandler,

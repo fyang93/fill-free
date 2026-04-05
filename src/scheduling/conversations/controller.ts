@@ -7,11 +7,13 @@ import { getAccurateNowIso } from "scheduling/app/time";
 import {
   clearRecentUploads,
   getRecentClarification,
+  getUserTimezone,
   persistState,
   touchActivity,
 } from "scheduling/app/state";
 import { t } from "scheduling/app/i18n";
 import { accessLevelForUserId } from "operations/access/control";
+import { normalizeScheduledAt } from "operations/reminders";
 import type { AiService } from "support/ai";
 import { runConversationTask, type ActiveConversationTask } from "roles";
 import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";
@@ -38,10 +40,47 @@ type ReactionCapableApi = Bot<Context>["api"] & {
 };
 
 type AnyRecord = Record<string, unknown>;
+
 type MediaGroupEntry = {
   uploaded: UploadedFile;
   attachment: AiAttachment;
 };
+
+function explicitClockTimeDetail(text: string): string | null {
+  const trimmed = text.trim();
+  const colon = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  const compact = trimmed.match(/^(\d{1,2})(\d{2})$/);
+  const hour = Number(colon?.[1] || compact?.[1]);
+  const minute = Number(colon?.[2] || compact?.[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function localDateAtIso(iso: string, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function deterministicClockTimeContext(text: string, requesterUserId: number | undefined, messageTime: string | undefined, defaultTimezone: string): string | null {
+  const localClockTime = explicitClockTimeDetail(text);
+  if (!localClockTime) return null;
+  const timezone = getUserTimezone(requesterUserId)?.trim() || defaultTimezone;
+  const referenceIso = messageTime || new Date().toISOString();
+  const localDate = localDateAtIso(referenceIso, timezone);
+  const resolvedUtc = normalizeScheduledAt(`${localDate}T${localClockTime}:00`, timezone);
+  return [
+    `Deterministic parsed time detail: the current user message is an explicit local clock time meaning ${localClockTime} in the requester timezone ${timezone}.`,
+    `Deterministic resolved local date for this turn: ${localDate}.`,
+    `Deterministic UTC timestamp for that local date and time: ${resolvedUtc}.`,
+  ].join("\n");
+}
 
 type MediaGroupCacheEntry = {
   files: Map<number, MediaGroupEntry>;
@@ -168,6 +207,7 @@ export class ConversationController {
       const allAttachments = [...attachments, ...replyContext.attachments];
       const messageTime = await this.messageReferenceTime(ctx);
       const recentClarification = getRecentClarification(scope.key);
+      const deterministicTimeContext = recentClarification ? deterministicClockTimeContext(text, ctx.from?.id, messageTime, this.deps.config.bot.defaultTimezone) : null;
       const effectiveText = [
         "Current user message:",
         text,
@@ -179,7 +219,8 @@ export class ConversationController {
               `Previous user request: ${recentClarification.requestText}`,
               `Previous assistant clarification: ${recentClarification.clarificationMessage}`,
               "Treat the current user message as a likely answer to that clarification when it fits.",
-            ].join("\n")
+              deterministicTimeContext || "",
+            ].filter(Boolean).join("\n")
           : "",
       ].filter(Boolean).join("\n");
       await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} chatType=${ctx.chat?.type ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${telegramReplySummary(ctx)} replyContextIncluded=${replyContext.text ? "yes" : "no"} replyFiles=${replyContext.uploadedFiles.length}`);

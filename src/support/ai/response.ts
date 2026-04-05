@@ -1,4 +1,4 @@
-import type { AiTurnResult, FileWriteDraft, OutboundMessageDraft, PendingAuthorizationDraft, ReminderDraft, TaskDraft } from "./types";
+import type { AiTurnResult, FileWriteDraft, MessageDeliveryDraft, PendingAuthorizationDraft, ReminderDraft, TaskDraft } from "./types";
 
 function extractJsonCandidates(text: string): string[] {
   const candidates: string[] = [];
@@ -24,13 +24,39 @@ export function looksLikeStructuredOutputIntent(text: string): boolean {
   if (!trimmed) return false;
   return /```(?:json)?/i.test(trimmed)
     || /^\s*\{[\s\S]*\}\s*$/.test(trimmed)
-    || /"(?:message|files|reminders|outboundMessages|pendingAuthorizations|tasks)"\s*:/i.test(trimmed);
+    || /"(?:message|files|reminders|deliveries|pendingAuthorizations|tasks)"\s*:/i.test(trimmed);
+}
+
+export function looksLikeFakeProcessNarration(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/\[(输出开始|输出结束|output start|output end)\]/i.test(trimmed)) return true;
+  if (/^(计算中|检索中|检索到|扫描中|扫描到|加载中|协议加载中|processing|retrieving|scanning|loading)\b/im.test(trimmed)) return true;
+  if (/(系统待命|protocol loaded|scan complete|retrieval complete)\b/i.test(trimmed)) return true;
+  return false;
+}
+
+export function looksLikeUnconfirmedExecutionClaim(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /(已发送|发送成功|已完成|完成了|已保存|已写入|已更新|已删除|已修改|发送到了|delivered|sent successfully|completed|saved|updated|deleted)/i.test(trimmed);
+}
+
+export function looksLikeInternalExecutionLeak(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/(chatId|recipientId|messageId|Telegram Bot API|tool name|invoke block|内部|internal stage|API)/i.test(trimmed)) return true;
+  if (/-?chatId:|-100\d{6,}/.test(trimmed)) return true;
+  if (/(无法直接发送 Telegram 消息|cannot directly send telegram message)/i.test(trimmed)) return true;
+  return false;
 }
 
 export function isDisplayableUserText(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   if (looksLikeStructuredOutputIntent(trimmed) && !/^\s*\{[\s\S]*\}\s*$/.test(trimmed)) return false;
+  if (/(<invoke\b|<\/minimax:tool_call>|<tool_call\b|<function_calls?\b)/i.test(trimmed)) return false;
+  if (/^<[^>]+>[\s\S]*<\/[^>]+>$/.test(trimmed)) return false;
   return true;
 }
 
@@ -69,10 +95,24 @@ function parseReminders(value: unknown): ReminderDraft[] {
     : [];
 }
 
-function parseOutboundMessages(value: unknown): OutboundMessageDraft[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is OutboundMessageDraft => Boolean(item) && typeof item === "object" && typeof (item as Record<string, unknown>).message === "string" && Boolean(((item as Record<string, unknown>).message as string).trim()))
-    : [];
+function parseDeliveries(value: unknown): MessageDeliveryDraft[] {
+  if (!Array.isArray(value)) return [];
+  const drafts: MessageDeliveryDraft[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const content = typeof record.content === "string" ? record.content.trim() : "";
+    const recipient = record.recipient && typeof record.recipient === "object" && !Array.isArray(record.recipient)
+      ? record.recipient as MessageDeliveryDraft["recipient"]
+      : undefined;
+    if (!content || !recipient) continue;
+    drafts.push({
+      content,
+      recipient,
+      sendAt: trimmedString(record.sendAt),
+    });
+  }
+  return drafts;
 }
 
 function parsePendingAuthorizations(value: unknown): PendingAuthorizationDraft[] {
@@ -113,11 +153,11 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
 
   for (const candidate of jsonCandidates) {
     try {
-      const parsed = JSON.parse(candidate) as { message?: unknown; answerMode?: unknown; files?: unknown; reminders?: unknown; outboundMessages?: unknown; pendingAuthorizations?: unknown; tasks?: unknown };
+      const parsed = JSON.parse(candidate) as { message?: unknown; answerMode?: unknown; files?: unknown; reminders?: unknown; deliveries?: unknown; pendingAuthorizations?: unknown; tasks?: unknown };
       const files = parseFiles(parsed.files);
       const reminders = parseReminders(parsed.reminders);
       const fileWrites = parseFileWrites(parsed.files);
-      const outboundMessages = parseOutboundMessages(parsed.outboundMessages);
+      const deliveries = parseDeliveries(parsed.deliveries);
       const pendingAuthorizations = parsePendingAuthorizations(parsed.pendingAuthorizations);
       const tasks = parseTasks(parsed.tasks);
       const messageText = typeof parsed.message === "string" ? parsed.message.trim() : "";
@@ -126,7 +166,7 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
         : parsed.answerMode === "needs-clarification"
           ? "needs-clarification"
           : "direct";
-      const hasStructuredFields = files.length > 0 || fileWrites.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || pendingAuthorizations.length > 0 || tasks.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages) || Array.isArray(parsed.pendingAuthorizations) || Array.isArray(parsed.tasks);
+      const hasStructuredFields = files.length > 0 || fileWrites.length > 0 || reminders.length > 0 || deliveries.length > 0 || pendingAuthorizations.length > 0 || tasks.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.deliveries) || Array.isArray(parsed.pendingAuthorizations) || Array.isArray(parsed.tasks);
       if (typeof parsed.message === "string" || hasStructuredFields) {
         return {
           message: messageText,
@@ -135,7 +175,7 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
           attachments: [],
           fileWrites,
           reminders,
-          outboundMessages,
+          deliveries,
           pendingAuthorizations,
           tasks,
         };
@@ -146,7 +186,7 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
   }
 
   if (looksLikeStructuredOutputIntent(plain) && jsonCandidates.length > 0) {
-    return { message: "", answerMode: "direct", files: [], fileWrites: [], attachments: [], reminders: [], outboundMessages: [], pendingAuthorizations: [], tasks: [] };
+    return { message: "", answerMode: "direct", files: [], fileWrites: [], attachments: [], reminders: [], deliveries: [], pendingAuthorizations: [], tasks: [] };
   }
 
   return {
@@ -156,7 +196,7 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
     attachments: [],
     fileWrites: [],
     reminders: [],
-    outboundMessages: [],
+    deliveries: [],
     pendingAuthorizations: [],
     tasks: [],
   };

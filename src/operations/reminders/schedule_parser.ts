@@ -45,7 +45,7 @@ function buildExternalDateTimeString(raw: Record<string, unknown>): string {
   return "";
 }
 
-export function buildReminderScheduleFromExternal(raw: Record<string, unknown>): ReminderSchedule {
+export function buildReminderScheduleFromExternal(raw: Record<string, unknown>, timezone?: string): ReminderSchedule {
   const rawKind = typeof raw.kind === "string" && raw.kind.trim()
     ? raw.kind.trim()
     : typeof raw.type === "string" && raw.type.trim()
@@ -56,7 +56,7 @@ export function buildReminderScheduleFromExternal(raw: Record<string, unknown>):
   if (kind === "once") {
     return {
       kind: "once",
-      scheduledAt: normalizeScheduledAt(buildExternalDateTimeString(raw)),
+      scheduledAt: normalizeScheduledAt(buildExternalDateTimeString(raw), timezone),
     };
   }
 
@@ -67,7 +67,7 @@ export function buildReminderScheduleFromExternal(raw: Record<string, unknown>):
       kind: "interval",
       unit: recurrence.unit,
       every: recurrence.every,
-      anchorAt: normalizeScheduledAt(String(raw.anchor || raw.anchorAt || raw.at || raw.scheduledAt || "")),
+      anchorAt: normalizeScheduledAt(String(raw.anchor || raw.anchorAt || raw.at || raw.scheduledAt || ""), timezone),
     };
   }
 
