@@ -1,6 +1,6 @@
 # Development Principles
 
-For maintainers and implementation decisions, not as automatic runtime instructions for OpenCode.
+CRITICAL: Whenever you find code that violates the current principles, adjust it accordingly.
 
 ## Core stance
 

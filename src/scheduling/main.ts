@@ -5,7 +5,7 @@ import { configureLogger, logger } from "scheduling/app/logger";
 import { AiService } from "support/ai";
 import { currentModel, loadPersistentState, persistState, state } from "scheduling/app/state";
 import { pruneExpiredPendingAuthorizationsFromState } from "operations/access/authorizations";
-import { handleReminderCallback, pruneInactiveReminderEvents, readReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "operations/reminders";
+import { handleReminderCallback, pruneInactiveReminderEvents, readReminderEvents, startReminderLoop } from "operations/reminders";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
@@ -200,20 +200,7 @@ await logger.info("bot starting");
 let reminderLoop = await startReminderLoop(
   config,
   bot,
-  async (event, _instance, fallback) => {
-    try {
-      const recurrence = reminderEventScheduleSummary(config, event);
-      const message = await agentService.generateReminderMessage(
-        event.title,
-        event.deliveryState?.currentOccurrence?.scheduledAt || new Date().toLocaleString(),
-        recurrence,
-      );
-      return message || fallback;
-    } catch (error) {
-      await logger.warn(`reminder message fallback: ${error instanceof Error ? error.message : String(error)}`);
-      return fallback;
-    }
-  },
+  undefined,
   async (event) => {
     await enqueueReminderPreparationTask(config, event.id);
   },
