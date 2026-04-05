@@ -56,7 +56,7 @@ export type FileWriteDraft = {
 
 export type AiTurnResult = {
   message: string;
-  answerMode: "direct" | "needs-execution";
+  answerMode: "direct" | "needs-execution" | "needs-clarification";
   files: string[];
   fileWrites: FileWriteDraft[];
   attachments: AiAttachment[];

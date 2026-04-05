@@ -121,7 +121,11 @@ export function extractAiTurnResultFromText(rawText: string): AiTurnResult {
       const pendingAuthorizations = parsePendingAuthorizations(parsed.pendingAuthorizations);
       const tasks = parseTasks(parsed.tasks);
       const messageText = typeof parsed.message === "string" ? parsed.message.trim() : "";
-      const answerMode = parsed.answerMode === "needs-execution" ? "needs-execution" : "direct";
+      const answerMode = parsed.answerMode === "needs-execution"
+        ? "needs-execution"
+        : parsed.answerMode === "needs-clarification"
+          ? "needs-clarification"
+          : "direct";
       const hasStructuredFields = files.length > 0 || fileWrites.length > 0 || reminders.length > 0 || outboundMessages.length > 0 || pendingAuthorizations.length > 0 || tasks.length > 0 || Array.isArray(parsed.files) || Array.isArray(parsed.reminders) || Array.isArray(parsed.outboundMessages) || Array.isArray(parsed.pendingAuthorizations) || Array.isArray(parsed.tasks);
       if (typeof parsed.message === "string" || hasStructuredFields) {
         return {

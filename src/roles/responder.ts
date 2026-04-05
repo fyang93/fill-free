@@ -176,7 +176,8 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
         await ctx.reply(callbackMessage);
       }
     } else {
-      await logger.info(`conversation task ${task.id} role=executor state=skipped reason=direct-answer`);
+      const skipReason = answer.answerMode === "needs-clarification" ? "needs-clarification" : "direct-answer";
+      await logger.info(`conversation task ${task.id} role=executor state=skipped reason=${skipReason}`);
     }
 
     const outputStartedAt = Date.now();

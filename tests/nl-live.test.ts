@@ -173,6 +173,20 @@ describe("自然语言 live 回归测试", () => {
     expect(reminders.some((item) => item.title.includes("测试会议") && item.status === "active")).toBe(true);
   });
 
+  test("管理员自然语言在提醒缺少必要时间细节时会先澄清而不会提前执行", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    const result = await runLiveScenarioWithRetries(config, agentService, "下午提醒我review论文");
+    expect(result.answer.answerMode).toBe("needs-clarification");
+    expect(result.answer.message.includes("几点") || result.answer.message.includes("时间") || result.answer.message.includes("具体")).toBe(true);
+    expect(result.taskResults.length).toBe(0);
+
+    const reminders = await readReminderEvents(config);
+    expect(reminders.length).toBe(0);
+  });
+
   test("管理员自然语言删除提醒后能真实落地", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
     const config = await createTempConfig();
     const agentService = new AiService(config);
