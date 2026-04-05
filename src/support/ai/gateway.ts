@@ -227,11 +227,14 @@ export class AiService {
     responderContextText?: string;
   }): Promise<AiTurnResult> {
     const prompt = [
-      "Execute the user's request by returning structured actions.",
-      "Return exactly one JSON object with fields: message, files, reminders, deliveries, pendingAuthorizations, tasks.",
+      "Evaluate the same user task as the fast lane, but with fuller structured planning and execution context.",
+      "Return exactly one JSON object with fields: message, answerMode, files, reminders, deliveries, pendingAuthorizations, tasks.",
       "Output JSON only. No markdown fences. No extra text.",
       "All JSON must be syntactically valid. Escape all string values correctly and avoid unescaped quote marks inside strings.",
-      "Use message only for concise findings for the current requester.",
+      "Use answerMode='direct' when the request can be fully answered from available context with no durable or backend action.",
+      "Use answerMode='needs-clarification' when required details are still missing and no durable action should be applied yet.",
+      "Use answerMode='needs-execution' when the request should perform durable or backend work and the details are sufficient.",
+      "Use message for the user-visible reply for this lane. For direct or clarification results, message should already be the final reply. For needs-execution, message should be the final post-execution reply grounded in what this lane actually confirmed or applied.",
       "Use deliveries only for explicit message delivery to a user or chat recipient, never for replying to the current requester.",
       "If you found the answer for the current requester, put it in message, not deliveries.",
       "Each deliveries item must include exactly {content, recipient} and may also include sendAt. Use the field name content, not message.",
@@ -253,7 +256,7 @@ export class AiService {
       "For new reminder creation, use reminders drafts, not reminder tasks. Do not use reminders upsert tasks for a new reminder unless the runtime explicitly needs a task form.",
       "Do not rely on opaque reminder ids in reminder tasks.",
       "For reminder update, pause, resume, or deletion, emit a task with semantic match fields such as {domain:'reminders', operation:'pause', payload:{match:{title:'...', titleContains:'...', scheduledDate:'YYYY-MM-DD', timeframe:'tomorrow'}}}.",
-      "If the request is missing required details and needs clarification, return no reminders and no tasks. Use message only to state the missing detail briefly.",
+      "If the request is missing required details and needs clarification, set answerMode='needs-clarification', return no reminders and no tasks, and use message only to state the missing detail briefly.",
       "Prefer scheduledDate over scheduledAt unless an exact timestamp is truly necessary.",
       "Prefer semantic reminder matching fields over internal ids.",
       "For structured user rules or standing preferences, emit tasks entries instead of prose-only answers.",
@@ -286,6 +289,8 @@ export class AiService {
     }
     const parsed = extractAiTurnResultFromText(raw);
     const parsedStructured = parsed.message.trim()
+      || parsed.answerMode === "needs-execution"
+      || parsed.answerMode === "needs-clarification"
       || parsed.files.length > 0
       || parsed.fileWrites.length > 0
       || parsed.reminders.length > 0

@@ -25,6 +25,8 @@ For maintainers and implementation decisions, not as automatic runtime instructi
 - Code should provide facts, state, and constraints; the model should phrase the reply.
 - Keep persona consistent.
 - All user-facing replies, including greetings, clarifications, confirmations, reminders, and follow-ups, must follow the configured persona.
+- Persona belongs only in final user-visible text, not in hidden reasoning or internal planning.
+- Avoid dedicated extra rendering passes for ordinary replies when the primary lane can generate the final visible text directly.
 - Reserve fixed copy for UI text, safety fallbacks, and deterministic labels.
 
 ## i18n
@@ -59,6 +61,11 @@ For maintainers and implementation decisions, not as automatic runtime instructi
 - Avoid brittle trigger phrases, substring guessing, and ad-hoc templates for core behavior.
 - Deterministic retrieval infrastructure is fine when it supports lookup rather than replaces judgment.
 - Use code for deterministic boundaries and persistence rules; use prompts for minimal task context.
+- Prefer concurrent fast and slow lanes when both are evaluating the same user task and one lane can deliver lower TTFT.
+- A slower lane may start immediately instead of waiting for fast-lane classification when that reduces end-to-end latency.
+- Use runtime guards and tests to protect truth boundaries instead of forcing unnecessary serial orchestration.
+- Keep fast-lane context narrowly scoped and latency-oriented.
+- Prefer small Top-N relevant fact slices over broad context dumps.
 
 ## Memory organization
 

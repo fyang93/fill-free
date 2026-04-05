@@ -17,6 +17,7 @@ const OUTBOUND_TRUST_REQUIRED_FACT = "Requester does not have outbound permissio
 const MEMORY_WRITE_ALLOWED_FACT = "Requester does not have permission to write memory.";
 
 export type ActionExecutionResult = {
+  answerMode: "direct" | "needs-execution" | "needs-clarification";
   message: string;
   facts: string[];
   hasSideEffectfulActions: boolean;
@@ -25,7 +26,7 @@ export type ActionExecutionResult = {
 export type ExecuteAiActionsInput = {
   config: AppConfig;
   agentService: AiService;
-  answer: AiTurnResult;
+  answer?: AiTurnResult;
   ctx: Context;
   requesterUserId?: number;
   messageTime?: string;
@@ -40,6 +41,20 @@ type TaskEnqueueResult = {
   accepted: string[];
   clarifications: string[];
 };
+
+function emptyAiTurnResult(): AiTurnResult {
+  return {
+    message: "",
+    answerMode: "direct",
+    files: [],
+    fileWrites: [],
+    attachments: [],
+    reminders: [],
+    deliveries: [],
+    pendingAuthorizations: [],
+    tasks: [],
+  };
+}
 
 function normalizeOutboundTargetReference(raw: unknown): ActionTargetReference | undefined {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -59,12 +74,6 @@ function normalizeOutboundTargetReference(raw: unknown): ActionTargetReference |
     return { displayName: trimmed };
   }
   return undefined;
-}
-
-function summarizeFactBlock(plural: string, items: string[]): string {
-  if (items.length === 0) return "";
-  if (items.length === 1) return items[0] || "";
-  return `${plural}:\n${items.map((item) => `- ${item}`).join("\n")}`;
 }
 
 async function enqueueMessageDeliveries(
@@ -223,12 +232,11 @@ async function enqueueGenericTasks(
   return { accepted, clarifications: [] };
 }
 
-// Executor role: durably accept actions and collect confirmed facts for the responder handoff.
 export async function executeAiActions(input: ExecuteAiActionsInput): Promise<ActionExecutionResult> {
   const executorStartedAt = Date.now();
   const taskStillCurrent = () => (input.isTaskCurrent ? input.isTaskCurrent() : true);
 
-  let effectiveAnswer = input.answer;
+  let effectiveAnswer = input.answer || emptyAiTurnResult();
   const planned = await input.agentService.planExecutorActions({
     userRequestText: input.userRequestText,
     requesterUserId: input.requesterUserId,
@@ -238,12 +246,24 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
     messageTime: input.messageTime,
     responderContextText: input.responderContextText,
   });
+
   if (!taskStillCurrent()) {
     await logger.warn("executor result ignored because task is stale");
-    return { message: "", facts: [], hasSideEffectfulActions: false };
+    return { answerMode: planned.answerMode, message: "", facts: [], hasSideEffectfulActions: false };
   }
+
+  const inferredAnswerMode = planned.answerMode === "direct"
+    && (planned.fileWrites.length > 0
+      || planned.reminders.length > 0
+      || planned.deliveries.length > 0
+      || planned.pendingAuthorizations.length > 0
+      || planned.tasks.length > 0)
+    ? "needs-execution"
+    : planned.answerMode;
   effectiveAnswer = {
     ...effectiveAnswer,
+    answerMode: inferredAnswerMode,
+    message: planned.message.trim() || effectiveAnswer.message,
     reminders: [...effectiveAnswer.reminders, ...planned.reminders],
     deliveries: [...effectiveAnswer.deliveries, ...planned.deliveries],
     pendingAuthorizations: [...effectiveAnswer.pendingAuthorizations, ...planned.pendingAuthorizations],
@@ -251,12 +271,22 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
     files: [...effectiveAnswer.files, ...planned.files],
     fileWrites: [...effectiveAnswer.fileWrites, ...planned.fileWrites],
   };
-  await logger.info(`executor actions interpreted reminders=${planned.reminders.length} deliveries=${planned.deliveries.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
+  await logger.info(`executor actions interpreted answerMode=${inferredAnswerMode} reminders=${planned.reminders.length} deliveries=${planned.deliveries.length} pendingAuthorizations=${planned.pendingAuthorizations.length} tasks=${planned.tasks.length} files=${planned.files.length} fileWrites=${planned.fileWrites.length}`);
+
+  if (effectiveAnswer.answerMode !== "needs-execution") {
+    await logger.info(`executor role total ms=${Date.now() - executorStartedAt} sideEffects=skipped reason=${effectiveAnswer.answerMode}`);
+    return {
+      answerMode: effectiveAnswer.answerMode,
+      message: effectiveAnswer.message.trim(),
+      facts: [],
+      hasSideEffectfulActions: false,
+    };
+  }
 
   const fileWriteStartedAt = Date.now();
   if (!taskStillCurrent()) {
     await logger.warn("executor file writes skipped because task is stale");
-    return { message: "", facts: [], hasSideEffectfulActions: false };
+    return { answerMode: effectiveAnswer.answerMode, message: "", facts: [], hasSideEffectfulActions: false };
   }
   const fileWriteResult = await applyFileWrites(input.config, input.accessRole, effectiveAnswer.fileWrites);
   const fileWriteMs = Date.now() - fileWriteStartedAt;
@@ -265,7 +295,7 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   const reminderStartedAt = Date.now();
   if (!taskStillCurrent()) {
     await logger.warn("executor reminders skipped because task is stale");
-    return { message: "", facts: [], hasSideEffectfulActions: false };
+    return { answerMode: effectiveAnswer.answerMode, message: "", facts: [], hasSideEffectfulActions: false };
   }
   const reminderResult = await createStructuredReminders(
     input.config,
@@ -281,7 +311,7 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   const deliveryStartedAt = Date.now();
   if (!taskStillCurrent()) {
     await logger.warn("executor deliveries skipped because task is stale");
-    return { message: "", facts: [], hasSideEffectfulActions: false };
+    return { answerMode: effectiveAnswer.answerMode, message: "", facts: [], hasSideEffectfulActions: false };
   }
   const deliveryResult = input.canDeliverOutbound
     ? await enqueueMessageDeliveries(input.config, input.ctx, effectiveAnswer.deliveries, input.requesterUserId)
@@ -290,10 +320,11 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
       : { accepted: [], clarifications: [] };
   const deliveryMs = Date.now() - deliveryStartedAt;
   await logger.info(`executor deliveries done ms=${deliveryMs} accepted=${deliveryResult.accepted.length} clarifications=${deliveryResult.clarifications.length} drafts=${effectiveAnswer.deliveries.length} enabled=${input.canDeliverOutbound ? "yes" : "no"}`);
+
   const authStartedAt = Date.now();
   if (!taskStillCurrent()) {
     await logger.warn("executor authorizations skipped because task is stale");
-    return { message: "", facts: [], hasSideEffectfulActions: false };
+    return { answerMode: effectiveAnswer.answerMode, message: "", facts: [], hasSideEffectfulActions: false };
   }
   const pendingAuthorizationResult = await enqueuePendingAuthorizations(
     input.config,
@@ -304,10 +335,11 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
   );
   const authMs = Date.now() - authStartedAt;
   await logger.info(`executor authorizations done ms=${authMs} accepted=${pendingAuthorizationResult.accepted.length} clarifications=${pendingAuthorizationResult.clarifications.length} drafts=${effectiveAnswer.pendingAuthorizations.length}`);
+
   const taskStartedAt = Date.now();
   if (!taskStillCurrent()) {
     await logger.warn("executor tasks skipped because task is stale");
-    return { message: "", facts: [], hasSideEffectfulActions: false };
+    return { answerMode: effectiveAnswer.answerMode, message: "", facts: [], hasSideEffectfulActions: false };
   }
   const genericTaskResult = await enqueueGenericTasks(input.config, input.ctx, effectiveAnswer.tasks, input.requesterUserId);
   const taskMs = Date.now() - taskStartedAt;
@@ -322,7 +354,8 @@ export async function executeAiActions(input: ExecuteAiActionsInput): Promise<Ac
     ...genericTaskResult.clarifications,
   ].filter(Boolean);
   return {
-    message: planned.message.trim(),
+    answerMode: effectiveAnswer.answerMode,
+    message: effectiveAnswer.message.trim(),
     facts,
     hasSideEffectfulActions: effectiveAnswer.fileWrites.length > 0
       || effectiveAnswer.reminders.length > 0

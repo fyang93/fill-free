@@ -4,7 +4,7 @@ import type { AiService } from "support/ai";
 import { logger } from "scheduling/app/logger";
 import { t } from "scheduling/app/i18n";
 import { editMessageTextFormatted } from "interaction/telegram/format";
-import { executeAiActions, type ExecuteAiActionsInput } from "./executor";
+import { executeAiActions, type ActionExecutionResult, type ExecuteAiActionsInput } from "./executor";
 import { buildTelegramRequestContext } from "interaction/telegram/identity";
 import { deliverAiOutputs } from "scheduling/conversations/output";
 import { buildResponderContextBlock, lookupRequesterTimezone, lookupResponderIndexContext } from "operations/context/responder";
@@ -69,8 +69,37 @@ export type RunConversationTaskDeps = {
   onReleaseActiveTask: (scopeKey: string, taskId: number) => void;
 };
 
-// Responder role: obtain the model result and produce the user-facing reply.
-// Executor role: durably accept and perform deterministic actions after the model result is available.
+type LaneResult =
+  | { lane: "fast"; responderMs: number; answer: Awaited<ReturnType<AiService["prompt"]>> }
+  | { lane: "slow"; executorMs: number; result: ActionExecutionResult };
+
+function normalizeReply(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+async function publishVisibleReply(
+  ctx: Context,
+  task: ActiveConversationTask,
+  message: string,
+  state: { sentFirstReply: boolean; releasedActiveTask: boolean },
+  onReleaseActiveTask: (scopeKey: string, taskId: number) => void,
+): Promise<void> {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+  if (!state.sentFirstReply) {
+    await publishResponderFirstReply(ctx, task, trimmed);
+    state.sentFirstReply = true;
+    if (!state.releasedActiveTask) {
+      onReleaseActiveTask(task.scopeKey, task.id);
+      state.releasedActiveTask = true;
+    }
+    return;
+  }
+  await ctx.reply(trimmed);
+}
+
+// Fast lane: responder with narrow context.
+// Slow lane: executor planning/execution that can also produce the final user-visible reply.
 export async function runConversationTask(deps: RunConversationTaskDeps): Promise<void> {
   const {
     config,
@@ -95,7 +124,7 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
   const telegramRequestContext = buildTelegramRequestContext(config, ctx);
   const effectivePromptText = telegramRequestContext ? `${promptText}\n\n${telegramRequestContext}` : promptText;
   const taskStartedAt = Date.now();
-  const responderStartedAt = taskStartedAt;
+  const publishState = { sentFirstReply: false, releasedActiveTask: false };
 
   try {
     const { responderContextText, requesterTimezone, hasIndexedContext } = await prepareResponderContext(config, {
@@ -103,8 +132,10 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
       chatId: task.chatId,
       promptText,
     });
-    await logger.info(`conversation task ${task.id} role=responder state=start scope=${JSON.stringify(task.scopeKey)} accessRole=${accessRole} uploadedFiles=${uploadedFiles.length} attachments=${attachments.length} promptChars=${effectivePromptText.length}`);
-    const answer = await agentService.prompt(
+    await logger.info(`conversation task ${task.id} role=race state=start scope=${JSON.stringify(task.scopeKey)} accessRole=${accessRole} uploadedFiles=${uploadedFiles.length} attachments=${attachments.length} promptChars=${effectivePromptText.length}`);
+
+    const fastStartedAt = Date.now();
+    const fastPromise: Promise<LaneResult> = agentService.prompt(
       effectivePromptText,
       uploadedFiles,
       attachments,
@@ -114,87 +145,116 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
       accessRole,
       responderContextText,
       requesterTimezone,
-    );
-    const responderMs = Date.now() - responderStartedAt;
-    await logger.info(`conversation task ${task.id} role=responder source=model indexedContext=${hasIndexedContext ? "yes" : "no"}`);
-    await logger.info(`conversation task ${task.id} role=responder state=done ms=${responderMs} answerMode=${answer.answerMode} messageChars=${answer.message.length} files=${answer.files.length} reminders=${answer.reminders.length} deliveries=${answer.deliveries.length} pendingAuthorizations=${answer.pendingAuthorizations.length} tasks=${answer.tasks.length}`);
+    ).then((answer) => ({ lane: "fast" as const, responderMs: Date.now() - fastStartedAt, answer }));
+
+    const slowStartedAt = Date.now();
+    const slowPromise: Promise<LaneResult> = executeAiActions({
+      config,
+      agentService,
+      ctx,
+      requesterUserId: userId,
+      messageTime,
+      canDeliverOutbound: isTrustedUserId(userId) || isAdminUserId(userId),
+      accessRole,
+      userRequestText: promptText,
+      responderContextText,
+      isTaskCurrent: () => !task.cancelled,
+    } satisfies ExecuteAiActionsInput).then((result) => ({ lane: "slow" as const, executorMs: Date.now() - slowStartedAt, result }));
+    void fastPromise.catch(() => {});
+    void slowPromise.catch(() => {});
+
+    let fastResult: Awaited<typeof fastPromise> | null = null;
+    let slowResult: Awaited<typeof slowPromise> | null = null;
+    let firstPublishedText = "";
+    let executorMs = 0;
+    let responderMs = 0;
+
+    const firstLane = await Promise.race([fastPromise, slowPromise]);
+
     if (task.cancelled || !isTaskCurrent(task.scopeKey, task.id)) {
       await logger.warn(`discarding stale conversation result for task ${task.id}`);
       return;
     }
 
     onStopWaiting(task);
-    const responderMessage = answer.message.trim() || t(config, "generic_done");
-    if (answer.answerMode === "needs-clarification") {
-      rememberRecentClarification(task.scopeKey, promptText, responderMessage);
-    } else {
-      clearRecentClarification(task.scopeKey);
-    }
-    await publishResponderFirstReply(ctx, task, responderMessage);
-    onReleaseActiveTask(task.scopeKey, task.id);
 
-    let executorMs = 0;
-    let callbackMs = 0;
-    if (answer.answerMode === "needs-execution") {
-      const executorStartedAt = Date.now();
-      await logger.info(`conversation task ${task.id} role=executor state=start`);
-      const actionResult = await executeAiActions({
-        config,
-        agentService,
-        answer,
-        ctx,
-        requesterUserId: userId,
-        messageTime,
-        canDeliverOutbound: isTrustedUserId(userId) || isAdminUserId(userId),
-        accessRole,
-        userRequestText: promptText,
-        responderContextText,
-        isTaskCurrent: () => !task.cancelled,
-      } satisfies ExecuteAiActionsInput);
-      executorMs = Date.now() - executorStartedAt;
-      await logger.info(`conversation task ${task.id} role=executor state=done ms=${executorMs} facts=${actionResult.facts.length}`);
+    if (firstLane.lane === "fast") {
+      fastResult = firstLane;
+      responderMs = firstLane.responderMs;
+      const answer = firstLane.answer;
+      await logger.info(`conversation task ${task.id} role=responder source=model indexedContext=${hasIndexedContext ? "yes" : "no"}`);
+      await logger.info(`conversation task ${task.id} role=responder state=done ms=${responderMs} answerMode=${answer.answerMode} messageChars=${answer.message.length} files=${answer.files.length} reminders=${answer.reminders.length} deliveries=${answer.deliveries.length} pendingAuthorizations=${answer.pendingAuthorizations.length} tasks=${answer.tasks.length}`);
 
-      if (task.cancelled) {
-        await logger.warn(`skipping stale post-executor callback for task ${task.id}`);
+      const responderMessage = answer.message.trim() || t(config, "generic_done");
+      if (answer.answerMode === "needs-clarification") {
+        rememberRecentClarification(task.scopeKey, promptText, responderMessage);
+      } else {
+        clearRecentClarification(task.scopeKey);
+      }
+
+      await publishVisibleReply(ctx, task, responderMessage, publishState, onReleaseActiveTask);
+      firstPublishedText = responderMessage;
+      await deliverAiOutputs(ctx, config, answer);
+
+      if (answer.answerMode !== "needs-execution") {
+        await logger.info(`conversation task ${task.id} role=slow state=ignored reason=${answer.answerMode}`);
+        await onPruneRecentUploads(task.scopeKey);
+        await onSetReaction(ctx, "🥰");
+        await logger.info(`conversation task ${task.id} completed totalMs=${Date.now() - taskStartedAt} responderMs=${responderMs} executorMs=0 outputMs=0 mode=${answer.answerMode}`);
         return;
       }
 
-      const callbackStartedAt = Date.now();
-      await logger.info(`conversation task ${task.id} role=responder-callback state=start`);
-      const rawCallbackMessage = actionResult.facts.length > 0
-        ? await agentService.composeExecutionCallbackReply(
-          responderMessage,
-          actionResult.facts,
-          {
-            requesterUserId: userId,
-            chatId: task.chatId,
-            chatType: ctx.chat?.type,
-          },
-        )
-        : !actionResult.hasSideEffectfulActions && actionResult.message.trim() && actionResult.message.trim() !== responderMessage.trim()
-          ? actionResult.message.trim()
-          : "";
-      const normalizedResponderMessage = responderMessage.replace(/\s+/g, " ").trim();
-      const normalizedCallbackMessage = rawCallbackMessage.replace(/\s+/g, " ").trim();
-      const callbackMessage = normalizedCallbackMessage && normalizedCallbackMessage !== normalizedResponderMessage
-        ? rawCallbackMessage.trim()
-        : "";
-      callbackMs = Date.now() - callbackStartedAt;
-      await logger.info(`conversation task ${task.id} role=responder-callback state=done ms=${callbackMs} finalChars=${callbackMessage.length} enabled=${callbackMessage.trim() ? "yes" : "no"}`);
-      if (callbackMessage.trim()) {
-        await ctx.reply(callbackMessage);
-      }
+      slowResult = await slowPromise;
     } else {
-      const skipReason = answer.answerMode === "needs-clarification" ? "needs-clarification" : "direct-answer";
-      await logger.info(`conversation task ${task.id} role=executor state=skipped reason=${skipReason}`);
+      slowResult = firstLane;
+      executorMs = firstLane.executorMs;
+      const result = firstLane.result;
+      await logger.info(`conversation task ${task.id} role=slow state=done-first ms=${executorMs} answerMode=${result.answerMode} messageChars=${result.message.length} facts=${result.facts.length}`);
+
+      clearRecentClarification(task.scopeKey);
+      if (result.answerMode === "needs-clarification") {
+        rememberRecentClarification(task.scopeKey, promptText, result.message.trim());
+      }
+
+      await publishVisibleReply(ctx, task, result.message.trim() || t(config, "generic_done"), publishState, onReleaseActiveTask);
+      firstPublishedText = result.message.trim() || t(config, "generic_done");
+
+      if (result.answerMode !== "needs-execution") {
+        await logger.info(`conversation task ${task.id} role=responder state=ignored reason=slow-${result.answerMode}`);
+        await onPruneRecentUploads(task.scopeKey);
+        await onSetReaction(ctx, "🥰");
+        await logger.info(`conversation task ${task.id} completed totalMs=${Date.now() - taskStartedAt} responderMs=0 executorMs=${executorMs} outputMs=0 mode=${result.answerMode}`);
+        return;
+      }
+
     }
 
-    const outputStartedAt = Date.now();
-    await deliverAiOutputs(ctx, config, answer);
-    const outputMs = Date.now() - outputStartedAt;
+    const finalSlowResult = slowResult || await slowPromise;
+    if (finalSlowResult.lane !== "slow") {
+      throw new Error("Race protocol violation: expected slow-lane result.");
+    }
+    executorMs = finalSlowResult.executorMs;
+    const slowMessage = finalSlowResult.result.message.trim();
+    await logger.info(`conversation task ${task.id} role=slow state=done ms=${executorMs} answerMode=${finalSlowResult.result.answerMode} messageChars=${slowMessage.length} facts=${finalSlowResult.result.facts.length}`);
+
+    if (task.cancelled) {
+      await logger.warn(`skipping stale slow-lane completion for task ${task.id}`);
+      return;
+    }
+
+    if (finalSlowResult.result.answerMode === "needs-clarification") {
+      rememberRecentClarification(task.scopeKey, promptText, slowMessage);
+    } else {
+      clearRecentClarification(task.scopeKey);
+    }
+
+    if (slowMessage && normalizeReply(slowMessage) !== normalizeReply(firstPublishedText)) {
+      await publishVisibleReply(ctx, task, slowMessage, publishState, onReleaseActiveTask);
+    }
+
     await onPruneRecentUploads(task.scopeKey);
     await onSetReaction(ctx, "🥰");
-    await logger.info(`conversation task ${task.id} completed totalMs=${Date.now() - taskStartedAt} responderMs=${responderMs} executorMs=${executorMs} callbackMs=${callbackMs} outputMs=${outputMs}`);
+    await logger.info(`conversation task ${task.id} completed totalMs=${Date.now() - taskStartedAt} responderMs=${responderMs} executorMs=${executorMs} outputMs=0 mode=needs-execution`);
   } catch (error) {
     if (task.cancelled) {
       await logger.warn(`ignored conversation failure from cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
@@ -205,7 +265,7 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
     await logger.error(`conversation handling failed: ${message}`);
     await onPruneRecentUploads(task.scopeKey);
     const failureText = t(config, "task_failed", { error: message });
-    if (typeof task.waitingMessageId === "number") {
+    if (typeof task.waitingMessageId === "number" && !publishState.sentFirstReply) {
       await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, failureText);
     } else {
       await ctx.reply(failureText);
@@ -215,4 +275,3 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
     onStopWaiting(task);
   }
 }
-
