@@ -24,22 +24,34 @@ flowchart TD
   S[⏱️ Scheduling\ncoordinate loops, sessions, and task timing]
 
   subgraph R[Roles]
-    RS[🗣️ responder\nunderstand the request and draft structured output]
-    RC[🗣️ responder-callback\nturn execution facts into the final reply]
-    RX[🔧 executor\nperform actions and durable writes]
+    RF[🗣️ fast lane / responder\nsmall-context quick reply candidate]
+    RS[🔧 slow lane / executor\nfull planning, execution, and final reply candidate]
+    RA[⚖️ arbiter\npublish the first safe result and continue only when needed]
     RM[🧹 maintainer\nhandle idle-time cleanup and consistency work]
   end
 
   O[📦 Operations\napply domain logic for reminders, access, memory, and files]
   D[💾 Records\nstore canonical persistent state and notes]
 
-  I --> S --> RS --> RX --> O --> D
-  RX --> RC
+  I --> S
+  S --> RF
+  S --> RS
+  RF --> RA
+  RS --> RA
+  RS --> O --> D
   RM --> O
 
   classDef role fill:#ffe08a,stroke:#b8860b,stroke-width:2px,color:#111;
-  class RS,RX,RC,RM role;
+  class RF,RS,RA,RM role;
 ```
+The conversation path now uses an asynchronous race:
+
+- **fast lane / responder** runs with narrow injected context and optimizes TTFT
+- **slow lane / executor** starts concurrently on the same task and can produce either a direct answer, a clarification, or the final execution-backed reply
+- **arbiter** publishes whichever lane first produces a safe user-visible result
+- if the fast lane says `needs-execution`, the slow lane continues and can publish the final reply directly
+- there is no separate callback stage in the main reply flow anymore
+
 ### Conversation scoping
 
 Short-term conversational context is kept in OpenCode sessions by scope:

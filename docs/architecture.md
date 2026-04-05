@@ -20,28 +20,36 @@ This backbone should stay small and understandable. AI wrappers, task helpers, a
 
 ## Runtime phases
 
-Preferred pipeline:
+Preferred runtime shape:
 
-- `responder`
-- `executor`
-- `responder-callback`
+- `fast lane / responder`
+- `slow lane / executor`
+- `arbiter`
 - `maintainer`
 
 This is the current preferred shape, not a permanent product doctrine. If a cleaner design emerges, change the architecture instead of preserving accidental structure.
 
-### `responder`
+### `fast lane / responder`
 - Interprets the request quickly.
-- Produces the initial structured result.
-- Decides what needs execution.
+- Uses narrow injected context and optimizes time-to-first-token.
+- Produces the earliest user-visible reply candidate.
+- May return `direct`, `needs-clarification`, or `needs-execution`.
+- Does not own durable state changes.
 
-### `executor`
-- Performs actions.
-- Writes the smallest correct durable state.
-- Returns execution facts.
+### `slow lane / executor`
+- Starts concurrently on the same user task.
+- Uses fuller planning and execution context.
+- May also return `direct`, `needs-clarification`, or `needs-execution`.
+- Performs actions and writes the smallest correct durable state only when execution is actually needed.
+- Produces the final execution-backed user-visible reply directly.
+- Replaces the old callback-style final phrasing step.
 
-### `responder-callback`
-- Turns execution facts into the final reply.
-- Preserves persona and continuity.
+### `arbiter`
+- Publishes the first safe user-visible result from either lane.
+- Ends the turn immediately when one lane already produced a sufficient `direct` or `needs-clarification` result.
+- Lets the slow lane continue when the fast lane returned `needs-execution`.
+- Avoids duplicate or contradictory visible replies.
+- Keeps truth-boundary guards in code rather than relying on extra rendering passes.
 
 ### `maintainer`
 - Handles cleanup, consolidation, repair, and background upkeep.
