@@ -2,7 +2,6 @@ import type { UploadedFile } from "scheduling/app/types";
 
 export type RequestAccessRole = "admin" | "trusted" | "allowed";
 
-
 export function buildProjectSystemPrompt(personaStyle?: string, role: "responder" | "executor" | "maintainer" | "greeter" = "responder"): string {
   if (role === "greeter") {
     return [

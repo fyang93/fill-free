@@ -18,31 +18,45 @@ It runs through a local OpenCode server, keeps canonical state in the repository
 
 The bot is organized as a small layered system: interaction, scheduling, roles, support, operations, and records.
 
-```mermaid
-flowchart TD
-  I[💬 Interaction\nreceive and deliver user messages]
-  S[⏱️ Scheduling\ncoordinate loops, sessions, and task timing]
+```text
+┌──────────────────────┐
+│ 💬 Interaction       │
+│ receive and deliver  │
+│ user messages        │
+└──────────┬───────────┘
+           │
+           v
+┌──────────────────────┐
+│ ⏱️ Scheduling        │
+│ coordinate loops,    │
+│ sessions, and timing │
+└───────┬────────┬─────┘
+        │        │
+        │        │
+        v        v
+┌──────────────────────┐   ┌──────────────────────┐
+│ 🗣️ fast lane         │   │ 🔧 slow lane         │
+│ responder            │   │ executor             │
+│ small-context quick  │   │ full planning,       │
+│ reply candidate      │   │ execution, final     │
+└──────────┬───────────┘   │ reply candidate      │
+           │               └──────────┬───────────┘
+           │                          │
+           └────────────┬─────────────┘
+                        v
+              ┌──────────────────────┐
+              │ ⚖️ arbiter           │
+              │ publish the first    │
+              │ safe visible result  │
+              └──────────────────────┘
 
-  subgraph R[Roles]
-    RF[🗣️ fast lane / responder\nsmall-context quick reply candidate]
-    RS[🔧 slow lane / executor\nfull planning, execution, and final reply candidate]
-    RA[⚖️ arbiter\npublish the first safe result and continue only when needed]
-    RM[🧹 maintainer\nhandle idle-time cleanup and consistency work]
-  end
+┌──────────────────────┐   ┌──────────────────────┐
+│ 🧹 maintainer        │──>│ 📦 Operations        │──>┌──────────────────────┐
+│ cleanup and repair   │   │ domain logic         │   │ 💾 Records           │
+└──────────────────────┘   │ reminders/access/... │   │ canonical state      │
+                           └──────────────────────┘   └──────────────────────┘
 
-  O[📦 Operations\napply domain logic for reminders, access, memory, and files]
-  D[💾 Records\nstore canonical persistent state and notes]
-
-  I --> S
-  S --> RF
-  S --> RS
-  RF --> RA
-  RS --> RA
-  RS --> O --> D
-  RM --> O
-
-  classDef role fill:#ffe08a,stroke:#b8860b,stroke-width:2px,color:#111;
-  class RF,RS,RA,RM role;
+slow lane / executor ───────────────────────────────> operations ───────────> records
 ```
 The conversation path now uses an asynchronous race:
 

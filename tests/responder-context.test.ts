@@ -67,12 +67,15 @@ describe("responder clarification context", () => {
     const context = await buildResponderContextBlock(config, {
       requesterUserId: 1,
       chatId: 1,
+      messageTime: "2026-04-05T16:51:25.000Z",
       indexContext: { matchedTerms: [], paths: [] },
     });
 
     expect(context).toContain('"recentClarification"');
     expect(context).toContain("下午提醒我review论文");
     expect(context).toContain("下午几点提醒你呢");
+    expect(context).toContain('"turnTime"');
+    expect(context).toContain('"localDate": "2026-04-06"');
   });
 
   test("clearing recent clarification removes it from responder context", async () => {
@@ -83,9 +86,11 @@ describe("responder clarification context", () => {
     const context = await buildResponderContextBlock(config, {
       requesterUserId: 1,
       chatId: 1,
+      messageTime: "2026-04-05T16:51:25.000Z",
       indexContext: { matchedTerms: [], paths: [] },
     });
 
     expect(context).toContain('"recentClarification": null');
+    expect(context).toContain('"turnTime"');
   });
 });

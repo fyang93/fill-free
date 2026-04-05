@@ -90,7 +90,7 @@ async function readUsersDocument(repoRoot: string): Promise<Record<string, Recor
 
 async function buildResponderContext(config: AppConfig, requesterUserId: number, chatId: number, promptText: string): Promise<{ responderContextText: string; requesterTimezone: string | null }> {
   const indexContext = await lookupResponderIndexContext(config, promptText);
-  const responderContextText = await buildResponderContextBlock(config, { requesterUserId, chatId, indexContext });
+  const responderContextText = await buildResponderContextBlock(config, { requesterUserId, chatId, messageTime: new Date().toISOString(), indexContext });
   return {
     responderContextText,
     requesterTimezone: lookupRequesterTimezone(config, requesterUserId),

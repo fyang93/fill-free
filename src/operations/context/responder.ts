@@ -14,6 +14,7 @@ export type ResponderIndexContext = {
 type ResponderContextInput = {
   requesterUserId?: number;
   chatId?: number;
+  messageTime?: string;
   indexContext?: ResponderIndexContext;
 };
 
@@ -64,10 +65,37 @@ function clarificationScopeKey(chatType: string | undefined, requesterUserId: nu
   return chatId != null ? `chat:${chatId}` : undefined;
 }
 
+function deterministicTurnTimeContext(messageTime: string | undefined, timezone: string | null | undefined): {
+  messageTimeUtc: string;
+  requesterTimezone: string;
+  localDate: string;
+  localWeekday: string;
+} | null {
+  const resolvedTimezone = timezone?.trim();
+  if (!messageTime || !resolvedTimezone) return null;
+  const date = new Date(messageTime);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: resolvedTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    messageTimeUtc: date.toISOString(),
+    requesterTimezone: resolvedTimezone,
+    localDate: `${byType.year}-${byType.month}-${byType.day}`,
+    localWeekday: String(byType.weekday || ""),
+  };
+}
+
 export async function buildResponderContextBlock(config: AppConfig, input: ResponderContextInput): Promise<string> {
   const requesterUser = input.requesterUserId != null ? resolveUser(config.paths.repoRoot, input.requesterUserId) : undefined;
   const chat = input.chatId != null ? resolveChat(config.paths.repoRoot, input.chatId) : undefined;
   const requesterFile = await loadMarkdownFile(config.paths.repoRoot, requesterUser?.memoryPath);
+  const turnTime = deterministicTurnTimeContext(input.messageTime, requesterUser?.timezone || config.bot.defaultTimezone);
   const requesterReminders = await loadRequesterReminders(config, input.requesterUserId);
   const chatFile = await loadMarkdownFile(config.paths.repoRoot, chat?.memoryPath);
   const activeUsers = Object.entries(chat?.participants || {})
@@ -97,6 +125,7 @@ export async function buildResponderContextBlock(config: AppConfig, input: Respo
     }));
 
   const payload = {
+    turnTime,
     requesterUser: requesterUser && input.requesterUserId != null ? {
       id: String(input.requesterUserId),
       username: requesterUser.username || null,

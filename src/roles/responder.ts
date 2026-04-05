@@ -27,6 +27,7 @@ async function prepareResponderContext(config: AppConfig, input: {
   requesterUserId?: number;
   chatId: number;
   promptText: string;
+  messageTime?: string;
 }): Promise<{ responderContextText: string; requesterTimezone: string | null; hasIndexedContext: boolean }> {
   const indexContext = await lookupResponderIndexContext(config, input.promptText);
   if (indexContext.matchedTerms.length > 0) {
@@ -35,6 +36,7 @@ async function prepareResponderContext(config: AppConfig, input: {
   const responderContextText = await buildResponderContextBlock(config, {
     requesterUserId: input.requesterUserId,
     chatId: input.chatId,
+    messageTime: input.messageTime,
     indexContext,
   });
   return {
@@ -131,6 +133,7 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
       requesterUserId: userId,
       chatId: task.chatId,
       promptText,
+      messageTime,
     });
     await logger.info(`conversation task ${task.id} role=race state=start scope=${JSON.stringify(task.scopeKey)} accessRole=${accessRole} uploadedFiles=${uploadedFiles.length} attachments=${attachments.length} promptChars=${effectivePromptText.length}`);
 
@@ -154,6 +157,7 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
       ctx,
       requesterUserId: userId,
       messageTime,
+      requesterTimezone,
       canDeliverOutbound: isTrustedUserId(userId) || isAdminUserId(userId),
       accessRole,
       userRequestText: promptText,
