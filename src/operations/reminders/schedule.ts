@@ -282,13 +282,19 @@ export function normalizeRecurrence(input: unknown): ReminderRecurrence {
     const month = Number(record.month);
     const day = Number(record.day);
     const isLeapMonth = record.isLeapMonth === true;
-    const leapMonthPolicy = record.leapMonthPolicy === "same-leap-only" || record.leapMonthPolicy === "both" ? record.leapMonthPolicy : "prefer-non-leap";
+    const leapMonthPolicy = record.leapMonthPolicy === "same-leap-only" || record.leapMonthPolicy === "both" || record.leapMonthPolicy === "prefer-non-leap"
+      ? record.leapMonthPolicy
+      : isLeapMonth ? "same-leap-only" : "prefer-non-leap";
     if (Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(day) && day >= 1 && day <= 30) {
       return { kind: "lunarYearly", month, day, isLeapMonth, leapMonthPolicy, offsetDays: Number.isInteger(Number(record.offsetDays)) ? Number(record.offsetDays) : 0 };
     }
   }
 
   return { kind: "once" };
+}
+
+export function effectiveLunarLeapPolicy(input: { isLeapMonth?: boolean; leapMonthPolicy?: "same-leap-only" | "prefer-non-leap" | "both" }): "same-leap-only" | "prefer-non-leap" | "both" {
+  return input.leapMonthPolicy || (input.isLeapMonth ? "same-leap-only" : "prefer-non-leap");
 }
 
 export function nextLunarYearlyOccurrence(baseIso: string, now: Date, recurrence: Extract<ReminderRecurrence, { kind: "lunarYearly" }>): string {
@@ -302,9 +308,9 @@ export function nextLunarYearlyOccurrence(baseIso: string, now: Date, recurrence
     const variants: boolean[] = [];
     if (!recurrence.isLeapMonth) {
       variants.push(false);
-    } else if ((recurrence.leapMonthPolicy || "prefer-non-leap") === "same-leap-only") {
+    } else if (effectiveLunarLeapPolicy(recurrence) === "same-leap-only") {
       if (leapMonth === recurrence.month) variants.push(true);
-    } else if ((recurrence.leapMonthPolicy || "prefer-non-leap") === "both") {
+    } else if (effectiveLunarLeapPolicy(recurrence) === "both") {
       variants.push(false);
       if (leapMonth === recurrence.month) variants.push(true);
     } else {
@@ -469,9 +475,9 @@ function nextLocalLunarOccurrence(schedule: Extract<ReminderSchedule, { kind: "l
     const variants: boolean[] = [];
     if (!schedule.isLeapMonth) {
       variants.push(false);
-    } else if ((schedule.leapMonthPolicy || "prefer-non-leap") === "same-leap-only") {
+    } else if (effectiveLunarLeapPolicy(schedule) === "same-leap-only") {
       if (leapMonth === schedule.month) variants.push(true);
-    } else if ((schedule.leapMonthPolicy || "prefer-non-leap") === "both") {
+    } else if (effectiveLunarLeapPolicy(schedule) === "both") {
       variants.push(false);
       if (leapMonth === schedule.month) variants.push(true);
     } else {
@@ -604,7 +610,7 @@ export function reminderEventScheduleSummary(config: AppConfig, event: ReminderE
   return t(config, "reminder_created_lunar_yearly", {
     month: lunarMonthLabel(schedule.month, schedule.isLeapMonth),
     day: lunarDayLabel(schedule.day),
-    leapPolicy: schedule.isLeapMonth ? t(config, `reminder_lunar_leap_policy_${schedule.leapMonthPolicy || "prefer-non-leap"}`) : "",
+    leapPolicy: schedule.isLeapMonth ? t(config, `reminder_lunar_leap_policy_${effectiveLunarLeapPolicy(schedule)}`) : "",
     offset: "",
     time: reminderTimeLabel(schedule),
   }).trim();

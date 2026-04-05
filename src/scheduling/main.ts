@@ -5,7 +5,7 @@ import { configureLogger, logger } from "scheduling/app/logger";
 import { AiService } from "support/ai";
 import { currentModel, loadPersistentState, persistState, state } from "scheduling/app/state";
 import { pruneExpiredPendingAuthorizationsFromState } from "operations/access/authorizations";
-import { handleReminderCallback, pruneExpiredReminderEvents, readReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "operations/reminders";
+import { handleReminderCallback, pruneInactiveReminderEvents, readReminderEvents, reminderEventScheduleSummary, startReminderLoop } from "operations/reminders";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
@@ -249,9 +249,9 @@ await bot.start({
     botUserId = botInfo.id;
     await logger.info(`bot started as @${botInfo.username}`);
     await ensureUsableStartupModel();
-    const expiredReminderCleanup = await pruneExpiredReminderEvents(config);
-    if (expiredReminderCleanup.removed > 0) {
-      await logger.info(`startup pruned ${expiredReminderCleanup.removed} expired reminders: ${expiredReminderCleanup.removedIds.join(", ")}`);
+    const inactiveReminderCleanup = await pruneInactiveReminderEvents(config);
+    if (inactiveReminderCleanup.removed > 0) {
+      await logger.info(`startup pruned ${inactiveReminderCleanup.removed} inactive reminders: ${inactiveReminderCleanup.removedIds.join(", ")}`);
     }
     await enqueueActiveReminderPreparationTasks();
     void sendStartupGreeting();

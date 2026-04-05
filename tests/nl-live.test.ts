@@ -180,7 +180,6 @@ describe("自然语言 live 回归测试", () => {
 
     await createReminderEvent(buildReminderEvent(config, {
       title: "测试会议",
-      kind: "meeting",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
@@ -223,7 +222,6 @@ describe("自然语言 live 回归测试", () => {
 
     await createReminderEvent(buildReminderEvent(config, {
       title: "测试会议",
-      kind: "meeting",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
@@ -266,6 +264,81 @@ describe("自然语言 live 回归测试", () => {
     if (reminder?.schedule.kind === "weekly") {
       expect(reminder.schedule.daysOfWeek).toContain(5);
     }
+  });
+
+  test("管理员自然语言暂停某个周期提醒后能真实落地", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    await createReminderEvent(buildReminderEvent(config, {
+      title: "下班去买菜",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [5], time: { hour: 18, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 1 }],
+    }, "Asia/Tokyo"), config);
+    await createReminderEvent(buildReminderEvent(config, {
+      title: "晨跑",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [2], time: { hour: 7, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 1 }],
+    }, "Asia/Tokyo"), config);
+
+    const result = await runLiveScenarioWithRetries(config, agentService, "暂停每周五买菜那个提醒");
+    expect(result.answer.answerMode).toBe("needs-execution");
+    expect(result.taskResults.some((item) => item.domain === "reminders" && item.operation === "pause" && (item.result as Record<string, unknown>)?.changed === true)).toBe(true);
+
+    const reminders = await readReminderEvents(config);
+    expect(reminders.find((item) => item.title.includes("买菜"))?.status).toBe("paused");
+    expect(reminders.find((item) => item.title.includes("晨跑"))?.status).toBe("active");
+  });
+
+  test("管理员自然语言恢复某些周期提醒后能真实落地", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    await createReminderEvent(buildReminderEvent(config, {
+      title: "下班去买菜",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [5], time: { hour: 18, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 1 }],
+      status: "paused",
+    }, "Asia/Tokyo"), config);
+    await createReminderEvent(buildReminderEvent(config, {
+      title: "晨跑",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [2], time: { hour: 7, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 1 }],
+      status: "paused",
+    }, "Asia/Tokyo"), config);
+    await createReminderEvent(buildReminderEvent(config, {
+      title: "背单词",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [1], time: { hour: 21, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 1 }],
+      status: "paused",
+    }, "Asia/Tokyo"), config);
+
+    const result = await runLiveScenarioWithRetries(config, agentService, "恢复买菜和晨跑这两个周期提醒");
+    expect(result.answer.answerMode).toBe("needs-execution");
+    const resumeResults = result.taskResults.filter((item) => item.domain === "reminders" && item.operation === "resume" && (item.result as Record<string, unknown>)?.changed === true);
+    expect(resumeResults.length).toBeGreaterThanOrEqual(2);
+
+    const reminders = await readReminderEvents(config);
+    expect(reminders.find((item) => item.title.includes("买菜"))?.status).toBe("active");
+    expect(reminders.find((item) => item.title.includes("晨跑"))?.status).toBe("active");
+    expect(reminders.find((item) => item.title.includes("背单词"))?.status).toBe("paused");
   });
 
   test("管理员自然语言添加农历提醒时能落成 lunar reminder", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
@@ -362,7 +435,6 @@ describe("自然语言 live 回归测试", () => {
 
     await createReminderEvent(buildReminderEvent(config, {
       title: "组会",
-      kind: "meeting",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-08T06:00:00.000Z" },
@@ -371,7 +443,6 @@ describe("自然语言 live 回归测试", () => {
     }, "Asia/Tokyo"), config);
     await createReminderEvent(buildReminderEvent(config, {
       title: "组会提醒",
-      kind: "task",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
@@ -379,7 +450,7 @@ describe("自然语言 live 回归测试", () => {
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo"), config);
 
-    const result = await runLiveScenario(config, agentService, "删除所有组会提醒");
+    const result = await runLiveScenarioWithRetries(config, agentService, "删除所有组会提醒");
     expect(result.answer.answerMode).toBe("needs-execution");
 
     const reminders = await readReminderEvents(config);

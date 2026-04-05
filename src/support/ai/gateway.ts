@@ -6,6 +6,7 @@ import { buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
 import { extractAiTurnResultFromText } from "./response";
 import type { AiTurnResult } from "./types";
 import { ReplyComposer, type ReplyComposerInputContext } from "./reply-composer";
+import { replyLanguageName } from "scheduling/app/i18n";
 import { StructuredReasoner } from "./structured-reasoner";
 
 export type { AiTurnResult } from "./types";
@@ -167,6 +168,7 @@ export class AiService {
   async generateMemoryKeywords(filePath: string, content: string): Promise<string[]> {
     const prompt = [
       "Extract concise retrieval keywords for one memory markdown file.",
+      `Prefer keywords in ${replyLanguageName(this.config)} when that matches the file's main language, while keeping important aliases, names, usernames, and distinctive original terms from the file.`,
       "Return exactly one JSON object: {keywords:[...]}.",
       "Output JSON only. No markdown fences. No extra text.",
       "Use short keywords and aliases that help future retrieval.",
@@ -233,6 +235,7 @@ export class AiService {
       "Use outboundMessages only for delivery to other users or chats, never for replying to the current requester.",
       "If you found the answer for the current requester, put it in message, not outboundMessages.",
       "For file writes, each files item must include {path, content, operation?}.",
+      `When writing memory markdown files under memory/, prefer ${replyLanguageName(this.config)} for the markdown content unless the user explicitly asked for another language or the original note must preserve another language verbatim.`,
       "For reminders, each reminders item must be a creation draft, not a created reminder record.",
       "Each reminder draft must include at least {title, schedule}. The schedule must be an object such as {kind:'once', scheduledAt:'2026-04-09T14:00:00'} or another creation-ready schedule object.",
       "For recurring reminders, use exact schedule shapes. Weekly example: {kind:'weekly', every:1, daysOfWeek:[5], time:{hour:18, minute:0}}. Monthly nth weekday example: {kind:'monthly', every:1, mode:'nthWeekday', weekOfMonth:1, dayOfWeek:1, time:{hour:9, minute:0}}. Lunar yearly example: {kind:'lunarYearly', month:8, day:15, time:{hour:20, minute:0}}.",
@@ -241,9 +244,9 @@ export class AiService {
       "Prefer one logical reminder event with notifications offsets over multiple separate reminder drafts for the same event.",
       "For example, for a meeting at 2026-04-09T14:00:00, create one reminder with schedule.scheduledAt='2026-04-09T14:00:00' and notifications like [{offsetMinutes:-1440},{offsetMinutes:-60}] rather than two once reminders at the notification times.",
       "Do not include created reminder fields like id, scheduleSummary, or reminderOffsets inside reminders.",
-      "To modify or delete existing reminders, use tasks entries instead of reminders drafts.",
+      "To modify, pause, resume, or delete existing reminders, use tasks entries instead of reminders drafts.",
       "Do not rely on opaque reminder ids in reminder tasks.",
-      "For reminder update or deletion, emit a task with semantic match fields such as {domain:'reminders', operation:'delete', payload:{match:{title:'...', titleContains:'...', scheduledDate:'YYYY-MM-DD', timeframe:'tomorrow'}}}.",
+      "For reminder update, pause, resume, or deletion, emit a task with semantic match fields such as {domain:'reminders', operation:'pause', payload:{match:{title:'...', titleContains:'...', scheduledDate:'YYYY-MM-DD', timeframe:'tomorrow'}}}.",
       "Prefer scheduledDate over scheduledAt unless an exact timestamp is truly necessary.",
       "Prefer semantic reminder matching fields over internal ids.",
       "For structured user rules or standing preferences, emit tasks entries instead of prose-only answers.",
@@ -252,6 +255,7 @@ export class AiService {
       "For batch actions, return one valid JSON object with a tasks array containing one task per target item. Do not add diagnostic commentary, analysis, or prose outside the JSON.",
       "For batch access role changes, emit multiple tasks like {domain:'access', operation:'set-role', payload:{username:'...', role:'trusted'}}.",
       "For deleting multiple reminders, emit multiple reminder delete tasks, each with a concrete semantic match object. Prefer title + scheduledDate per reminder over broad vague matches.",
+      "For pausing or resuming multiple reminders, emit multiple reminder pause/resume tasks, each with a concrete semantic match object.",
       "",
       "Context:",
       `requesterUserId=${input.requesterUserId ?? "unknown"}`,

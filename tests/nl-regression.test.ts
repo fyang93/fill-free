@@ -137,8 +137,7 @@ describe("自然语言回归测试", () => {
     await runLoggedScenario(config, "添加提醒：4月7日下午3点组会提醒", "reminders.create", async () => {
       const event = buildReminderEvent(config, {
         title: "组会提醒",
-        kind: "task",
-        timeSemantics: "absolute",
+          timeSemantics: "absolute",
         timezone: "Asia/Tokyo",
         schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
         notifications: [{ id: "n1", offsetMinutes: -1440, enabled: true }],

@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/scheduling/app/types";
-import { buildReminderEvent, createReminderEvent, readReminderEvents } from "../src/operations/reminders/store";
-import { getCurrentOccurrence, reminderEventScheduleSummary } from "../src/operations/reminders";
+import { buildReminderEvent, createReminderEvent, pruneInactiveReminderEvents, readReminderEvents } from "../src/operations/reminders/store";
+import { getCurrentOccurrence, normalizeRecurrence, reminderEventScheduleSummary } from "../src/operations/reminders";
 import { runReminderTask } from "../src/operations/reminders/task-actions";
 import type { TaskRecord } from "../src/support/tasks/runtime/store";
 
@@ -74,7 +74,6 @@ describe("reminder task matching", () => {
     const config = await createTempConfig();
     const event = buildReminderEvent(config, {
       title: "组会提醒",
-      kind: "task",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
@@ -99,7 +98,6 @@ describe("reminder task matching", () => {
     const config = await createTempConfig();
     const event = buildReminderEvent(config, {
       title: "组会提醒",
-      kind: "task",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
@@ -124,7 +122,6 @@ describe("reminder task matching", () => {
     const config = await createTempConfig();
     const april7 = buildReminderEvent(config, {
       title: "组会提醒",
-      kind: "task",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
@@ -133,7 +130,6 @@ describe("reminder task matching", () => {
     }, "Asia/Tokyo");
     const april8 = buildReminderEvent(config, {
       title: "组会",
-      kind: "meeting",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-08T06:00:00.000Z" },
@@ -156,11 +152,94 @@ describe("reminder task matching", () => {
     expect(events.find((item) => item.id === april8.id)?.status).toBe("active");
   });
 
+  test("已过时但仍 active 的一次性提醒不会被启动/maintainer 清理提前删掉", async () => {
+    const config = await createTempConfig();
+    const event = buildReminderEvent(config, {
+      title: "错过时段后仍需补发的提醒",
+      timeSemantics: "absolute",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "once", scheduledAt: "2020-01-01T00:00:00.000Z" },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 872940661 }],
+      status: "active",
+    }, "Asia/Tokyo");
+    await createReminderEvent(event, config);
+
+    const result = await pruneInactiveReminderEvents(config);
+
+    expect(result.removed).toBe(0);
+    const events = await readReminderEvents(config);
+    expect(events.find((item) => item.id === event.id)?.status).toBe("active");
+  });
+
+  test("paused 的周期提醒不会被 maintainer 清理掉", async () => {
+    const config = await createTempConfig();
+    const event = buildReminderEvent(config, {
+      title: "每周买菜",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [5], time: { hour: 18, minute: 0 } },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 872940661 }],
+      status: "paused",
+    }, "Asia/Tokyo");
+    await createReminderEvent(event, config);
+
+    const result = await pruneInactiveReminderEvents(config);
+
+    expect(result.removed).toBe(0);
+    const events = await readReminderEvents(config);
+    expect(events.find((item) => item.id === event.id)?.status).toBe("paused");
+  });
+
+  test("已完成而 paused 的过期一次性提醒可以被清理", async () => {
+    const config = await createTempConfig();
+    const event = buildReminderEvent(config, {
+      title: "已完成提醒",
+      timeSemantics: "absolute",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "once", scheduledAt: "2020-01-01T00:00:00.000Z" },
+      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      targets: [{ targetKind: "user", targetId: 872940661 }],
+      status: "paused",
+    }, "Asia/Tokyo");
+    await createReminderEvent(event, config);
+
+    const result = await pruneInactiveReminderEvents(config);
+
+    expect(result.removed).toBe(1);
+    expect(result.removedIds).toContain(event.id);
+    const events = await readReminderEvents(config);
+    expect(events.find((item) => item.id === event.id)).toBeUndefined();
+  });
+
+  test("显式闰月提醒默认只在闰月触发", async () => {
+    const recurrence = normalizeRecurrence({ kind: "lunarYearly", month: 8, day: 15, isLeapMonth: true });
+    expect(recurrence.kind).toBe("lunarYearly");
+    if (recurrence.kind === "lunarYearly") {
+      expect(recurrence.isLeapMonth).toBe(true);
+      expect(recurrence.leapMonthPolicy).toBe("same-leap-only");
+    }
+  });
+
+  test("特殊提醒的语义由 category + specialKind 表达，不再和顶层 kind 重复", async () => {
+    const config = await createTempConfig();
+    const event = buildReminderEvent(config, {
+      title: "妈妈生日",
+      specialKind: "birthday",
+      timeSemantics: "local",
+      timezone: "Asia/Tokyo",
+      schedule: { kind: "yearly", every: 1, month: 6, day: 1, time: { hour: 8, minute: 0 } },
+      targets: [{ targetKind: "user", targetId: 872940661 }],
+    }, "Asia/Tokyo");
+    expect(event.specialKind).toBe("birthday");
+    expect(event.category).toBe("special");
+  });
+
   test("农历年度提醒可以正常计算下一次 occurrence 并保留可读摘要", async () => {
     const config = await createTempConfig();
     const event = buildReminderEvent(config, {
       title: "中秋赏月",
-      kind: "festival",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "lunarYearly", month: 8, day: 15, time: { hour: 20, minute: 0 } },

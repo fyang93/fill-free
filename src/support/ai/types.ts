@@ -20,7 +20,6 @@ export type ReminderDraft = {
   schedule: Record<string, unknown>;
   category?: "routine" | "special";
   specialKind?: "birthday" | "festival" | "anniversary" | "memorial";
-  kind?: "routine" | "meeting" | "birthday" | "anniversary" | "festival" | "memorial" | "task" | "custom";
   timeSemantics?: "absolute" | "local";
   timezone?: string;
   subjectTimezone?: string;

@@ -4,7 +4,7 @@ import type { AppConfig } from "scheduling/app/types";
 import { getAccurateNow } from "scheduling/app/time";
 import { getUserTimezone } from "scheduling/app/state";
 import { normalizeStoredReminderSchedule } from "./schedule_parser";
-import type { ReminderEvent, ReminderEventKind, ReminderNotification, ReminderSchedule, ReminderSpecialKind, ReminderStoreV2, ReminderTarget, ReminderTimeSemantics } from "./types";
+import type { ReminderEvent, ReminderNotification, ReminderSchedule, ReminderSpecialKind, ReminderStoreV2, ReminderTarget, ReminderTimeSemantics } from "./types";
 
 export type ReminderEventDraft = {
   title: string;
@@ -12,7 +12,6 @@ export type ReminderEventDraft = {
   schedule: ReminderSchedule;
   category?: "routine" | "special";
   specialKind?: ReminderSpecialKind;
-  kind?: ReminderEventKind;
   timeSemantics?: ReminderTimeSemantics;
   timezone?: string;
   notifications?: ReminderNotification[];
@@ -80,24 +79,13 @@ export function resolveReminderTimezone(
   return defaultReminderTimezone(_config);
 }
 
-export function defaultReminderEventKind(input: { category?: "routine" | "special"; specialKind?: ReminderSpecialKind; kind?: ReminderEventKind; schedule?: ReminderSchedule }): ReminderEventKind {
-  if (input.kind) return input.kind;
-  if (input.specialKind) return input.specialKind;
-  if (input.schedule?.kind === "once") return "task";
-  return input.category === "special" ? "custom" : "routine";
-}
-
-export function defaultReminderTimeSemantics(kind: ReminderEventKind, schedule: ReminderSchedule): ReminderTimeSemantics {
-  if (kind === "meeting") return "absolute";
+export function defaultReminderTimeSemantics(schedule: ReminderSchedule): ReminderTimeSemantics {
   if (schedule.kind === "once") return "absolute";
   return "local";
 }
 
-export function buildDefaultReminderNotifications(_config: AppConfig, kind: ReminderEventKind): ReminderNotification[] {
-  if (kind === "meeting") {
-    return [{ id: "default-1h", offsetMinutes: -60, enabled: true, label: "提前1小时" }];
-  }
-  if (kind === "birthday" || kind === "anniversary" || kind === "festival" || kind === "memorial") {
+export function buildDefaultReminderNotifications(_config: AppConfig, input: { specialKind?: ReminderSpecialKind }): ReminderNotification[] {
+  if (input.specialKind === "birthday" || input.specialKind === "anniversary" || input.specialKind === "festival" || input.specialKind === "memorial") {
     return [
       { id: "default-2w", offsetMinutes: -14 * 24 * 60, enabled: true, label: "提前2周" },
       { id: "default-1w", offsetMinutes: -7 * 24 * 60, enabled: true, label: "提前1周" },
@@ -142,7 +130,9 @@ function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): Reminder
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
   const title = typeof record.title === "string" && record.title.trim() ? record.title.trim() : "";
   const note = typeof record.note === "string" && record.note.trim() ? record.note.trim() : undefined;
-  const kind = record.kind === "routine" || record.kind === "meeting" || record.kind === "birthday" || record.kind === "anniversary" || record.kind === "festival" || record.kind === "memorial" || record.kind === "task" || record.kind === "custom" ? record.kind : "custom";
+  const legacySpecialKind = record.kind === "birthday" || record.kind === "festival" || record.kind === "anniversary" || record.kind === "memorial"
+    ? record.kind
+    : undefined;
   const timeSemantics = record.timeSemantics === "absolute" || record.timeSemantics === "local" ? record.timeSemantics : undefined;
   const timezone = typeof record.timezone === "string" && record.timezone.trim() ? record.timezone.trim() : fallbackTimezone;
   const schedule = normalizeEventSchedule(record.schedule);
@@ -150,8 +140,10 @@ function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): Reminder
   const status = record.status === "active" || record.status === "paused" || record.status === "deleted" ? record.status : "active";
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt.trim() : "";
   const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : undefined;
-  const category = record.category === "special" ? "special" : "routine";
-  const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial" ? record.specialKind : undefined;
+  const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial"
+    ? record.specialKind
+    : legacySpecialKind;
+  const category = record.category === "special" || specialKind ? "special" : "routine";
   const targets = Array.isArray(record.targets)
     ? record.targets.map(normalizeTarget).filter((item): item is ReminderTarget => Boolean(item))
     : [];
@@ -165,8 +157,7 @@ function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): Reminder
     id,
     title,
     note,
-    kind,
-    timeSemantics: timeSemantics || defaultReminderTimeSemantics(kind, schedule),
+    timeSemantics: timeSemantics || defaultReminderTimeSemantics(schedule),
     timezone,
     schedule,
     notifications,
@@ -221,22 +212,16 @@ export async function writeReminderEvents(config: AppConfig, events: ReminderEve
 }
 
 export function buildReminderEvent(config: AppConfig, draft: ReminderEventDraft, fallbackTimezone = "Asia/Tokyo"): ReminderEvent {
-  const kind = defaultReminderEventKind({
-    category: draft.category,
-    specialKind: draft.specialKind,
-    kind: draft.kind,
-    schedule: draft.schedule,
-  });
+  const category = draft.category === "special" || draft.specialKind ? "special" : draft.category === "routine" ? "routine" : undefined;
   return {
     id: `rmd_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     title: draft.title,
     note: draft.note,
-    kind,
-    timeSemantics: draft.timeSemantics || defaultReminderTimeSemantics(kind, draft.schedule),
+    timeSemantics: draft.timeSemantics || defaultReminderTimeSemantics(draft.schedule),
     timezone: draft.timezone || fallbackTimezone,
     schedule: draft.schedule,
-    notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultReminderNotifications(config, kind),
-    category: draft.category,
+    notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultReminderNotifications(config, { specialKind: draft.specialKind }),
+    category,
     specialKind: draft.specialKind,
     status: draft.status || "active",
     createdAt: draft.createdAt || new Date().toISOString(),
@@ -317,20 +302,4 @@ export async function pruneInactiveReminderEvents(config: AppConfig): Promise<{ 
   });
 }
 
-export async function pruneExpiredReminderEvents(config: AppConfig): Promise<{ removed: number; removedIds: string[] }> {
-  return queueReminderStoreWrite(async () => {
-    const events = await loadReminderStore(config);
-    const now = await getAccurateNow();
-    const removedIds: string[] = [];
-    const next = events.filter((event) => {
-      if (event.schedule.kind !== "once") return true;
-      const scheduledAt = Date.parse(event.schedule.scheduledAt);
-      if (!Number.isFinite(scheduledAt) || scheduledAt > now.getTime()) return true;
-      removedIds.push(event.id);
-      return false;
-    });
-    if (removedIds.length > 0) await writeReminderStore(config, next);
-    return { removed: removedIds.length, removedIds };
-  });
-}
 

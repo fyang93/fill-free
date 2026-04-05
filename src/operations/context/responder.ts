@@ -36,10 +36,11 @@ async function loadRequesterReminders(config: AppConfig, requesterUserId: number
   if (!requesterUserId) return [];
   const events = await readReminderEvents(config);
   return events
-    .filter((event) => event.status === "active" && event.targets.some((target) => target.targetKind === "user" && target.targetId === requesterUserId))
+    .filter((event) => event.status !== "deleted" && event.targets.some((target) => target.targetKind === "user" && target.targetId === requesterUserId))
     .slice(0, 12)
     .map((event) => ({
       title: event.title,
+      status: event.status,
       scheduleSummary: reminderEventScheduleSummary(config, event),
       timezone: event.timezone,
       timeSemantics: event.timeSemantics,

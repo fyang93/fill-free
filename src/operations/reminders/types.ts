@@ -11,16 +11,6 @@ export type ReminderSpecialKind = "birthday" | "festival" | "anniversary" | "mem
 
 export type ReminderView = "menu" | "upcoming" | "routine" | "special" | "special:birthday" | "special:festival" | "special:anniversary" | "special:memorial" | "all";
 
-export type ReminderEventKind =
-  | "routine"
-  | "meeting"
-  | "birthday"
-  | "anniversary"
-  | "festival"
-  | "memorial"
-  | "task"
-  | "custom";
-
 export type ReminderSchedule =
   | { kind: "once"; scheduledAt: string }
   | { kind: "interval"; unit: "minute" | "hour" | "day" | "week" | "month" | "year"; every: number; anchorAt: string }
@@ -66,7 +56,6 @@ export type ReminderEvent = {
   id: string;
   title: string;
   note?: string;
-  kind: ReminderEventKind;
   timeSemantics: ReminderTimeSemantics;
   timezone: string;
   schedule: ReminderSchedule;
