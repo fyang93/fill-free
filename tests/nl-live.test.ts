@@ -3,7 +3,7 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/scheduling/app/types";
-import { loadPersistentState, state } from "../src/scheduling/app/state";
+import { clearRecentClarification, getRecentClarification, loadPersistentState, rememberRecentClarification, state } from "../src/scheduling/app/state";
 import { AiService } from "../src/support/ai";
 import { buildResponderContextBlock, lookupRequesterTimezone, lookupResponderIndexContext } from "../src/operations/context/responder";
 import { executeAiActions } from "../src/roles/executor";
@@ -112,9 +112,26 @@ async function drainQueuedTasks(config: AppConfig, agentService: AiService): Pro
 async function runLiveScenario(config: AppConfig, agentService: AiService, input: string): Promise<{ answer: any; actionResult: any; taskResults: Array<Record<string, unknown>> }> {
   const requesterUserId = 1;
   const chatId = 1;
-  const { responderContextText, requesterTimezone } = await buildResponderContext(config, requesterUserId, chatId, input);
-  const answer = await agentService.prompt(input, [], [], undefined, undefined, undefined, "admin", responderContextText, requesterTimezone);
-  await appendLiveLog(config, { stage: "responder", input, answer });
+  const recentClarification = getRecentClarification(`user:${requesterUserId}`);
+  const effectiveInput = recentClarification
+    ? [
+        "Current user message:",
+        input,
+        "",
+        "Recent clarification context:",
+        `Previous user request: ${recentClarification.requestText}`,
+        `Previous assistant clarification: ${recentClarification.clarificationMessage}`,
+        "Treat the current user message as a likely answer to that clarification when it fits.",
+      ].join("\n")
+    : input;
+  const { responderContextText, requesterTimezone } = await buildResponderContext(config, requesterUserId, chatId, effectiveInput);
+  const answer = await agentService.prompt(effectiveInput, [], [], undefined, undefined, undefined, "admin", responderContextText, requesterTimezone);
+  if (answer.answerMode === "needs-clarification") {
+    rememberRecentClarification(`user:${requesterUserId}`, input, answer.message);
+  } else {
+    clearRecentClarification(`user:${requesterUserId}`);
+  }
+  await appendLiveLog(config, { stage: "responder", input, effectiveInput, answer });
 
   const actionResult = answer.answerMode === "needs-execution"
     ? await executeAiActions({
@@ -185,6 +202,26 @@ describe("自然语言 live 回归测试", () => {
 
     const reminders = await readReminderEvents(config);
     expect(reminders.length).toBe(0);
+  });
+
+  test("管理员在澄清后补充具体时间时会沿用刚才的提醒语境", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {
+    const config = await createTempConfig();
+    const agentService = new AiService(config);
+    await agentService.ensureReady();
+
+    const first = await runLiveScenarioWithRetries(config, agentService, "下午提醒我review论文");
+    expect(first.answer.answerMode).toBe("needs-clarification");
+
+    const second = await runLiveScenarioWithRetries(config, agentService, "1700");
+    expect(second.answer.answerMode).toBe("needs-execution");
+
+    const reminders = await readReminderEvents(config);
+    const reminder = reminders.find((item) => item.title.includes("review") || item.title.includes("论文"));
+    expect(Boolean(reminder)).toBe(true);
+    expect(reminder?.schedule.kind).toBe("once");
+    if (reminder?.schedule.kind === "once") {
+      expect(reminder.schedule.scheduledAt.includes("T17:00:00") || reminder.schedule.scheduledAt.includes("T08:00:00.000Z")).toBe(true);
+    }
   });
 
   test("管理员自然语言删除提醒后能真实落地", { timeout: LIVE_TEST_TIMEOUT_MS }, async () => {

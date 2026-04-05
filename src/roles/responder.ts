@@ -9,6 +9,7 @@ import { buildTelegramRequestContext } from "interaction/telegram/identity";
 import { deliverAiOutputs } from "scheduling/conversations/output";
 import { buildResponderContextBlock, lookupRequesterTimezone, lookupResponderIndexContext } from "operations/context/responder";
 import { touchInvertedIndexTerms } from "operations/context/inverted-index";
+import { clearRecentClarification, rememberRecentClarification } from "scheduling/app/state";
 
 export type ActiveConversationTask = {
   id: number;
@@ -117,6 +118,11 @@ export async function runConversationTask(deps: RunConversationTaskDeps): Promis
 
     onStopWaiting(task);
     const responderMessage = answer.message.trim() || t(config, "generic_done");
+    if (answer.answerMode === "needs-clarification") {
+      rememberRecentClarification(task.scopeKey, promptText, responderMessage);
+    } else {
+      clearRecentClarification(task.scopeKey);
+    }
     if (typeof task.waitingMessageId === "number") {
       await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, responderMessage);
     } else {

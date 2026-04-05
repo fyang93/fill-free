@@ -13,6 +13,7 @@ export const state: SessionState = {
   lastMaintainedAt: null,
   lastMaintenanceFingerprint: null,
   recentUploadsByScope: {},
+  recentClarificationsByScope: {},
   userTimezoneCache: {},
   telegramUserCache: {},
   telegramChatCache: {},
@@ -138,12 +139,14 @@ export async function loadPersistentState(filePath: string): Promise<void> {
       ? parsed.pendingAuthorizations.map(normalizePendingAuthorization).filter((item): item is PendingAuthorization => Boolean(item))
       : [];
     state.recentUploadsByScope = {};
+    state.recentClarificationsByScope = {};
   } catch {
     state.model = null;
     state.lastMaintainedAt = null;
     state.lastMaintenanceFingerprint = null;
     state.pendingAuthorizations = [];
     state.recentUploadsByScope = {};
+    state.recentClarificationsByScope = {};
   }
   hydrateKnownEntities(repoRootFromStateFile(filePath));
 }
@@ -245,6 +248,29 @@ export function clearRecentUploads(scopeKey?: string): void {
     return;
   }
   state.recentUploadsByScope = {};
+}
+
+export function rememberRecentClarification(scopeKey: string | undefined, requestText: string, clarificationMessage: string): void {
+  const key = uploadsKey(scopeKey);
+  if (!requestText.trim() || !clarificationMessage.trim()) return;
+  state.recentClarificationsByScope[key] = {
+    requestText: requestText.trim(),
+    clarificationMessage: clarificationMessage.trim(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function getRecentClarification(scopeKey?: string): { requestText: string; clarificationMessage: string; updatedAt: string } | null {
+  const entry = state.recentClarificationsByScope[uploadsKey(scopeKey)];
+  return entry || null;
+}
+
+export function clearRecentClarification(scopeKey?: string): void {
+  if (scopeKey) {
+    delete state.recentClarificationsByScope[uploadsKey(scopeKey)];
+    return;
+  }
+  state.recentClarificationsByScope = {};
 }
 
 export function hasRecentUploads(scopeKey?: string): boolean {

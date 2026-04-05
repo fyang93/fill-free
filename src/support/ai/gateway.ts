@@ -57,7 +57,7 @@ export class AiService {
       (text) => this.promptInLightTextSession(text, "responder"),
       (text) => this.promptInLightTextSession(text, "greeter"),
     );
-    this.structuredReasoner = new StructuredReasoner(config, (promptText, attachments, scopeKey) => this.promptWithCurrentLightSession(promptText, attachments, scopeKey), (attachments) => this.attachmentLogSummary(attachments));
+    this.structuredReasoner = new StructuredReasoner(config, (promptText, attachments, scopeKey) => this.promptResponderTurn(promptText, attachments, scopeKey), (attachments) => this.attachmentLogSummary(attachments));
   }
 
   reloadConfig(config: AppConfig): void {
@@ -405,9 +405,13 @@ export class AiService {
     return this.promptAndParse(entry.sessionId, text, attachments, false);
   }
 
-  private async promptWithCurrentLightSession(text: string, attachments: AiAttachment[], scopeKey?: string): Promise<AiTurnResult> {
-    const entry = await this.getOrCreateSession(scopeKey, scopeKey);
-    const rawText = await this.promptSessionForLightText(entry.sessionId, text, attachments, "responder");
+  private async promptResponderTurn(text: string, attachments: AiAttachment[], _scopeKey?: string): Promise<AiTurnResult> {
+    const rawText = await this.promptInDisposableTextSession({
+      title: "",
+      requestLog: "opencode prompt request",
+      rawLogLabel: "opencode prompt",
+      execute: (sessionId) => this.promptSessionForLightText(sessionId, text, attachments, "responder"),
+    });
     touchActivity();
     const parsed = extractAiTurnResultFromText(rawText);
     await this.logParsedAiTurnResult(rawText, parsed, false);

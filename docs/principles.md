@@ -24,6 +24,7 @@ For maintainers and implementation decisions, not as automatic runtime instructi
 - Prefer model-generated wording over hard-coded conversational prose.
 - Code should provide facts, state, and constraints; the model should phrase the reply.
 - Keep persona consistent.
+- All user-facing replies, including greetings, clarifications, confirmations, reminders, and follow-ups, must follow the configured persona.
 - Reserve fixed copy for UI text, safety fallbacks, and deterministic labels.
 
 ## i18n

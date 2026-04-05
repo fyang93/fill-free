@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "scheduling/app/types";
 import { reminderEventScheduleSummary, readReminderEvents } from "operations/reminders";
+import { getRecentClarification } from "scheduling/app/state";
 import { matchInvertedIndex } from "./inverted-index";
 import { collectRelevantRules, resolveChat, resolveUser } from "./store";
 
@@ -57,6 +58,12 @@ export function lookupRequesterTimezone(config: AppConfig, requesterUserId: numb
   return resolveUser(config.paths.repoRoot, requesterUserId)?.timezone || null;
 }
 
+function clarificationScopeKey(chatType: string | undefined, requesterUserId: number | undefined, chatId: number | undefined): string | undefined {
+  if (chatType === "group" || chatType === "supergroup") return chatId != null ? `chat:${chatId}` : undefined;
+  if (requesterUserId != null) return `user:${requesterUserId}`;
+  return chatId != null ? `chat:${chatId}` : undefined;
+}
+
 export async function buildResponderContextBlock(config: AppConfig, input: ResponderContextInput): Promise<string> {
   const requesterUser = input.requesterUserId != null ? resolveUser(config.paths.repoRoot, input.requesterUserId) : undefined;
   const chat = input.chatId != null ? resolveChat(config.paths.repoRoot, input.chatId) : undefined;
@@ -73,6 +80,7 @@ export async function buildResponderContextBlock(config: AppConfig, input: Respo
     return file ? { userId, ...file } : null;
   }))).filter(Boolean);
   const indexedMatch = input.indexContext || { matchedTerms: [], paths: [] };
+  const recentClarification = getRecentClarification(clarificationScopeKey(chat?.type, input.requesterUserId, input.chatId));
   const indexedFiles = (await Promise.all(indexedMatch.paths.slice(0, 3).map(async (filePath) => loadMarkdownFile(config.paths.repoRoot, filePath)))).filter(Boolean);
   const relevantRules = [
     ...collectRelevantRules(config.paths.repoRoot, { requesterUserId: input.requesterUserId, chatId: input.chatId }),
@@ -104,6 +112,7 @@ export async function buildResponderContextBlock(config: AppConfig, input: Respo
       memoryPath: chat.memoryPath || null,
       activeUserIds: activeUsers.map(([userId]) => userId),
     } : null,
+    recentClarification,
     relevantRules,
     linkedMemoryFiles: [requesterFile, chatFile, ...activeUserFiles, ...indexedFiles].filter(Boolean),
     matchedIndexTerms: indexedMatch.matchedTerms,

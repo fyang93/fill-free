@@ -6,6 +6,7 @@ import { editMessageTextFormatted, replyFormatted } from "interaction/telegram/f
 import { getAccurateNowIso } from "scheduling/app/time";
 import {
   clearRecentUploads,
+  getRecentClarification,
   persistState,
   touchActivity,
 } from "scheduling/app/state";
@@ -166,14 +167,21 @@ export class ConversationController {
       const allUploadedFiles = [...validRecentUploads, ...replyContext.uploadedFiles];
       const allAttachments = [...attachments, ...replyContext.attachments];
       const messageTime = await this.messageReferenceTime(ctx);
-      const effectiveText = replyContext.text
-        ? [
-            "Current user message:",
-            text,
-            "",
-            replyContext.text,
-          ].join("\n")
-        : text;
+      const recentClarification = getRecentClarification(scope.key);
+      const effectiveText = [
+        "Current user message:",
+        text,
+        "",
+        replyContext.text || "",
+        recentClarification
+          ? [
+              "Recent clarification context:",
+              `Previous user request: ${recentClarification.requestText}`,
+              `Previous assistant clarification: ${recentClarification.clarificationMessage}`,
+              "Treat the current user message as a likely answer to that clarification when it fits.",
+            ].join("\n")
+          : "",
+      ].filter(Boolean).join("\n");
       await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} chatType=${ctx.chat?.type ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${telegramReplySummary(ctx)} replyContextIncluded=${replyContext.text ? "yes" : "no"} replyFiles=${replyContext.uploadedFiles.length}`);
       if (allUploadedFiles.length === 0 && allAttachments.length === 0) {
         this.pendingMerge.schedule(scope.key, ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, messageTime);
