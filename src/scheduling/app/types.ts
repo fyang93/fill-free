@@ -5,6 +5,7 @@ export type AppConfig = {
     waitingMessage: string;
     waitingMessageCandidates: string[];
     waitingMessageRotationSeconds: number;
+    inputMergeWindowSeconds: number;
     menuPageSize: number;
   };
   bot: {

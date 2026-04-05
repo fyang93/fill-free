@@ -94,6 +94,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       waitingMessage: (optionalString(telegram.waiting_message) || "").trim(),
       waitingMessageCandidates: asStringArray(telegram.waiting_message_candidates),
       waitingMessageRotationSeconds: numberOr(telegram.waiting_message_rotation_seconds, 5),
+      inputMergeWindowSeconds: Math.max(0, numberOr(telegram.input_merge_window_seconds, 3)),
       menuPageSize: numberOr(telegram.menu_page_size, 8),
     },
     bot: {

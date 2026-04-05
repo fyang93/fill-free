@@ -21,7 +21,6 @@ import { createWaitingMessageController } from "./waiting";
 import { rememberTelegramParticipants } from "interaction/telegram/identity";
 import { buildTelegramReplyContextBlock, summarizeIncomingText, telegramReplySummary } from "interaction/telegram/reply_context";
 import { saveTelegramFileFromMessage, uploadedFileToAiAttachment } from "interaction/telegram/transport";
-import { PendingConversationMerge } from "./pending_merge";
 import { ingestTelegramFile, logFilePromptScheduling } from "interaction/telegram/ingress";
 import { ActiveConversationTasks } from "./active";
 import { buildRecentAttachments, pruneRecentUploads } from "interaction/telegram/recent";
@@ -87,7 +86,17 @@ type MediaGroupCacheEntry = {
   updatedAt: number;
 };
 
-const TEXT_ATTACHMENT_MERGE_WINDOW_MS = 1200;
+type ActiveConversationInput = {
+  taskId: number;
+  userId?: number;
+  waitingTemplate: string;
+  promptText: string;
+  uploadedFiles: UploadedFile[];
+  attachments: AiAttachment[];
+  messageTime?: string;
+  updatedAt: number;
+};
+
 const MEDIA_GROUP_CACHE_TTL_MS = 60 * 60 * 1000;
 const MEDIA_GROUP_CACHE_MAX_GROUPS = 200;
 
@@ -118,21 +127,15 @@ function contactPromptText(ctx: Context): string {
 export class ConversationController {
   private nextTaskId = 1;
   private readonly waiting;
-  private readonly pendingMerge;
   private readonly activeTasks;
   private readonly mediaGroups = new Map<string, MediaGroupCacheEntry>();
+  private readonly activeInputs = new Map<string, ActiveConversationInput>();
 
   constructor(private readonly deps: ConversationControllerDeps) {
     this.waiting = createWaitingMessageController(
       this.deps.config,
       this.deps.bot,
       (scopeKey, taskId) => this.activeTasks.isCurrent(scopeKey, taskId),
-    );
-    this.pendingMerge = new PendingConversationMerge(
-      TEXT_ATTACHMENT_MERGE_WINDOW_MS,
-      (ctx, waitingTemplate, promptText, messageTime) => {
-        this.startConversationTask(ctx, waitingTemplate, promptText, [], [], messageTime);
-      },
     );
     this.activeTasks = new ActiveConversationTasks(
       this.deps.bot,
@@ -179,6 +182,11 @@ export class ConversationController {
   }
 
   async interruptActiveTask(reason: string, scopeKey?: string): Promise<void> {
+    if (scopeKey) {
+      this.activeInputs.delete(scopeKey);
+    } else {
+      this.activeInputs.clear();
+    }
     await this.activeTasks.interrupt(reason, scopeKey);
   }
 
@@ -205,6 +213,7 @@ export class ConversationController {
       const replyContext = await this.repliedMessageContext(ctx);
       const allUploadedFiles = [...validRecentUploads, ...replyContext.uploadedFiles];
       const allAttachments = [...attachments, ...replyContext.attachments];
+      if (validRecentUploads.length > 0) clearRecentUploads(scope.key);
       const messageTime = await this.messageReferenceTime(ctx);
       const recentClarification = getRecentClarification(scope.key);
       const deterministicTimeContext = recentClarification ? deterministicClockTimeContext(text, ctx.from?.id, messageTime, this.deps.config.bot.defaultTimezone) : null;
@@ -224,10 +233,13 @@ export class ConversationController {
           : "",
       ].filter(Boolean).join("\n");
       await logger.info(`received text message chat=${ctx.chat?.id ?? "unknown"} chatType=${ctx.chat?.type ?? "unknown"} user=${ctx.from?.id ?? "unknown"} message=${ctx.message?.message_id ?? "unknown"} text=${JSON.stringify(summarizeIncomingText(text))}${telegramReplySummary(ctx)} replyContextIncluded=${replyContext.text ? "yes" : "no"} replyFiles=${replyContext.uploadedFiles.length}`);
-      if (allUploadedFiles.length === 0 && allAttachments.length === 0) {
-        this.pendingMerge.schedule(scope.key, ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, messageTime);
-        return;
-      }
+      const restarted = await this.restartActiveConversationIfMergeable(ctx, scope, {
+        promptText: effectiveText,
+        uploadedFiles: allUploadedFiles,
+        attachments: allAttachments,
+        messageTime,
+      });
+      if (restarted) return;
       this.startConversationTask(ctx, WAITING_MESSAGE_PLACEHOLDER, effectiveText, allUploadedFiles, allAttachments, messageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -277,11 +289,13 @@ export class ConversationController {
       this.rememberMediaGroupFile(ctx, uploaded, attachment);
 
       if (!caption) {
-        const mergedPending = this.pendingMerge.consumeForFile(scope.key, ctx, "", await this.messageReferenceTime(ctx), scope.label);
-        if (mergedPending) {
-          this.startConversationTask(ctx, WAITING_MESSAGE_PLACEHOLDER, mergedPending.promptText, [uploaded], [attachment], mergedPending.messageTime);
-          return;
-        }
+        clearRecentUploads(scope.key);
+        const restarted = await this.restartActiveConversationIfMergeable(ctx, scope, {
+          uploadedFiles: [uploaded],
+          attachments: [attachment],
+          messageTime: await this.messageReferenceTime(ctx),
+        });
+        if (restarted) return;
         await this.setReactionSafe(ctx, "🥰");
         return;
       }
@@ -290,15 +304,17 @@ export class ConversationController {
       const messageTime = await this.messageReferenceTime(ctx);
 
       await logFilePromptScheduling(ctx, uploaded, caption);
-      const mergedPending = this.pendingMerge.consumeForFile(scope.key, ctx, caption, messageTime, scope.label);
-      if (mergedPending) {
-        this.startConversationTask(ctx, waitingTemplate, mergedPending.promptText, [uploaded], [attachment], mergedPending.messageTime);
-        return;
-      }
+      clearRecentUploads(scope.key);
+      const restarted = await this.restartActiveConversationIfMergeable(ctx, scope, {
+        promptText: caption,
+        uploadedFiles: [uploaded],
+        attachments: [attachment],
+        messageTime,
+      });
+      if (restarted) return;
       this.startConversationTask(ctx, waitingTemplate, caption, [uploaded], [attachment], messageTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const rejectedPending = this.pendingMerge.rejectForFileFailure(scope.key, ctx, message, scope.label);
       if (isExpectedFileIngressError(message)) {
         await logger.warn(`file handling rejected: ${message}`);
       } else {
@@ -311,15 +327,11 @@ export class ConversationController {
           : t(this.deps.config, "file_processing_failed", { error: message }),
       );
       await this.setReactionSafe(ctx, "😞");
-      if (rejectedPending && ctx.chat?.id) {
-        await this.setReactionByMessageSafe(ctx.chat.id, rejectedPending.sourceMessageId, "😞");
-      }
     }
   }
 
   async resetSession(ctx: Context): Promise<string> {
     const scope = this.conversationScope(ctx);
-    this.pendingMerge.clear(scope.key, "/new command");
     await this.interruptActiveTask("/new command", scope.key);
     const sessionId = await this.deps.agentService.newSession(scope.key, scope.label);
     clearRecentUploads(scope.key);
@@ -422,6 +434,46 @@ export class ConversationController {
     return getAccurateNowIso();
   }
 
+  private mergePromptText(existing: string, incoming: string): string {
+    const left = existing.trim();
+    const right = incoming.trim();
+    if (!right) return left;
+    if (!left) return right;
+    return `${left}\n\nFollow-up user message in the same turn:\n${right}`;
+  }
+
+  private clearActiveInputIfCurrent(scopeKey: string, taskId: number): void {
+    if (this.activeInputs.get(scopeKey)?.taskId === taskId) this.activeInputs.delete(scopeKey);
+  }
+
+  private canMergeIntoActiveConversation(scopeKey: string, senderUserId: number | undefined): boolean {
+    const activeTask = this.activeTasks.get(scopeKey);
+    const activeInput = this.activeInputs.get(scopeKey);
+    if (!activeTask || !activeInput) return false;
+    if (activeTask.cancelled || activeInput.taskId !== activeTask.id) return false;
+    if (activeInput.userId !== senderUserId) return false;
+    return Date.now() - activeInput.updatedAt <= this.deps.config.telegram.inputMergeWindowSeconds * 1000;
+  }
+
+  private async restartActiveConversationIfMergeable(
+    ctx: Context,
+    scope: { key: string; label: string },
+    update: { promptText?: string; uploadedFiles?: UploadedFile[]; attachments?: AiAttachment[]; messageTime?: string },
+  ): Promise<boolean> {
+    if (!this.canMergeIntoActiveConversation(scope.key, ctx.from?.id)) return false;
+    const current = this.activeInputs.get(scope.key);
+    if (!current) return false;
+    const mergedPromptText = update.promptText ? this.mergePromptText(current.promptText, update.promptText) : current.promptText;
+    const mergedUploadedFiles = [...current.uploadedFiles, ...(update.uploadedFiles || [])];
+    const mergedAttachments = [...current.attachments, ...(update.attachments || [])];
+    const mergedMessageTime = update.messageTime || current.messageTime;
+
+    await logger.info(`restarting active conversation for ${scope.label} with merged follow-up message ${ctx.message?.message_id ?? "unknown"}`);
+    await this.interruptActiveTask(`merged follow-up input ${ctx.message?.message_id ?? "unknown"}`, scope.key);
+    this.startConversationTask(ctx, current.waitingTemplate, mergedPromptText, mergedUploadedFiles, mergedAttachments, mergedMessageTime);
+    return true;
+  }
+
   private startConversationTask(
     ctx: Context,
     waitingTemplate: string,
@@ -449,15 +501,15 @@ export class ConversationController {
     const scope = this.conversationScope(ctx);
     if (!chatId || !sourceMessageId) return;
 
-    this.pendingMerge.clear(scope.key);
     await this.interruptActiveTask(`new incoming message ${sourceMessageId}`, scope.key);
     await this.setReactionSafe(ctx, "🤔");
     const initialWaitingMessage = this.deps.config.telegram.waitingMessage;
     const waiting = initialWaitingMessage
       ? await ctx.reply(this.waiting.render(waitingTemplate, initialWaitingMessage))
       : null;
+    const taskId = this.nextTaskId++;
     const task: ActiveConversationTask = {
-      id: this.nextTaskId++,
+      id: taskId,
       userId,
       scopeKey: scope.key,
       scopeLabel: scope.label,
@@ -467,6 +519,16 @@ export class ConversationController {
       cancelled: false,
     };
     this.activeTasks.set(scope.key, task);
+    this.activeInputs.set(scope.key, {
+      taskId,
+      userId,
+      waitingTemplate,
+      promptText,
+      uploadedFiles,
+      attachments,
+      messageTime,
+      updatedAt: Date.now(),
+    });
     this.waiting.start(task, waitingTemplate, initialWaitingMessage);
 
     try {
@@ -485,10 +547,14 @@ export class ConversationController {
         onPruneRecentUploads: (taskScopeKey) => pruneRecentUploads(taskScopeKey),
         onStopWaiting: (runningTask) => this.waiting.stop(runningTask),
         onSetReaction: (reactionCtx, emoji) => this.setReactionSafe(reactionCtx, emoji),
-        onReleaseActiveTask: (taskScopeKey, taskId) => this.activeTasks.deleteIfCurrent(taskScopeKey, taskId),
+        onReleaseActiveTask: (taskScopeKey, taskId) => {
+          this.activeTasks.deleteIfCurrent(taskScopeKey, taskId);
+          this.clearActiveInputIfCurrent(taskScopeKey, taskId);
+        },
       });
     } finally {
       this.activeTasks.deleteIfCurrent(scope.key, task.id);
+      this.clearActiveInputIfCurrent(scope.key, task.id);
     }
   }
 }

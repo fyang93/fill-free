@@ -16,6 +16,7 @@ function createTestConfig(repoRoot: string): AppConfig {
       waitingMessage: "",
       waitingMessageCandidates: [],
       waitingMessageRotationSeconds: 0,
+      inputMergeWindowSeconds: 3,
       menuPageSize: 10,
     },
     bot: {

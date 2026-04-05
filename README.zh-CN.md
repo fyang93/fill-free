@@ -93,6 +93,7 @@ admin_user_id = 333333333
 waiting_message = "机宝启动中..."
 waiting_message_candidates = ["还在想...", "再等我一下..."]
 waiting_message_rotation_seconds = 5
+input_merge_window_seconds = 3
 menu_page_size = 8
 
 [bot]
@@ -111,6 +112,7 @@ base_url = "http://127.0.0.1:4096"
 一些常用的可选项：
 
 - `telegram.menu_page_size`：Telegram 内联菜单分页大小
+- `telegram.input_merge_window_seconds`：将短时间内追加的文本/文件合并进同一轮进行中的窗口
 - `telegram.waiting_message` / `telegram.waiting_message_candidates`：Telegram 等待态文案；如果 `waiting_message` 为空，就不会显示等待消息
 - `bot.default_timezone`：用户未显式提供时使用的默认时区
 - `maintenance.idle_after_minutes`：空闲多少分钟后触发 maintenance

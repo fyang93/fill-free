@@ -88,6 +88,7 @@ admin_user_id = 333333333
 waiting_message = "Thinking..."
 waiting_message_candidates = ["Still thinking...", "Almost there..."]
 waiting_message_rotation_seconds = 5
+input_merge_window_seconds = 3
 menu_page_size = 8
 
 [bot]
@@ -106,6 +107,7 @@ base_url = "http://127.0.0.1:4096"
 Useful optional settings:
 
 - `telegram.menu_page_size`: Telegram inline menu page size
+- `telegram.input_merge_window_seconds`: short window for merging follow-up text/files into the same in-flight turn
 - `telegram.waiting_message` / `telegram.waiting_message_candidates`: Telegram waiting UI text; if `waiting_message` is empty, no waiting message is shown
 - `bot.default_timezone`: fallback timezone used when the user has not explicitly provided one
 - `maintenance.idle_after_minutes`: run maintenance after this many idle minutes

@@ -231,7 +231,17 @@ function uploadsKey(scopeKey: string | undefined): string {
 }
 
 export function rememberUploads(scopeKey: string | undefined, files: UploadedFile[]): void {
-  state.recentUploadsByScope[uploadsKey(scopeKey)] = { files, recentUploadsAt: new Date().toISOString() };
+  const key = uploadsKey(scopeKey);
+  const existing = state.recentUploadsByScope[key]?.files || [];
+  const merged = [...existing, ...files];
+  const seen = new Set<string>();
+  const unique = merged.filter((file) => {
+    const id = `${file.absolutePath}:${file.telegramFileUniqueId || ""}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  state.recentUploadsByScope[key] = { files: unique, recentUploadsAt: new Date().toISOString() };
 }
 
 export function retainRecentUploads(scopeKey: string | undefined, files: UploadedFile[]): void {
