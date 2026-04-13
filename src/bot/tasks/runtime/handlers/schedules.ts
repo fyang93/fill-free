@@ -12,7 +12,7 @@ function schedulePreparationFingerprint(event: ScheduleEvent): string {
     category: event.category,
     specialKind: event.specialKind,
     timeSemantics: event.timeSemantics,
-    timezone: event.timezone,
+    createdByUserId: event.createdByUserId,
     schedule: event.schedule,
     notifications: event.notifications,
     targets: event.targets,

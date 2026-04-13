@@ -1,4 +1,3 @@
-import { rememberTelegramUser } from "bot/telegram/registry";
 import { clearStoredUserAccessLevel, setStoredUserAccessLevel } from "bot/operations/access/roles";
 import { loadUsers, resolveUser } from "bot/operations/context/store";
 import type { RepoCliContext } from "cli/runtime";
@@ -22,7 +21,10 @@ function updateUserField(context: RepoCliContext, field: "timezone", value: stri
   const { nowIso, output } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
-  if (!effectiveUserId) output({ ok: false, error: `userId-required-for-${field}` });
+  if (!effectiveUserId) {
+    output({ ok: false, error: `userId-required-for-${field}` });
+    throw new Error(`unreachable: ${field} output returned`);
+  }
   const previous = resolveUser(context.config.paths.repoRoot, effectiveUserId) || {};
   const next = updateUserDoc(context, effectiveUserId, (current) => ({
     ...current,
@@ -59,7 +61,10 @@ export async function handleUsersSetAccess(context: RepoCliContext): Promise<voi
   context.requireAdminRequester();
   const { username, displayName, resolvedUserId } = context.resolveUserLookup();
   const accessLevel = cleanText(args.accessLevel);
-  if (!resolvedUserId) output({ ok: false, error: "user-not-resolved" });
+  if (!resolvedUserId) {
+    output({ ok: false, error: "user-not-resolved" });
+    return;
+  }
   if (accessLevel === undefined || accessLevel === null || accessLevel === "" || accessLevel === "none" || accessLevel === "clear") {
     const changed = await clearStoredUserAccessLevel(context.config, resolvedUserId as number, { username, displayName, lastSeenAt: cleanText(args.lastSeenAt) });
     output({ ok: true, changed, userId: resolvedUserId, accessLevel: null });
@@ -80,7 +85,10 @@ export async function handleUsersAddRule(context: RepoCliContext): Promise<void>
   const { args, cleanText, nowIso, output } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
-  if (!effectiveUserId) output({ ok: false, error: "userId-required-for-rule" });
+  if (!effectiveUserId) {
+    output({ ok: false, error: "userId-required-for-rule" });
+    return;
+  }
   const rule = cleanText(args.rule);
   if (!rule) output({ ok: false, error: "missing-rule" });
   const previous = resolveUser(context.config.paths.repoRoot, effectiveUserId) || {};
@@ -96,7 +104,10 @@ export async function handleUsersSetRules(context: RepoCliContext): Promise<void
   const { args, nowIso, output } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
-  if (!effectiveUserId) output({ ok: false, error: "userId-required-for-rules" });
+  if (!effectiveUserId) {
+    output({ ok: false, error: "userId-required-for-rules" });
+    return;
+  }
   const normalizedRules = normalizeRulesInput(args.rules);
   if (normalizedRules == null && !Array.isArray(args.rules)) output({ ok: false, error: "missing-rules" });
   const previous = resolveUser(context.config.paths.repoRoot, effectiveUserId) || {};

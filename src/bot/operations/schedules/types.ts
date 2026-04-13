@@ -57,7 +57,7 @@ export type ScheduleEvent = {
   title: string;
   note?: string;
   timeSemantics: ScheduleTimeSemantics;
-  timezone: string;
+  createdByUserId?: number;
   schedule: ScheduleSchedule;
   notifications: ScheduleNotification[];
   category?: "routine" | "special" | "scheduled-task";

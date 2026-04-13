@@ -2,7 +2,7 @@ import type { Bot, Context } from "grammy";
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import type { AiService } from "bot/ai";
-import { dequeueRunnableTask, markTaskState, pruneFinishedTasks, removeTask } from "./store";
+import { dequeueRunnableTask, failStaleRunningTasks, markTaskState, pruneFinishedTasks, pruneOrphanedSchedulePreparationTasks, removeTask } from "./store";
 import { runTaskWithHandlers } from "./handlers";
 import { sendTaskFailureReply, taskLogContext } from "./handlers/shared";
 
@@ -22,6 +22,10 @@ export function startTaskWorker(config: AppConfig, agentService: AiService, bot:
     if (running) return;
     running = true;
     try {
+      const recovered = await failStaleRunningTasks(config);
+      if (recovered.changed > 0) await logger.warn(`recovered ${recovered.changed} stale running tasks`);
+      const orphaned = await pruneOrphanedSchedulePreparationTasks(config);
+      if (orphaned.removed > 0) await logger.info(`pruned ${orphaned.removed} orphaned schedule preparation tasks`);
       const pruned = await pruneFinishedTasks(config);
       if (pruned.removed > 0) await logger.info(`pruned ${pruned.removed} finished tasks`);
       while (true) {

@@ -1,4 +1,5 @@
 import solarLunar from "solarlunar";
+import { getUserTimezone } from "bot/app/state";
 import type { AppConfig } from "bot/app/types";
 import { t, tForLocale, uiLocaleTag, type Locale } from "bot/app/i18n";
 import type {
@@ -205,13 +206,21 @@ function lunarDayLabel(day: number): string {
   return solarLunar.toChinaDay(day);
 }
 
-function eventTime(schedule: ScheduleSchedule): { hour: number; minute: number } {
+function eventTime(schedule: ScheduleSchedule, timezone?: string): { hour: number; minute: number } {
   if (schedule.kind === "once") {
     const date = new Date(schedule.scheduledAt);
+    if (timezone) {
+      const parts = getZonedParts(date, timezone);
+      return { hour: parts.hour, minute: parts.minute };
+    }
     return { hour: date.getHours(), minute: date.getMinutes() };
   }
   if (schedule.kind === "interval") {
     const date = new Date(schedule.anchorAt);
+    if (timezone) {
+      const parts = getZonedParts(date, timezone);
+      return { hour: parts.hour, minute: parts.minute };
+    }
     return { hour: date.getHours(), minute: date.getMinutes() };
   }
   return schedule.time;
@@ -542,8 +551,8 @@ function nextScheduleOccurrence(schedule: ScheduleSchedule, reference = new Date
   return nextLunarEventOccurrence(schedule, reference);
 }
 
-function nextLocalScheduleOccurrence(event: ScheduleEvent, reference = new Date()): string | null {
-  const timezone = event.timezone;
+function nextLocalScheduleOccurrence(event: ScheduleEvent, reference = new Date(), timezoneOverride?: string): string | null {
+  const timezone = timezoneOverride || getUserTimezone(event.createdByUserId) || "Asia/Tokyo";
   if (event.schedule.kind === "once") return event.schedule.scheduledAt;
   if (event.schedule.kind === "interval") return nextLocalIntervalOccurrence(event.schedule, reference, timezone);
   if (event.schedule.kind === "weekly") return nextLocalWeeklyOccurrence(event.schedule, reference, timezone);
@@ -552,11 +561,19 @@ function nextLocalScheduleOccurrence(event: ScheduleEvent, reference = new Date(
   return nextLocalLunarOccurrence(event.schedule, reference, timezone);
 }
 
-export function getCurrentOccurrence(event: ScheduleEvent, now = new Date()): ScheduleOccurrence | null {
+export function resolveScheduleDisplayTimezone(config: AppConfig, event: Pick<ScheduleEvent, "createdByUserId" | "timeSemantics">): string {
+  if (event.timeSemantics === "local") {
+    const timezone = getUserTimezone(event.createdByUserId);
+    if (timezone) return timezone;
+  }
+  return config.bot.defaultTimezone;
+}
+
+export function getCurrentOccurrence(event: ScheduleEvent, now = new Date(), timezoneOverride?: string): ScheduleOccurrence | null {
   const existing = event.deliveryState?.currentOccurrence?.scheduledAt;
   if (existing) return { scheduledAt: existing };
   const scheduledAt = event.timeSemantics === "local"
-    ? nextLocalScheduleOccurrence(event, now)
+    ? nextLocalScheduleOccurrence(event, now, timezoneOverride)
     : nextScheduleOccurrence(event.schedule, now);
   return scheduledAt ? { scheduledAt } : null;
 }
@@ -581,39 +598,40 @@ export function allNotificationsSent(event: ScheduleEvent): boolean {
   return enabledIds.length > 0 && enabledIds.every((id, index) => sentIds[index] === id);
 }
 
-function scheduleTimeLabel(schedule: ScheduleSchedule): string {
-  const time = eventTime(schedule);
+function scheduleTimeLabel(schedule: ScheduleSchedule, timezone?: string): string {
+  const time = eventTime(schedule, timezone);
   return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
 }
 
 export function scheduleEventScheduleSummary(config: AppConfig, event: ScheduleEvent, locale?: Locale): string {
   const translate = (key: string, values: Record<string, string | number> = {}) => locale ? tForLocale(locale, key, values) : t(config, key, values);
   const schedule = event.schedule;
+  const displayTimezone = resolveScheduleDisplayTimezone(config, event);
   if (schedule.kind === "once") {
-    return formatDisplayDateTime(config, schedule.scheduledAt, event.timezone || config.bot.defaultTimezone);
+    return formatDisplayDateTime(config, schedule.scheduledAt, displayTimezone);
   }
   if (schedule.kind === "interval") {
-    if (schedule.unit === "day" && schedule.every === 1) return translate("schedule_created_daily", { time: scheduleTimeLabel(schedule) });
-    return translate("schedule_created_interval", { every: schedule.every, unit: translate(`schedule_unit_${schedule.unit}`), time: scheduleTimeLabel(schedule) });
+    if (schedule.unit === "day" && schedule.every === 1) return translate("schedule_created_daily", { time: scheduleTimeLabel(schedule, displayTimezone) });
+    return translate("schedule_created_interval", { every: schedule.every, unit: translate(`schedule_unit_${schedule.unit}`), time: scheduleTimeLabel(schedule, displayTimezone) });
   }
   if (schedule.kind === "weekly") {
-    if (schedule.every === 1 && schedule.daysOfWeek.join(",") === "1,2,3,4,5") return translate("schedule_created_weekdays", { time: scheduleTimeLabel(schedule) });
-    if (schedule.every === 1 && schedule.daysOfWeek.join(",") === "0,6") return translate("schedule_created_weekends", { time: scheduleTimeLabel(schedule) });
+    if (schedule.every === 1 && schedule.daysOfWeek.join(",") === "1,2,3,4,5") return translate("schedule_created_weekdays", { time: scheduleTimeLabel(schedule, displayTimezone) });
+    if (schedule.every === 1 && schedule.daysOfWeek.join(",") === "0,6") return translate("schedule_created_weekends", { time: scheduleTimeLabel(schedule, displayTimezone) });
     return translate("schedule_created_weekly", {
       every: schedule.every,
       days: schedule.daysOfWeek.map((day) => translate(`weekday_short_${day}`)).join(", "),
-      time: scheduleTimeLabel(schedule),
+      time: scheduleTimeLabel(schedule, displayTimezone),
     });
   }
   if (schedule.kind === "monthly") {
     if (schedule.mode === "dayOfMonth") {
-      return translate("schedule_created_monthly_day", { every: schedule.every, day: schedule.dayOfMonth, time: scheduleTimeLabel(schedule) });
+      return translate("schedule_created_monthly_day", { every: schedule.every, day: schedule.dayOfMonth, time: scheduleTimeLabel(schedule, displayTimezone) });
     }
     return translate("schedule_created_monthly_nth_weekday", {
       every: schedule.every,
       ordinal: translate(`ordinal_${schedule.weekOfMonth}`),
       day: translate(`weekday_short_${schedule.dayOfWeek}`),
-      time: scheduleTimeLabel(schedule),
+      time: scheduleTimeLabel(schedule, displayTimezone),
     });
   }
   if (schedule.kind === "yearly") {
@@ -622,7 +640,7 @@ export function scheduleEventScheduleSummary(config: AppConfig, event: ScheduleE
       month: schedule.month,
       day: schedule.day,
       offset: "",
-      time: scheduleTimeLabel(schedule),
+      time: scheduleTimeLabel(schedule, displayTimezone),
     }).trim();
   }
   return translate("schedule_created_lunar_yearly", {
@@ -630,7 +648,7 @@ export function scheduleEventScheduleSummary(config: AppConfig, event: ScheduleE
     day: lunarDayLabel(schedule.day),
     leapPolicy: schedule.isLeapMonth ? translate(`schedule_lunar_leap_policy_${effectiveLunarLeapPolicy(schedule)}`) : "",
     offset: "",
-    time: scheduleTimeLabel(schedule),
+    time: scheduleTimeLabel(schedule, displayTimezone),
   }).trim();
 }
 
@@ -645,9 +663,10 @@ function notificationLabel(config: AppConfig, instance: ScheduleNotificationInst
 }
 
 export function formatScheduleEvent(config: AppConfig, event: ScheduleEvent, locale?: Locale): string {
-  const occurrence = getCurrentOccurrence(event);
+  const displayTimezone = resolveScheduleDisplayTimezone(config, event);
+  const occurrence = getCurrentOccurrence(event, new Date(), displayTimezone);
   const when = occurrence
-    ? formatDisplayDateTime(config, occurrence.scheduledAt, event.timezone || config.bot.defaultTimezone).slice(0, 16)
+    ? formatDisplayDateTime(config, occurrence.scheduledAt, displayTimezone).slice(0, 16)
     : scheduleEventScheduleSummary(config, event, locale);
   const notifications = occurrence
     ? listNotificationInstances(event, occurrence).map((item) => notificationLabel(config, item, locale)).join("、")

@@ -7,7 +7,7 @@
  *
  * Usage:
  *   opencode serve --port 4096 &
- *   bun run tests/live-assistant.ts
+ *   npm run test:live
  */
 
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";

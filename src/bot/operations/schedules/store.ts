@@ -15,7 +15,7 @@ export type ScheduleEventDraft = {
   category?: "routine" | "special" | "scheduled-task";
   specialKind?: ScheduleSpecialKind;
   timeSemantics?: ScheduleTimeSemantics;
-  timezone?: string;
+  createdByUserId?: number;
   notifications?: ScheduleNotification[];
   status?: ScheduleEvent["status"];
   createdAt?: string;
@@ -126,7 +126,7 @@ function normalizeEventSchedule(raw: unknown): ScheduleSchedule | null {
   return normalizeStoredScheduleSchedule(raw);
 }
 
-function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): ScheduleEvent | null {
+function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): ScheduleEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -136,8 +136,16 @@ function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): Schedule
     ? record.kind
     : undefined;
   const timeSemantics = record.timeSemantics === "absolute" || record.timeSemantics === "local" ? record.timeSemantics : undefined;
-  const timezone = typeof record.timezone === "string" && record.timezone.trim() ? record.timezone.trim() : fallbackTimezone;
   const schedule = normalizeEventSchedule(record.schedule);
+  const createdByUserId = Number.isInteger(Number(record.createdByUserId))
+    ? Number(record.createdByUserId)
+    : Array.isArray(record.targets)
+      ? record.targets
+          .map(normalizeTarget)
+          .filter((item): item is ScheduleTarget => Boolean(item))
+          .find((item) => item.targetKind === "user")
+          ?.targetId
+      : undefined;
   const notifications = Array.isArray(record.notifications) ? record.notifications.map(normalizeNotification).filter((item): item is ScheduleNotification => Boolean(item)) : [];
   const status = record.status === "active" || record.status === "paused" || record.status === "deleted" ? record.status : "active";
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt.trim() : "";
@@ -161,7 +169,7 @@ function normalizeEvent(raw: unknown, fallbackTimezone = "Asia/Tokyo"): Schedule
     title,
     note,
     timeSemantics: timeSemantics || defaultScheduleTimeSemantics(schedule),
-    timezone,
+    createdByUserId,
     schedule,
     notifications,
     category,
@@ -214,7 +222,7 @@ export async function writeScheduleEvents(config: AppConfig, events: ScheduleEve
   await queueScheduleStoreWrite(() => writeScheduleStore(config, events));
 }
 
-export function buildScheduleEvent(config: AppConfig, draft: ScheduleEventDraft, fallbackTimezone = "Asia/Tokyo"): ScheduleEvent {
+export function buildScheduleEvent(config: AppConfig, draft: ScheduleEventDraft): ScheduleEvent {
   const category = draft.category === "scheduled-task" ? "scheduled-task" : draft.category === "special" || draft.specialKind ? "special" : draft.category === "routine" ? "routine" : undefined;
   const note = category === "scheduled-task" ? buildScheduledTaskPrompt(draft.title, draft.note) : draft.note;
   return {
@@ -222,7 +230,7 @@ export function buildScheduleEvent(config: AppConfig, draft: ScheduleEventDraft,
     title: draft.title,
     note,
     timeSemantics: draft.timeSemantics || defaultScheduleTimeSemantics(draft.schedule),
-    timezone: draft.timezone || fallbackTimezone,
+    createdByUserId: draft.createdByUserId,
     schedule: draft.schedule,
     notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultScheduleNotifications(config, { specialKind: draft.specialKind }),
     category,
@@ -249,7 +257,7 @@ export async function createScheduleEvent(event: ScheduleEvent, config: AppConfi
 }
 
 export async function createScheduleEventWithDefaults(config: AppConfig, draft: ScheduleEventDraft): Promise<ScheduleEvent> {
-  const event = buildScheduleEvent(config, draft, defaultScheduleTimezone(config));
+  const event = buildScheduleEvent(config, draft);
   if (!event.deliveryState && event.status === "active") {
     const occurrence = getCurrentOccurrence(event, new Date());
     if (occurrence) {

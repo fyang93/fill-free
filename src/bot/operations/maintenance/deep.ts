@@ -387,7 +387,6 @@ async function runMaintainerCycle(
   const beforeSnapshot = await memorySnapshot(config.paths.repoRoot);
   const changedFiles = force ? [...beforeSnapshot.keys()].sort((a, b) => a.localeCompare(b)) : recentlyChangedFiles(beforeSnapshot, state.lastMaintainedAt);
   if (!force && changedFiles.length === 0) {
-    await notifyMaintenanceChanges(config, agentService, deps, preChanges);
     return;
   }
 
@@ -417,14 +416,12 @@ async function runMaintainerCycle(
       chatRegistryLinksUpdated: String(registryLinkRefresh.chatUpdates),
     });
     const memoryChanged = changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0;
-    const facts = [...preChanges];
+    const facts: string[] = [];
     if (summary) facts.push(`记忆整理摘要：${summary}`);
     if (changes.created.length > 0) facts.push(`新建文件：${changes.created.join(", ")}`);
     if (changes.updated.length > 0) facts.push(`更新文件：${changes.updated.join(", ")}`);
     if (changes.deleted.length > 0) facts.push(`删除文件：${changes.deleted.join(", ")}`);
-    if (registryLinkRefresh.userUpdates > 0) facts.push(`Refreshed ${registryLinkRefresh.userUpdates} user registry links.`);
-    if (registryLinkRefresh.chatUpdates > 0) facts.push(`Refreshed ${registryLinkRefresh.chatUpdates} chat registry links.`);
-    if (force || facts.length > 0 || memoryChanged) {
+    if (memoryChanged && facts.length > 0) {
       await notifyMaintenanceChanges(config, agentService, deps, facts);
     }
   } catch (error) {

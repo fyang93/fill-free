@@ -87,7 +87,7 @@ Document filenames, directories, and schemas only when code, maintainer workflow
 ## Concrete current preference
 
 - Repository-local CLI commands should be the primary execution surface.
-- The current preferred entrypoint is `bun run repo:cli -- <command> '<json>'` (direct file form: `bun run src/cli.ts <command> '<json>'`).
+- The current preferred entrypoint is `npm run repo:cli -- <command> '<json>'` (direct file form: `tsx --tsconfig tsconfig.json src/cli.ts <command> '<json>'`).
 - Skills should capture durable repository know-how and recurring research / maintenance workflows.
 - The current preferred skill map is: `cli-shared` for shared CLI guidance, `cli-schedules` for schedule workflows, `cli-telegram` for outbound Telegram delivery, `cli-access` for users and authorization, and `memory` for durable repository-local notes.
 - Current-turn reply publication orchestration should stay in runtime code.

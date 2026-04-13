@@ -42,6 +42,7 @@ function summarizeDraftSchedule(config: AppConfig, input: {
   note?: string;
   scheduleRaw: Record<string, unknown>;
   timezone: string;
+  createdByUserId?: number;
   timeSemantics?: "absolute" | "local";
   specialKind?: "birthday" | "festival" | "anniversary" | "memorial";
 }): string {
@@ -52,7 +53,7 @@ function summarizeDraftSchedule(config: AppConfig, input: {
       title: input.title,
       note: input.note,
       schedule,
-      timezone: input.timezone,
+      createdByUserId: input.createdByUserId,
       timeSemantics: input.timeSemantics || defaultScheduleTimeSemantics(schedule),
       notifications: buildDefaultScheduleNotifications(config, { specialKind: input.specialKind }),
       status: "active",
@@ -139,7 +140,7 @@ export async function createStructuredSchedules(
       category: raw.category === "special" || specialKind ? "special" : raw.category === "routine" ? "routine" : undefined,
       specialKind,
       timeSemantics,
-      timezone: normalizedTimezone,
+      createdByUserId: userId,
       targets,
       notifications: buildScheduleNotifications(raw.notifications),
     }, {
@@ -156,6 +157,7 @@ export async function createStructuredSchedules(
       note: typeof raw.note === "string" ? raw.note.trim() || undefined : undefined,
       scheduleRaw: scheduleRaw as Record<string, unknown>,
       timezone: normalizedTimezone,
+      createdByUserId: userId,
       timeSemantics,
       specialKind,
     });

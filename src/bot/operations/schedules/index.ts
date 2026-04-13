@@ -20,6 +20,7 @@ export {
   nextLunarYearlyOccurrence,
   normalizeRecurrence,
   normalizeScheduledAt,
+  resolveScheduleDisplayTimezone,
   scheduleEventScheduleSummary,
 } from "./schedule";
 
@@ -58,3 +59,4 @@ export {
 
 export { handleScheduleCallback } from "./ui";
 export { schedulePreparationTaskHandler, schedulesTaskHandler } from "bot/tasks/runtime/handlers/schedules";
+export { resolveSchedulesByMatch, scheduleMatchesFilters } from "./task-actions";

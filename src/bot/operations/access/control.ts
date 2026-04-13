@@ -47,6 +47,18 @@ export function canCreateSchedules(accessLevel: AccessLevel): boolean {
   return hasAccessLevel(accessLevel, "trusted");
 }
 
+export function canReadSchedules(accessLevel: AccessLevel): boolean {
+  return hasAccessLevel(accessLevel, "trusted");
+}
+
+export function canManageAllSchedules(accessLevel: AccessLevel): boolean {
+  return hasAccessLevel(accessLevel, "admin");
+}
+
+export function canManageOwnSchedules(accessLevel: AccessLevel): boolean {
+  return hasAccessLevel(accessLevel, "trusted");
+}
+
 export function canRequesterCreateScheduleTargets(config: AppConfig, requesterUserId: number | undefined, _targets: ScheduleTarget[]): boolean {
   return canCreateSchedules(accessLevelForUserId(config, requesterUserId));
 }

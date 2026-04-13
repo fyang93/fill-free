@@ -3,8 +3,10 @@ export { startTaskWorker } from "./runtime/worker";
 export {
   dequeueRunnableTask,
   enqueueTask,
+  failStaleRunningTasks,
   markTaskState,
   pruneFinishedTasks,
+  pruneOrphanedSchedulePreparationTasks,
   readTasks,
   removeTask,
   writeTasks,

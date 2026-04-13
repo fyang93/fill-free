@@ -1,17 +1,18 @@
 import { logger } from "bot/app/logger";
-import { canRequesterCreateScheduleTargets } from "bot/operations/access/control";
-import { scheduleEventScheduleSummary, type ScheduleEvent } from "bot/operations/schedules";
+import { canManageAllSchedules, canManageOwnSchedules, canReadSchedules, canRequesterCreateScheduleTargets } from "bot/operations/access/control";
+import { accessLevelForUser } from "bot/operations/access/roles";
+import { resolveScheduleDisplayTimezone, resolveSchedulesByMatch, scheduleEventScheduleSummary, type ScheduleEvent } from "bot/operations/schedules";
 import { buildScheduleScheduleFromExternal } from "bot/operations/schedules/schedule_parser";
 import { createScheduleEventWithDefaults, readScheduleEvents } from "bot/operations/schedules/store";
 import { runScheduleTask } from "bot/operations/schedules/task-actions";
 import type { RepoCliContext } from "cli/runtime";
 
-function localScheduledAt(event: ScheduleEvent): string | undefined {
+function localScheduledAt(context: RepoCliContext, event: ScheduleEvent): string | undefined {
   if (event.schedule.kind !== "once") return undefined;
   const date = new Date(event.schedule.scheduledAt);
   if (!Number.isFinite(date.getTime())) return undefined;
   const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: event.timezone,
+    timeZone: resolveScheduleDisplayTimezone(context.config, event),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -28,20 +29,52 @@ function serializeScheduleForCli(context: RepoCliContext, event: ScheduleEvent):
   return {
     ...event,
     scheduleSummary: scheduleEventScheduleSummary(context.config, event),
-    scheduledAtLocal: localScheduledAt(event),
+    scheduledAtLocal: localScheduledAt(context, event),
   };
 }
 
 export async function handleSchedulesList(context: RepoCliContext): Promise<void> {
-  const schedules = await readScheduleEvents(context.config);
-  context.output({ ok: true, schedules: schedules.map((event) => serializeScheduleForCli(context, event)) });
+  const requesterUserId = context.asInt(context.args.requesterUserId);
+  const accessLevel = accessLevelForUser(context.config, requesterUserId);
+  if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
+  const schedules = (await readScheduleEvents(context.config)).filter((event) => event.status !== "deleted");
+  const visible = canManageAllSchedules(accessLevel)
+    ? schedules
+    : schedules.filter((event) => canManageOwnSchedules(accessLevel) && event.createdByUserId === requesterUserId);
+  context.output({ ok: true, schedules: visible.map((event) => serializeScheduleForCli(context, event)) });
 }
 
 export async function handleSchedulesGet(context: RepoCliContext): Promise<void> {
   const scheduleId = context.cleanText(context.args.scheduleId);
-  const schedules = await readScheduleEvents(context.config);
-  const schedule = schedules.find((item) => item.id === scheduleId) || null;
-  context.output({ ok: true, schedule: schedule ? serializeScheduleForCli(context, schedule) : null });
+  const requesterUserId = context.asInt(context.args.requesterUserId);
+  const accessLevel = accessLevelForUser(context.config, requesterUserId);
+  if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
+  if (scheduleId) {
+    const schedules = await readScheduleEvents(context.config);
+    const schedule = schedules.find((item) => item.id === scheduleId) || null;
+    if (!schedule) {
+      context.output({ ok: false, error: "schedule-not-resolved", schedule: null });
+    }
+    if (!canManageAllSchedules(accessLevel) && schedule.createdByUserId !== requesterUserId) {
+      context.output({ ok: false, error: "schedule-read-not-allowed" });
+    }
+    context.output({ ok: true, schedule: serializeScheduleForCli(context, schedule) });
+  }
+
+  const match = context.parseObjectArg(context.args.match) || {};
+  const result = await resolveSchedulesByMatch(context.config, {
+    match,
+    requesterUserId,
+    allowedStatuses: ["active", "paused"],
+  });
+  if (result.events.length !== 1) {
+    context.output({
+      ok: false,
+      error: result.reason || "schedule-not-resolved",
+      schedules: result.events.map((event) => serializeScheduleForCli(context, event)),
+    });
+  }
+  context.output({ ok: true, schedule: serializeScheduleForCli(context, result.events[0]) });
 }
 
 export async function handleSchedulesCreate(context: RepoCliContext): Promise<void> {
@@ -82,7 +115,7 @@ export async function handleSchedulesCreate(context: RepoCliContext): Promise<vo
     note,
     schedule: buildScheduleScheduleFromExternal(schedule as Record<string, unknown>, timezone),
     category: normalizedCategory,
-    timezone,
+    createdByUserId: requesterUserId,
     timeSemantics: rawTimeSemantics === "absolute" || rawTimeSemantics === "local" ? rawTimeSemantics : undefined,
     specialKind: normalizedSpecialKind,
     targets,

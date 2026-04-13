@@ -24,7 +24,7 @@
             fd
             ripgrep
             just
-            bun
+            nodejs_22
           ];
         };
       }

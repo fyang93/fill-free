@@ -106,7 +106,6 @@ function eventDetailText(config: AppConfig, locale: Locale, event: ScheduleEvent
     tForLocale(locale, "schedule_detail_time", { value: scheduleEventScheduleSummary(config, event, locale) }),
     tForLocale(locale, "schedule_detail_recipients", { value: eventRecipientsLabel(config, locale, event) }),
     tForLocale(locale, "schedule_detail_time_semantics", { value: timeSemanticsLabel(locale, event) }),
-    ...(event.timeSemantics === "absolute" ? [tForLocale(locale, "schedule_detail_timezone", { value: event.timezone })] : []),
     tForLocale(locale, "schedule_detail_notifications"),
     notifications || tForLocale(locale, "schedule_detail_none"),
   ].join("\n");

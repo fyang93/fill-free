@@ -1,8 +1,9 @@
 import type { AppConfig } from "bot/app/types";
-import { canRequesterCreateScheduleTargets } from "bot/operations/access/control";
+import { accessLevelForUser } from "bot/operations/access/roles";
+import { canManageAllSchedules, canManageOwnSchedules, canRequesterCreateScheduleTargets, canReadSchedules } from "bot/operations/access/control";
 import { buildScheduleScheduleFromExternal } from "./schedule_parser";
 import { buildScheduledTaskPrompt } from "./scheduled-task";
-import { createScheduleEventWithDefaults, deleteScheduleEvent, getCurrentOccurrence, readScheduleEvents, resolveScheduleTimezone, shouldGenerateScheduledTaskOnDelivery, updateScheduleEvent } from ".";
+import { createScheduleEventWithDefaults, deleteScheduleEvent, getCurrentOccurrence, readScheduleEvents, resolveScheduleDisplayTimezone, resolveScheduleTimezone, shouldGenerateScheduledTaskOnDelivery, updateScheduleEvent } from ".";
 import type { ScheduleEvent, ScheduleNotification, ScheduleTarget } from ".";
 import type { TaskRecord } from "bot/tasks/runtime/store";
 import { enqueueTask } from "bot/tasks/runtime/store";
@@ -32,7 +33,9 @@ function extractLocalScheduledAt(event: ScheduleEvent, fallbackTimezone: string)
   if (event.schedule.kind !== "once") return undefined;
   const date = new Date(event.schedule.scheduledAt);
   if (!Number.isFinite(date.getTime())) return undefined;
-  const timezone = event.timezone || fallbackTimezone;
+  const timezone = event.timeSemantics === "local"
+    ? resolveScheduleDisplayTimezone({ bot: { defaultTimezone: fallbackTimezone } } as AppConfig, event)
+    : fallbackTimezone;
   const parts = new Intl.DateTimeFormat("sv-SE", {
     timeZone: timezone,
     year: "numeric",
@@ -113,7 +116,7 @@ function explicitScheduleIds(match: Record<string, unknown>): string[] {
   return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
 }
 
-function scheduleMatchesFilters(event: ScheduleEvent, match: Record<string, unknown>, defaultTimezone: string): boolean {
+export function scheduleMatchesFilters(event: ScheduleEvent, match: Record<string, unknown>, defaultTimezone: string): boolean {
   if (!idMatches(event, match)) return false;
   if (!titleMatches(event, match)) return false;
   const scheduledDate = typeof match.scheduledDate === "string" && match.scheduledDate.trim() ? match.scheduledDate.trim() : undefined;
@@ -126,11 +129,50 @@ function scheduleMatchesFilters(event: ScheduleEvent, match: Record<string, unkn
     if (eventScheduledAt !== normalizedScheduledAt && localScheduledAt !== normalizedScheduledAt) return false;
   }
   if (match.timeframe === "tomorrow") {
-    const timezone = event.timezone || defaultTimezone;
+    const timezone = resolveScheduleDisplayTimezone({ bot: { defaultTimezone } } as AppConfig, event);
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
     if (extractScheduledDate(event) !== normalizeDateKey(tomorrow, timezone)) return false;
   }
   return true;
+}
+
+export async function resolveSchedulesByMatch(
+  config: AppConfig,
+  input: {
+    match?: Record<string, unknown>;
+    requesterUserId?: number;
+    allowedStatuses?: ScheduleEvent["status"][];
+  },
+): Promise<{ mode: "single" | "batch"; events: ScheduleEvent[]; reason?: string }> {
+  const match = input.match && typeof input.match === "object" && !Array.isArray(input.match)
+    ? input.match
+    : {};
+  const allowedStatuses = input.allowedStatuses || ["active"];
+  const requesterUserId = input.requesterUserId;
+  const accessLevel = accessLevelForUser(config, requesterUserId);
+  if (!canReadSchedules(accessLevel)) {
+    return { mode: "single", events: [], reason: "schedule-read-not-allowed" };
+  }
+
+  const allEvents = (await readScheduleEvents(config)).filter((event) => allowedStatuses.includes(event.status));
+  const matchedEvents = allEvents.filter((event) => {
+    if (canManageAllSchedules(accessLevel)) return scheduleMatchesFilters(event, match, config.bot.defaultTimezone);
+    if (!canManageOwnSchedules(accessLevel)) return false;
+    if (requesterUserId && event.createdByUserId !== requesterUserId) return false;
+    return scheduleMatchesFilters(event, match, config.bot.defaultTimezone);
+  });
+
+  const batchIds = explicitScheduleIds(match);
+  if (batchIds.length > 0) {
+    const byId = new Map(allEvents.map((event) => [event.id, event]));
+    const resolved = batchIds.map((id) => byId.get(id)).filter((event): event is ScheduleEvent => Boolean(event));
+    if (resolved.length !== batchIds.length) return { mode: "batch", events: [], reason: "schedule-batch-not-resolved" };
+    return { mode: "batch", events: resolved };
+  }
+
+  if (matchedEvents.length === 1) return { mode: "single", events: [matchedEvents[0]] };
+  if (matchedEvents.length > 1) return { mode: "single", events: matchedEvents, reason: "schedule-ambiguous" };
+  return { mode: "single", events: [], reason: "schedule-not-resolved" };
 }
 
 async function resolveSchedulesForMutation(
@@ -139,27 +181,13 @@ async function resolveSchedulesForMutation(
   allowedStatuses: ScheduleEvent["status"][] = ["active"],
 ): Promise<{ mode: "single" | "batch"; events: ScheduleEvent[]; reason?: string }> {
   const payload = task.payload;
-  const match = payload.match && typeof payload.match === "object" && !Array.isArray(payload.match)
-    ? payload.match as Record<string, unknown>
-    : {};
-
-  const requesterUserId = task.source?.requesterUserId;
-  const events = (await readScheduleEvents(config)).filter((event) => allowedStatuses.includes(event.status)).filter((event) => {
-    if (requesterUserId && !event.targets.some((target) => target.targetKind === "user" && target.targetId === requesterUserId)) return false;
-    return scheduleMatchesFilters(event, match, config.bot.defaultTimezone);
+  return resolveSchedulesByMatch(config, {
+    match: payload.match && typeof payload.match === "object" && !Array.isArray(payload.match)
+      ? payload.match as Record<string, unknown>
+      : {},
+    requesterUserId: task.source?.requesterUserId,
+    allowedStatuses,
   });
-
-  const batchIds = explicitScheduleIds(match);
-  if (batchIds.length > 0) {
-    const allEvents = (await readScheduleEvents(config)).filter((event) => allowedStatuses.includes(event.status));
-    const byId = new Map(allEvents.map((event) => [event.id, event]));
-    const resolved = batchIds.map((id) => byId.get(id)).filter((event): event is ScheduleEvent => Boolean(event));
-    if (resolved.length !== batchIds.length) return { mode: "batch", events: [], reason: "schedule-batch-not-resolved" };
-    return { mode: "batch", events: resolved };
-  }
-
-  if (events.length === 1) return { mode: "single", events: [events[0]] };
-  return { mode: "single", events: [], reason: "schedule-not-resolved" };
 }
 
 export async function enqueueScheduleCreateTask(
@@ -172,6 +200,7 @@ export async function enqueueScheduleCreateTask(
     specialKind?: string;
     timeSemantics?: string;
     timezone?: string;
+    createdByUserId?: number;
     notifications?: ScheduleNotification[];
     targets: ScheduleTarget[];
   },
@@ -194,6 +223,7 @@ export async function enqueueScheduleCreateTask(
       specialKind: input.specialKind,
       timeSemantics: input.timeSemantics,
       timezone: input.timezone,
+      createdByUserId: input.createdByUserId,
       notifications: input.notifications,
       targets: input.targets,
     },
@@ -254,7 +284,7 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       category,
       specialKind,
       timeSemantics: payload.timeSemantics === "absolute" || payload.timeSemantics === "local" ? payload.timeSemantics : undefined,
-      timezone: resolvedTimezone,
+      createdByUserId: task.source?.requesterUserId,
       notifications,
       targets,
     });
@@ -286,22 +316,23 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       if (typeof changes.title === "string" && changes.title.trim()) event.title = changes.title.trim();
       if (typeof changes.note === "string") event.note = changes.note.trim() || undefined;
 
-      const timezoneChanged = typeof changes.timezone === "string" && changes.timezone.trim().length > 0;
-      if (timezoneChanged) event.timezone = changes.timezone.trim();
+      const nextTimeSemantics = changes.timeSemantics === "absolute" || changes.timeSemantics === "local" ? changes.timeSemantics : undefined;
+      const timeSemanticsChanged = Boolean(nextTimeSemantics);
+      if (nextTimeSemantics) event.timeSemantics = nextTimeSemantics;
 
-      const timeSemanticsChanged = changes.timeSemantics === "absolute" || changes.timeSemantics === "local";
-      if (timeSemanticsChanged) event.timeSemantics = changes.timeSemantics;
+      const nextCategory = changes.category === "routine" || changes.category === "special" || changes.category === "scheduled-task" ? changes.category : undefined;
+      if (nextCategory) event.category = nextCategory;
 
-      const categoryChanged = changes.category === "routine" || changes.category === "special" || changes.category === "scheduled-task";
-      if (categoryChanged) event.category = changes.category;
-
-      const specialKindChanged = changes.specialKind === "birthday" || changes.specialKind === "festival" || changes.specialKind === "anniversary" || changes.specialKind === "memorial";
-      if (specialKindChanged) event.specialKind = changes.specialKind;
+      const nextSpecialKind = changes.specialKind === "birthday" || changes.specialKind === "festival" || changes.specialKind === "anniversary" || changes.specialKind === "memorial"
+        ? changes.specialKind
+        : undefined;
+      if (nextSpecialKind) event.specialKind = nextSpecialKind;
       else if (changes.specialKind === null) event.specialKind = undefined;
 
       const notificationsChanged = Array.isArray(changes.notifications);
       if (notificationsChanged) {
-        event.notifications = changes.notifications.filter((item): item is ScheduleNotification => Boolean(item) && typeof item === "object" && typeof (item as ScheduleNotification).id === "string" && Number.isInteger((item as ScheduleNotification).offsetMinutes));
+        const notificationItems = changes.notifications as unknown[];
+        event.notifications = notificationItems.filter((item: unknown): item is ScheduleNotification => Boolean(item) && typeof item === "object" && typeof (item as ScheduleNotification).id === "string" && Number.isInteger((item as ScheduleNotification).offsetMinutes));
       }
 
       if (event.specialKind && event.category !== "special") {
@@ -313,14 +344,11 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
 
       const scheduleChanged = Boolean(changes.schedule && typeof changes.schedule === "object" && !Array.isArray(changes.schedule));
       if (scheduleChanged) {
-        const resolvedTimezone = (typeof changes.timezone === "string" && changes.timezone.trim()) || event.timezone || resolveScheduleTimezone(config, { userId: task.source?.requesterUserId });
+        const resolvedTimezone = resolveScheduleTimezone(config, { userId: event.createdByUserId || task.source?.requesterUserId });
         event.schedule = buildScheduleScheduleFromExternal(changes.schedule as Record<string, unknown>, resolvedTimezone);
-        if (!event.timezone) {
-          event.timezone = resolvedTimezone;
-        }
       }
 
-      const shouldRefreshDeliveryState = scheduleChanged || timezoneChanged || timeSemanticsChanged || notificationsChanged;
+      const shouldRefreshDeliveryState = scheduleChanged || timeSemanticsChanged || notificationsChanged;
       if (shouldRefreshDeliveryState) {
         event.deliveryState = undefined;
         event.deliveryText = undefined;

@@ -1,6 +1,6 @@
 /**
  * Single-scenario live test runner.
- * Usage: bun run tests/run-scenario.ts <scenario-number>
+ * Usage: npm exec tsx tests/run-scenario.ts <scenario-number>
  *
  * Runs one scenario at a time against a live OpenCode server,
  * writes results to logs/test-runs/live-assistant.log.
@@ -182,7 +182,7 @@ const scenarios: Array<{ name: string; run: (config: AppConfig, agentService: Ai
 async function main() {
   const scenarioNum = parseInt(process.argv[2] || "0", 10);
   if (scenarioNum < 1 || scenarioNum > scenarios.length) {
-    console.log(`Usage: bun run tests/run-scenario.ts <1-${scenarios.length}>`);
+    console.log(`Usage: npm exec tsx tests/run-scenario.ts <1-${scenarios.length}>`);
     console.log("\nAvailable scenarios:");
     for (const s of scenarios) console.log(`  ${s.name}`);
     process.exit(0);

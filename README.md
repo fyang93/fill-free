@@ -156,9 +156,9 @@ The admin may also temporarily allow a `@username` and choose any expiry window.
 ## Testing
 
 ```bash
-bun run test
-bun run test:nl
-bun run test:nl-live
+npm test
+npm run test:nl
+npm run test:live
 just test
 ```
 

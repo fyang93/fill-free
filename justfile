@@ -9,7 +9,7 @@ alias s := serve
 
 # Install project dependencies.
 install:
-    bun install
+    npm install
 
 # Start a fresh OpenCode server, then run the bot. Usage: `just serve`.
 serve:
@@ -23,13 +23,13 @@ serve:
     opencode_pid=$!; \
     trap 'kill "$opencode_pid" 2>/dev/null || true' EXIT; \
     sleep 2; \
-    bun run bot
+    npm run bot
 
 # Run manual test suite, including live natural-language tests.
 test:
-    bun run test
-    bun run test:nl-live
+    npm run test
+    npm run test:live
 
 # Run only live natural-language tests against OpenCode manually.
 test-live:
-    bun run test:nl-live
+    npm run test:live

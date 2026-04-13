@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readScheduleEvents } from "bot/operations/schedules/store";
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 
@@ -285,5 +286,53 @@ export async function pruneFinishedTasks(config: AppConfig): Promise<{ removed: 
     const removed = removedTasks.length;
     if (removed > 0) await writeTaskStore(config, { tasks: next });
     return { removed, removedSummaries };
+  });
+}
+
+export async function pruneOrphanedSchedulePreparationTasks(config: AppConfig): Promise<{ removed: number; removedSummaries: string[] }> {
+  const schedules = await readScheduleEvents(config);
+  const existingScheduleIds = new Set(schedules.map((event) => event.id));
+  return mutateTaskStore(config, async (store) => {
+    const removedTasks = store.tasks.filter((task) => {
+      if (task.domain !== "schedules" || task.operation !== "prepare-delivery-text") return false;
+      const payloadScheduleId = typeof task.payload.scheduleId === "string" && task.payload.scheduleId.trim() ? task.payload.scheduleId.trim() : "";
+      const subjectScheduleId = task.subject?.kind === "schedule" && task.subject?.id?.trim() ? task.subject.id.trim() : "";
+      const scheduleId = payloadScheduleId || subjectScheduleId;
+      return !scheduleId || !existingScheduleIds.has(scheduleId);
+    });
+    const removedIds = new Set(removedTasks.map((task) => task.id));
+    const next = store.tasks.filter((task) => !removedIds.has(task.id));
+    const removedSummaries = removedTasks.map((task) => taskSummary(task)).sort((a, b) => a.localeCompare(b));
+    const removed = removedTasks.length;
+    if (removed > 0) await writeTaskStore(config, { tasks: next });
+    return { removed, removedSummaries };
+  });
+}
+
+export async function failStaleRunningTasks(config: AppConfig, staleAfterMs = 15 * 60 * 1000): Promise<{ changed: number; changedSummaries: string[] }> {
+  return mutateTaskStore(config, async (store) => {
+    const now = Date.now();
+    const changedTasks: TaskRecord[] = [];
+    const next = store.tasks.map((task) => {
+      if (task.state !== "running") return task;
+      const updatedAt = Date.parse(task.updatedAt || task.createdAt);
+      if (!Number.isFinite(updatedAt) || now - updatedAt < staleAfterMs) return task;
+      const changed: TaskRecord = {
+        ...task,
+        state: "failed",
+        updatedAt: new Date().toISOString(),
+        error: {
+          message: `stale running task recovered after ${Math.round((now - updatedAt) / 1000)}s without completion`,
+          code: "stale-running-task",
+        },
+      };
+      changedTasks.push(changed);
+      return changed;
+    });
+    if (changedTasks.length > 0) await writeTaskStore(config, { tasks: next });
+    return {
+      changed: changedTasks.length,
+      changedSummaries: changedTasks.map((task) => taskSummary(task)).sort((a, b) => a.localeCompare(b)),
+    };
   });
 }
