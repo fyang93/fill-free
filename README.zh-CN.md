@@ -1,113 +1,173 @@
-# The Defect Bot
+# 故障机器人
 
 [English README](README.md)
 
-The Defect Bot 是一个本地优先的个人记忆仓库，带有由 OpenCode 驱动的 Telegram bot 入口。它不完美，但免费。
+一个本地优先的 Telegram bot，用于个人记忆、文件、日程，以及轻量的消息转达流程。
 
-## 怎么使用
+它通过本地 OpenCode server 运行，把规范事实保存在仓库里，并把 Telegram 视为平台适配器，而不是整个系统的中心。
 
-一般情况下，你不需要手动编辑 `memory/` 里的笔记。
+## 它能做什么
 
-- 直接告诉 AI 需要记住或更新什么信息
-- 把文件放进 `tmp/`，让 AI 帮你整理
-- 让 AI 把需要长期保存的文件移到 `assets/` 并加到相关笔记里
-- 需要时再让 AI 帮你找回已有信息
+- 记住并查询个人事实信息
+- 整理上传的文件和资料
+- 创建和管理日程
+- 向已授权用户或已知群聊发送消息或定时投递内容
+- 让 admin 通过 bot 管理持久用户角色
 
-## 常见说法
+## 架构
+
+整体上，它是一个简洁的分层系统：bot runtime、平台适配、AI、仓库 CLI、领域事务、档案，并优先把仓库 CLI 作为确定性执行边界。
 
 ```text
-请记一下，我的生日是 2000-01-01。
-更新一下我的个人资料：我现在的手机号是 13800000000。
-我把毕业证放进 tmp/ 了，帮我整理进记忆。
-这两个文件是我的身份证正反面，帮我保存并链接到个人资料里。
-帮我把这次签证申请要用的资料整理出来。
+交互
+  接收并发送用户消息
+  |
+  v
+调度
+  协调循环、会话与任务时机
+  |
+  +-- 助手
+  |     一个主 agent 负责理解请求与执行
+  |     |
+  |     +--> Repository CLI + Skills
+  |     |      |
+  |     |      +--> 事务 / 档案
+  |     |             领域逻辑与规范持久状态
+  |
+  +-- 维护器
+         清理、修复与维护
+         |
+         +--> 事务
 ```
 
-默认情况下，AI 会根据文件名和你的指令整理文件，不会主动读取文档内容；只有你明确要求时，才会进一步解析文件内容。
+当前对话主流程以单助手通道为中心：
 
-## 仓库里存的是什么
+- bot 侧代码和 repo CLI 侧代码分别收敛在 `src/bot/**` 与 `src/cli/**`，边界显式分开
 
-- `memory/`：AI-safe Markdown 笔记
-- `assets/`：长期保存的文件和附件
-- `tmp/`：临时工作区，用来放待整理文件和中间产物
-- `index/`：Telegram bot 运行时状态
+- 助手直接理解请求，并在需要时直接执行工作
+- 当前方向是由 runtime 代码负责当前回合回复发布，而 assistant 主要使用仓库内 CLI 和 skills 完成工作
+- runtime 代码负责等待态 UI、中断、启动阶段的短暂聚合 / 输入合并，以及避免重复发送
+- 固定 UI 文本保留在 i18n 中；自然对话措辞交给模型生成
+- assistant 的自然回复语言跟随用户实际对话语言，而 `/language` 只控制固定 UI 文本
 
-## 初始化
+### 会话作用域
 
-需要：
+短期对话上下文由 OpenCode 会话按作用域保存：
 
-- `bun`
-- `just`
-- `fd`
-- `ripgrep`
+- **私聊** -> 每个用户一个会话
+- **群 / 超级群** -> 每个群一个会话
 
-安装依赖：
+长期事实、访问角色、日程、结构化状态**不依赖**模型会话历史，而是保存在仓库状态中，例如：
+
+- `system/users.json`
+- `system/chats.json`
+- `system/tasks.json`
+- `system/state.json`
+- `system/schedules.json`
+
+这些状态现在优先通过确定性代码路径和 repository CLI 管理，而不是继续依赖 prompt 里定义的大型持久化协议。各文件职责见 `docs/system-stores.md`。
+
+## Skill map
+
+仓库里的 skill 集合保持得很小。仓库特定工作应优先走 CLI + skills：
+
+- `cli-shared`：repository CLI 的共享 / 基础指导
+- `cli-schedules`：提醒与定时任务相关流程
+- `cli-telegram`：Telegram 外发投递相关流程
+- `cli-access`：用户与授权相关流程
+- `memory`：仓库本地的长期笔记、偏好与事实
+
+## 快速开始
 
 ```bash
-bun install
-```
-
-## OpenCode + Telegram Bot
-
-快速开始：
-
-1. 先把 `config.toml.example` 复制成 `config.toml`
-2. 填好你的 Telegram bot 配置
-3. 启动：
-
-```bash
+cp config.toml.example config.toml
+cp .env.example .env
+just install
 just serve
 ```
 
-如果 `127.0.0.1:4096` 上已经有正在运行的 OpenCode server，会直接复用。
+## 配置
 
-常用配置：
+至少填写：
 
-- `telegram.allowed_user_ids`：允许访问 bot 的 Telegram 用户 ID 列表
-- `telegram.admin_user_id`：可选的管理员 Telegram 用户 ID，拥有最高权限；该用户始终可访问，并且在其明确要求时可以直接返回内部/敏感细节而不额外做隐私拦截
-- `telegram.language`：同时控制界面文案和对话回复语言（`zh` 或 `en`）
-- `telegram.waiting_message`：任务处理中先显示的等待文案
-- `telegram.waiting_message_candidates`：可选的等待文案列表；非空时按配置的轮换间隔随机替换
-- `telegram.waiting_message_rotation_ms`：等待文案列表的轮换间隔，默认 `5000`
-- `telegram.persona_style`：调整 bot 的回复风格
+- `telegram.bot_token`
+- `telegram.admin_user_id`
 
-## Telegram Bot
+典型配置：
 
-支持命令：
+```toml
+[telegram]
+bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
+admin_user_id = 333333333
+waiting_message = "机宝启动中..."
+waiting_message_candidate_count = 20
+waiting_message_rotation_seconds = 5
+input_merge_window_seconds = 3
+menu_page_size = 8
 
-- `/help`
-- `/new`
-- `/model`
-- `/reminders`
+[bot]
+language = "zh-CN"
+persona_style = "模仿杀戮尖塔里的故障机器人说话。"
+default_timezone = "Asia/Tokyo"
 
-使用方式：
+[maintenance]
+enabled = true
+idle_after_minutes = 15
 
-- 直接发普通文本和 bot 对话
-- 上传文件后会保存到 `tmp/telegram/<date>/`
-- 给上传文件带上 caption，可以立刻继续处理
-- 如果你索要仓库里已有的图片或文件，bot 可以直接回传给你
+[opencode]
+base_url = "http://127.0.0.1:4096"
+```
+
+一些常用的可选项：
+
+- `telegram.menu_page_size`：Telegram 内联菜单分页大小
+- `telegram.input_merge_window_seconds`：将短时间内追加的文本/文件合并进同一轮进行中的窗口
+- `telegram.waiting_message`：立即显示的初始等待文案；如果为空，就不显示初始等待消息
+- `telegram.waiting_message_candidate_count`：persona 化等待文案候选池目标数量，持久化到 `system/state.json`
+- `telegram.waiting_message_rotation_seconds`：较长回合里，runtime 从未使用候选池中随机轮换 waiting message 的间隔秒数
+- `bot.language`：用户尚未通过 `/language` 选择界面语言时使用的默认 UI 语言；可选 `zh-CN` 或 `en`
+- `bot.default_timezone`：用户未显式提供时使用的默认时区
+- `maintenance.idle_after_minutes`：空闲多少分钟后触发 maintenance
+- `[opencode].base_url`：本地 OpenCode server 地址
+
+## Telegram 使用前提
+
+- 任何需要接收 bot 私聊消息的用户，都必须先主动和 bot 私聊一次。
+- 如果要在群里使用这个 bot，需要去 **BotFather** 把该 bot 的 **Group Privacy** 关闭。
+
+## 权限级别
+
+- `allowed user`：可以和 bot 对话，但只能在自身 / 当前已关联对话上下文范围内使用低风险基础能力；不能访问超出该范围的隐私信息
+- `trusted user`：可以读取和修改记忆、上传 / 处理文件、创建日程，以及使用其他持久化工作流
+- `admin user`：在 trusted 的基础上拥有管理权限，例如管理持久角色和发放临时授权
+
+当前代码已经在 assistant 主通道里落实了 allowed user 的隐私边界：allowed user 会被限制在 allowed-user scope 内，不能获取超出 linked conversation context 的隐私信息。
+
+admin 也可以对某个 `@username` 做临时授权，并指定任意有效期。之后，对方只要在临时授权过期前和 bot 发生一次可识别交互，系统就能关联该账号并授予访问权限。这可以是私聊，也可以是在群里 `@bot`，或者在群里回复 bot 的消息。
+
+## 使用示例
+
+- “记一下我的护照号。”
+- “我的家庭住址是什么？”
+- “提醒我明天早上 9 点提交申请。”
+- “发给 @someone：晚饭好了。”
+- “把这条消息发到家庭群。”
+- “把 @someone 设为 trusted。”
 
 ## 命令
 
-顶层 `justfile` 现在刻意保持极简：
+- `/help`
+- `/language`
+- `/new`
+- `/model`（仅 admin）
+
+## 测试
 
 ```bash
-just serve
+bun run test
+bun run test:nl
+bun run test:nl-live
+just test
 ```
 
-检索时优先直接用标准 shell 工具：
-
-```bash
-fd . memory
-rg -n "樱桃|郭旸" memory
-rg -n -C 2 "三井住友|SMBC" memory
-```
-
-日常使用时优先直接对 AI 提需求。这个仓库现在更接近 pi 的极简哲学：默认暴露更少的命令面，只依赖 `fd`、`rg` 和直接读文件来完成大部分检索。frontmatter 仍然保留，用来提供轻量结构、别名和摘要；但真正回答问题时，应该优先依赖正文搜索，而不是额外维护一套元数据索引。
-
-为了减少检索噪音，建议每个 markdown 尽量只负责一类稳定主题，并把 tag 控制在较少数量。默认建议每条笔记不超过 3 个 tag，例如把 `memory/profile.md` 和 `memory/banking.md` 分开，而不是做成一个大而全的文件。相比固定长度上限，更应该按语义边界拆分：当一条笔记开始覆盖多个稳定检索主题时，就应该考虑拆成 sibling notes。
-
-## 敏感信息
-
-普通个人信息在你明确要求时可以直接记录。密码也可以在你明确要求时直接保存。对 API key、private key、recovery code、银行卡号、CVV 这类高度敏感的信息，AI 应先提醒风险，再决定是否继续处理。
-
+当前回归测试覆盖了确定性的存储行为和真实自然语言流程，包括日程 CRUD、用户访问级别变更、外发消息、符合 persona 的用户可见文案，以及按用户时区换算后注入的时间上下文。

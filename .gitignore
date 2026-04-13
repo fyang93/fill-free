@@ -8,16 +8,11 @@ dist/
 build/
 node_modules/
 config.toml
+.env
 logs/
-
-.local/*
-!.local/.gitignore
 
 tmp/*
 !tmp/.gitkeep
-
-index/*
-!index/.gitkeep
 
 memory/**
 !memory/**/
@@ -28,3 +23,12 @@ assets/**
 !assets/**/
 !assets/.gitkeep
 !assets/**/.gitkeep
+
+system/**
+!system/
+!system/.gitkeep
+!system/schemas/
+!system/schemas/**
+
+.nfs*
+

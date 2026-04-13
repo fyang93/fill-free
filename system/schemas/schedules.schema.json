@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system/schemas/schedules.schema.json",
+  "title": "Stored schedules in /system/schedules.json",
+  "description": "Canonical persisted schema for schedule events. Special reminders such as birthdays must use category='special' and specialKind='birthday'|'festival'|'anniversary'|'memorial'. If notifications is omitted at creation time, code may apply defaults; for special reminders the default notifications are typically 2 weeks before, 1 week before, 1 day before, and same day.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/ScheduleEvent" },
+  "$defs": {
+    "ScheduleNotification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "offsetMinutes", "enabled"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "offsetMinutes": { "type": "integer", "description": "Negative means before scheduledAt/occurrence; 0 means same time." },
+        "enabled": { "type": "boolean" },
+        "label": { "type": "string" }
+      }
+    },
+    "ScheduleTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetKind", "targetId"],
+      "properties": {
+        "targetKind": { "enum": ["user", "chat"] },
+        "targetId": { "type": "integer" }
+      }
+    },
+    "TimeOfDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hour", "minute"],
+      "properties": {
+        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "minute": { "type": "integer", "minimum": 0, "maximum": 59 }
+      }
+    },
+    "ScheduleOnce": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scheduledAt"],
+      "properties": {
+        "kind": { "const": "once" },
+        "scheduledAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ScheduleInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "unit", "every", "anchorAt"],
+      "properties": {
+        "kind": { "const": "interval" },
+        "unit": { "enum": ["minute", "hour", "day", "week", "month", "year"] },
+        "every": { "type": "integer", "minimum": 1 },
+        "anchorAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ScheduleWeekly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "every", "daysOfWeek", "time"],
+      "properties": {
+        "kind": { "const": "weekly" },
+        "every": { "type": "integer", "minimum": 1 },
+        "daysOfWeek": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 6 },
+          "description": "0=Sunday ... 6=Saturday"
+        },
+        "time": { "$ref": "#/$defs/TimeOfDay" },
+        "anchorDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      }
+    },
+    "ScheduleMonthlyDayOfMonth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "every", "mode", "dayOfMonth", "time"],
+      "properties": {
+        "kind": { "const": "monthly" },
+        "every": { "type": "integer", "minimum": 1 },
+        "mode": { "const": "dayOfMonth" },
+        "dayOfMonth": { "type": "integer", "minimum": 1, "maximum": 31 },
+        "time": { "$ref": "#/$defs/TimeOfDay" },
+        "anchorDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      }
+    },
+    "ScheduleMonthlyNthWeekday": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "every", "mode", "weekOfMonth", "dayOfWeek", "time"],
+      "properties": {
+        "kind": { "const": "monthly" },
+        "every": { "type": "integer", "minimum": 1 },
+        "mode": { "const": "nthWeekday" },
+        "weekOfMonth": { "type": "integer", "minimum": -1, "maximum": 5, "description": "1..5 or -1 for last" },
+        "dayOfWeek": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "time": { "$ref": "#/$defs/TimeOfDay" },
+        "anchorDate": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      }
+    },
+    "ScheduleYearly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "every", "month", "day", "time"],
+      "properties": {
+        "kind": { "const": "yearly" },
+        "every": { "type": "integer", "minimum": 1 },
+        "month": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "day": { "type": "integer", "minimum": 1, "maximum": 31 },
+        "time": { "$ref": "#/$defs/TimeOfDay" },
+        "offsetDays": { "type": "integer" }
+      }
+    },
+    "ScheduleLunarYearly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "month", "day", "time"],
+      "properties": {
+        "kind": { "const": "lunarYearly" },
+        "month": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "day": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "isLeapMonth": { "type": "boolean" },
+        "leapMonthPolicy": { "enum": ["same-leap-only", "prefer-non-leap", "both"] },
+        "time": { "$ref": "#/$defs/TimeOfDay" },
+        "offsetDays": { "type": "integer" }
+      }
+    },
+    "ScheduleSchedule": {
+      "oneOf": [
+        { "$ref": "#/$defs/ScheduleOnce" },
+        { "$ref": "#/$defs/ScheduleInterval" },
+        { "$ref": "#/$defs/ScheduleWeekly" },
+        { "$ref": "#/$defs/ScheduleMonthlyDayOfMonth" },
+        { "$ref": "#/$defs/ScheduleMonthlyNthWeekday" },
+        { "$ref": "#/$defs/ScheduleYearly" },
+        { "$ref": "#/$defs/ScheduleLunarYearly" }
+      ]
+    },
+    "DeliveryState": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "currentOccurrence": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["scheduledAt", "sentNotificationIds"],
+          "properties": {
+            "scheduledAt": { "type": "string", "format": "date-time" },
+            "sentNotificationIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "ScheduleEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "timeSemantics",
+        "timezone",
+        "schedule",
+        "notifications",
+        "category",
+        "status",
+        "createdAt",
+        "targets"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "timeSemantics": { "enum": ["absolute", "local"] },
+        "timezone": { "type": "string", "minLength": 1 },
+        "schedule": { "$ref": "#/$defs/ScheduleSchedule" },
+        "notifications": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ScheduleNotification" }
+        },
+        "category": { "enum": ["routine", "special", "scheduled-task"] },
+        "specialKind": { "enum": ["birthday", "festival", "anniversary", "memorial"] },
+        "status": { "enum": ["active", "paused", "deleted"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ScheduleTarget" }
+        },
+        "deliveryText": { "type": "string" },
+        "deliveryTextGeneratedAt": { "type": "string", "format": "date-time" },
+        "deliveryPreparedNotificationId": { "type": "string" },
+        "deliveryPreparedNotifyAt": { "type": "string", "format": "date-time" },
+        "deliveryState": { "$ref": "#/$defs/DeliveryState" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "specialKind": { "const": "birthday" } },
+            "required": ["specialKind"]
+          },
+          "then": {
+            "properties": { "category": { "const": "special" } },
+            "required": ["category"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "specialKind": { "enum": ["birthday", "festival", "anniversary", "memorial"] } },
+            "required": ["specialKind"]
+          },
+          "then": {
+            "properties": { "category": { "const": "special" } },
+            "required": ["category"]
+          }
+        }
+      ]
+    }
+  }
+}

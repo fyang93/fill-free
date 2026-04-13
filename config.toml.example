@@ -1,21 +1,22 @@
 [telegram]
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
-allowed_user_ids = [123456789]
-admin_user_id = 123456789
-polling_timeout_sec = 20
-polling_interval_ms = 300
-max_file_size_mb = 200
-persona_style = "Speak like the Defect from Slay the Spire."
-language = "zh"
+# Bootstrap admin user. Durable user roles live in system/users.json.
+admin_user_id = 333333333
 waiting_message = "机宝启动中..."
-waiting_message_candidates = ["还在想...", "再等我一下...", "马上就好..."]
-waiting_message_rotation_ms = 5000
+waiting_message_candidate_count = 20
+waiting_message_rotation_seconds = 5
+input_merge_window_seconds = 3
+menu_page_size = 8
 
-[paths]
-repo_root = "."
-tmp_dir = "tmp"
-upload_subdir = "telegram"
-log_file = "logs/telegram-bot.log"
+[bot]
+persona_style = "Speak like the Defect from Slay the Spire."
+# Choose "zh-CN" or "en"
+language = "zh-CN"
+default_timezone = "Asia/Tokyo"
+
+[maintenance]
+enabled = true
+idle_after_minutes = 15
 
 [opencode]
 base_url = "http://127.0.0.1:4096"
