@@ -21,20 +21,14 @@ function clarificationScopeKey(chatType: string | undefined, requesterUserId: nu
 }
 
 function deterministicTurnTimeContext(messageTime: string | undefined, timezone: string | null | undefined): {
-  requesterTimezone: string;
-  localDate: string;
-  localTime: string;
+  timezone: string;
   localDateTime: string;
-  localWeekday: string;
 } | null {
   const parts = formatIsoInTimezoneParts(messageTime, timezone);
   if (!parts) return null;
   return {
-    requesterTimezone: parts.timezone,
-    localDate: parts.localDate,
-    localTime: parts.localTime,
+    timezone: parts.timezone,
     localDateTime: parts.localDateTime,
-    localWeekday: parts.localWeekday,
   };
 }
 
@@ -47,8 +41,6 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
     .slice(0, 3);
   const recentClarification = getRecentClarification(clarificationScopeKey(chat?.type, input.requesterUserId, input.chatId));
 
-  const relevantRules: Array<{ id: string; topic: string; appliesTo: unknown; content: string; updatedAt: string }> = [];
-
   const payload = {
     turnTime,
     requesterUser: requesterUser && input.requesterUserId != null ? {
@@ -56,7 +48,7 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
       username: requesterUser.username || null,
       displayName: requesterUser.displayName || null,
       timezone: requesterUser.timezone || null,
-      rules: requesterUser.rules || [],
+      rules: requesterUser.rules && requesterUser.rules.length > 0 ? requesterUser.rules : undefined,
     } : null,
     currentChat: chat && input.chatId != null ? {
       id: String(input.chatId),
@@ -65,7 +57,6 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
       activeUserIds: activeUsers.map(([userId]) => userId),
     } : null,
     recentClarification,
-    relevantRules,
   };
 
   return [

@@ -1,3 +1,4 @@
+import { formatIsoInTimezoneLocalString } from "bot/app/time";
 import type { AppConfig } from "bot/app/types";
 import { accessLevelForUser } from "bot/operations/access/roles";
 import { canManageAllSchedules, canManageOwnSchedules, canRequesterCreateScheduleTargets, canReadSchedules } from "bot/operations/access/control";
@@ -24,6 +25,11 @@ function extractScheduledDate(event: ScheduleEvent): string | undefined {
   return event.schedule.scheduledAt.slice(0, 10);
 }
 
+function extractLocalScheduledDate(event: ScheduleEvent, fallbackTimezone: string): string | undefined {
+  const local = extractLocalScheduledAt(event, fallbackTimezone);
+  return local ? local.slice(0, 10) : undefined;
+}
+
 function extractScheduledAt(event: ScheduleEvent): string | undefined {
   if (event.schedule.kind !== "once") return undefined;
   return event.schedule.scheduledAt;
@@ -31,23 +37,10 @@ function extractScheduledAt(event: ScheduleEvent): string | undefined {
 
 function extractLocalScheduledAt(event: ScheduleEvent, fallbackTimezone: string): string | undefined {
   if (event.schedule.kind !== "once") return undefined;
-  const date = new Date(event.schedule.scheduledAt);
-  if (!Number.isFinite(date.getTime())) return undefined;
   const timezone = event.timeSemantics === "local"
     ? resolveScheduleDisplayTimezone({ bot: { defaultTimezone: fallbackTimezone } } as AppConfig, event)
     : fallbackTimezone;
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${byType.year}-${byType.month}-${byType.day}T${byType.hour}:${byType.minute}:${byType.second}`;
+  return formatIsoInTimezoneLocalString(event.schedule.scheduledAt, timezone);
 }
 
 function scheduleTargetSubject(targets: ScheduleTarget[]): TaskRecord["subject"] {
@@ -120,7 +113,7 @@ export function scheduleMatchesFilters(event: ScheduleEvent, match: Record<strin
   if (!idMatches(event, match)) return false;
   if (!titleMatches(event, match)) return false;
   const scheduledDate = typeof match.scheduledDate === "string" && match.scheduledDate.trim() ? match.scheduledDate.trim() : undefined;
-  if (scheduledDate && extractScheduledDate(event) !== scheduledDate) return false;
+  if (scheduledDate && extractScheduledDate(event) !== scheduledDate && extractLocalScheduledDate(event, defaultTimezone) !== scheduledDate) return false;
   const scheduledAt = typeof match.scheduledAt === "string" && match.scheduledAt.trim() ? match.scheduledAt.trim() : undefined;
   if (scheduledAt) {
     const normalizedScheduledAt = scheduledAt.replace(/\.000Z$/, "").replace(/Z$/, "");

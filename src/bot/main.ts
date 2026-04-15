@@ -1,6 +1,5 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot } from "grammy";
 import { loadConfig } from "bot/app/config";
-import type { AppConfig } from "bot/app/types";
 import { DEFAULT_CONFIG_PATH, startConfigWatcher } from "bot/app/config_runtime";
 import { configureLogger, logger } from "bot/app/logger";
 import { AiService } from "bot/ai";
@@ -14,7 +13,7 @@ import {
   providersFromModels,
   resolveDisplayedModel,
 } from "bot/telegram/model-selection/menu";
-import { localeNameKey, tForLocale, tForUser, type Locale } from "bot/app/i18n";
+import { tForLocale, tForUser, type Locale } from "bot/app/i18n";
 import { replyFormatted, sendMessageFormatted } from "bot/telegram/format";
 import { accessLevelForUserId, hasUserAccessLevel, isAddressedToBot, isAdminUserId, unauthorizedGuard } from "bot/operations/access/control";
 import { handleModelCallback } from "bot/telegram/model-selection/callback";
@@ -23,20 +22,6 @@ import { createMaintainerRunner } from "bot/runtime";
 import { warmWaitingMessageCandidates } from "bot/runtime/assistant";
 import { enqueueSchedulePreparationTask, startTaskWorker } from "bot/tasks";
 import { shouldGenerateScheduledTaskOnDelivery, scheduledTaskPromptForEvent } from "bot/operations/schedules";
-import { getUserPreferredLanguage, setUserPreferredLanguage } from "bot/operations/context/user-prefs";
-
-const LANG_CALLBACK_PREFIX = "lang:";
-
-function languageLabel(_config: AppConfig, locale: Locale): string {
-  return tForLocale(locale, localeNameKey(locale));
-}
-
-function buildLanguageKeyboard(config: AppConfig, activeLocale: Locale): InlineKeyboard {
-  return new InlineKeyboard()
-    .text(activeLocale === "zh-CN" ? `✅ ${languageLabel(config, "zh-CN")}` : languageLabel(config, "zh-CN"), `${LANG_CALLBACK_PREFIX}set:zh-CN`)
-    .row()
-    .text(activeLocale === "en" ? `✅ ${languageLabel(config, "en")}` : languageLabel(config, "en"), `${LANG_CALLBACK_PREFIX}set:en`);
-}
 
 const configPath = DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -93,10 +78,7 @@ async function sendStartupGreeting(): Promise<void> {
       return;
     }
 
-    const greeting = await agentService.generateStartupGreeting({
-      requesterUserId: adminUserId,
-      preferredLanguage: config.bot.language,
-    });
+    const greeting = await agentService.generateStartupGreeting({ requesterUserId: adminUserId, preferredLanguage: config.bot.language });
     if (!greeting) {
       await logger.warn("startup greeting returned empty output; skipping greet");
       return;
@@ -159,56 +141,16 @@ bot.command("model", async (ctx) => {
   }
 });
 
-bot.command("language", async (ctx) => {
-  const currentLang = getUserPreferredLanguage(config, ctx.from?.id);
-  await replyFormatted(ctx, [
-    tForUser(config, ctx.from?.id, "lang_current", { lang: languageLabel(config, currentLang) }),
-    tForUser(config, ctx.from?.id, "choose_language"),
-  ].join("\n"), {
-    reply_markup: buildLanguageKeyboard(config, currentLang),
-  });
-});
-
 bot.command("help", async (ctx) => {
   const userId = ctx.from?.id;
   const accessLevel = accessLevelForUserId(config, userId);
-  const lines: string[] = ["/help — " + tForUser(config, userId, "command_help"), "/language — " + tForUser(config, userId, "command_lang"), "/new — " + tForUser(config, userId, "command_new")];
+  const lines: string[] = ["/help — " + tForUser(config, userId, "command_help"), "/new — " + tForUser(config, userId, "command_new")];
   if (accessLevel === "admin") lines.push("/model — " + tForUser(config, userId, "command_model"));
   await replyFormatted(ctx, lines.join("\n"));
 });
 
 bot.on("callback_query:data", async (ctx) => {
   if (await handleScheduleCallback(config, ctx)) {
-    return;
-  }
-
-  const callbackData = ctx.callbackQuery?.data || "";
-  if (callbackData.startsWith(LANG_CALLBACK_PREFIX)) {
-    const locale = callbackData.slice(`${LANG_CALLBACK_PREFIX}set:`.length);
-    if (locale !== "zh-CN" && locale !== "en") {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    const userId = ctx.from?.id;
-    if (userId) {
-      await setUserPreferredLanguage(config, userId, locale);
-      await syncUserCommandMenu(ctx.chat?.id, userId, locale).catch(async (error) => {
-        await logger.warn(`failed to sync user command menu locale=${locale} user=${userId}: ${error instanceof Error ? error.message : String(error)}`);
-      });
-    }
-    await ctx.answerCallbackQuery({ text: tForLocale(locale, "lang_switched", { lang: languageLabel(config, locale) }) });
-    if (ctx.chat?.id && ctx.callbackQuery.message?.message_id) {
-      await conversationController.editMessageTextFormattedSafe(
-        ctx,
-        ctx.chat.id,
-        ctx.callbackQuery.message.message_id,
-        [
-          tForLocale(locale, "lang_current", { lang: languageLabel(config, locale) }),
-          tForLocale(locale, "choose_language"),
-        ].join("\n"),
-        { reply_markup: buildLanguageKeyboard(config, locale) },
-      );
-    }
     return;
   }
 
@@ -254,7 +196,6 @@ bot.catch(async (error) => {
 function buildBotCommands(locale: Locale) {
   const commandKeys = [
     { command: "help", key: "command_help" },
-    { command: "language", key: "command_lang" },
     { command: "new", key: "command_new" },
     { command: "model", key: "command_model" },
   ] as const;
@@ -266,16 +207,7 @@ function buildBotCommands(locale: Locale) {
 }
 
 async function syncBotCommands(): Promise<void> {
-  await bot.api.setMyCommands(buildBotCommands("zh-CN"));
-  await bot.api.setMyCommands(buildBotCommands("en"), { language_code: "en" });
-}
-
-async function syncUserCommandMenu(chatId: number | undefined, userId: number | undefined, locale: Locale): Promise<void> {
-  if (!chatId || !userId) return;
-  const scope = chatId === userId
-    ? { type: "chat" as const, chat_id: chatId }
-    : { type: "chat_member" as const, chat_id: chatId, user_id: userId };
-  await bot.api.setMyCommands(buildBotCommands(locale), { scope });
+  await bot.api.setMyCommands(buildBotCommands(config.bot.language));
 }
 
 await logger.info("bot starting");

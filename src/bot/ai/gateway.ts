@@ -3,7 +3,7 @@ import type { AppConfig, AiAttachment, UploadedFile } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import { formatIsoInTimezoneParts } from "bot/app/time";
 import { state, touchActivity } from "bot/app/state";
-import { buildPersonaStyleLines, buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
+import { buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
 import { extractAiTurnResultFromText, isDisplayableUserText } from "./response";
 import type { AiTurnResult, AssistantPlanResult, AssistantProgressHandler } from "./types";
 import { ReplyComposer, type ReplyComposerInputContext } from "./reply-composer";
@@ -237,29 +237,13 @@ export class AiService {
   }): Promise<AssistantPlanResult> {
     const localMessageTime = formatIsoInTimezoneParts(input.messageTime, input.requesterTimezone?.trim() || this.config.bot.defaultTimezone);
     const prompt = [
-      "You are the main assistant agent for a local-first Telegram bot.",
-      "Apply the configured persona directly in the final reply.",
-      ...buildPersonaStyleLines(this.config.bot.personaStyle),
-      "Memory-first rule: prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
-      "This project prefers a CLI + skills execution model for deterministic repository work.",
-      "For schedule/reminder/task management, first load the relevant schedule CLI skill and use repository CLI inspect-first (list/get before ambiguous mutations).",
-      "Treat schedule/user/auth/telegram state changes as successful only after repository CLI or deterministic runtime code returns an explicit machine-readable success signal such as ok: true.",
-      "Do not claim a schedule was created, updated, paused, resumed, or deleted unless that deterministic success signal was actually observed.",
-      "For questions about people, relationships, identities, histories, preferences, or other recorded facts, inspect relevant local memory/context before answering.",
-      "For repository-grounded fact questions, do not answer from memory alone; first inspect local memory using tools or the memory skill.",
-      "If relevant local memory likely exists, do not skip retrieval and do not answer with 'I don't know' until you have checked accessible local memory/context.",
-      "Do not claim you searched, checked, or found no record unless tool execution or file inspection actually happened.",
-      "If local memory is insufficient, state the missing information briefly instead of pretending certainty.",
-      "system/ contains canonical system-managed state. Never directly edit or rewrite files under system/ during ordinary assistant work; when system state must change, use repository CLI or other deterministic repository code paths instead.",
-      "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the final reply unless the user explicitly asks for those technical details.",
-      "Context:",
+      "Turn context:",
       `requesterUserId=${input.requesterUserId ?? "unknown"}`,
       `chatId=${input.chatId ?? "unknown"}`,
       `chatType=${input.chatType || "unknown"}`,
       `accessRole=${input.accessRole}`,
       localMessageTime ? `requesterLocalTime=${localMessageTime.localDateTime} (${localMessageTime.timezone})` : "",
-      input.requesterTimezone?.trim() ? `requesterTimezone=${input.requesterTimezone.trim()}` : "",
-      input.sharedConversationContextText?.trim() ? "Context block:" : "",
+      input.sharedConversationContextText?.trim() ? "Assistant context:" : "",
       input.sharedConversationContextText?.trim() || "",
       "User request:",
       input.userRequestText.trim(),

@@ -1,35 +1,56 @@
+import { formatIsoInTimezoneLocalString } from "bot/app/time";
 import { logger } from "bot/app/logger";
 import { canManageAllSchedules, canManageOwnSchedules, canReadSchedules, canRequesterCreateScheduleTargets } from "bot/operations/access/control";
 import { accessLevelForUser } from "bot/operations/access/roles";
-import { resolveScheduleDisplayTimezone, resolveSchedulesByMatch, scheduleEventScheduleSummary, type ScheduleEvent } from "bot/operations/schedules";
+import { resolveUser } from "bot/operations/context/store";
+import { getCurrentOccurrence, listNotificationInstances, resolveScheduleDisplayTimezone, resolveSchedulesByMatch, scheduleEventScheduleSummary, scheduleMatchesFilters, type ScheduleEvent } from "bot/operations/schedules";
 import { buildScheduleScheduleFromExternal } from "bot/operations/schedules/schedule_parser";
 import { createScheduleEventWithDefaults, readScheduleEvents } from "bot/operations/schedules/store";
 import { runScheduleTask } from "bot/operations/schedules/task-actions";
 import type { RepoCliContext } from "cli/runtime";
 
-function localScheduledAt(context: RepoCliContext, event: ScheduleEvent): string | undefined {
+function requesterTimezoneForCli(context: RepoCliContext): string | undefined {
+  const requesterUserId = context.asInt(context.args.requesterUserId);
+  if (!requesterUserId) return undefined;
+  return resolveUser(context.config.paths.repoRoot, requesterUserId)?.timezone?.trim() || undefined;
+}
+
+function effectiveRequesterTimezoneForCli(context: RepoCliContext): string {
+  return requesterTimezoneForCli(context) || context.config.bot.defaultTimezone;
+}
+
+function localScheduledAt(event: ScheduleEvent, timezone: string): string | undefined {
   if (event.schedule.kind !== "once") return undefined;
-  const date = new Date(event.schedule.scheduledAt);
-  if (!Number.isFinite(date.getTime())) return undefined;
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: resolveScheduleDisplayTimezone(context.config, event),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${byType.year}-${byType.month}-${byType.day}T${byType.hour}:${byType.minute}:${byType.second}`;
+  return formatIsoInTimezoneLocalString(event.schedule.scheduledAt, timezone);
 }
 
 function serializeScheduleForCli(context: RepoCliContext, event: ScheduleEvent): Record<string, unknown> {
+  const displayTimezone = resolveScheduleDisplayTimezone(context.config, event);
+  const requesterTimezone = requesterTimezoneForCli(context);
+  const effectiveRequesterTimezone = effectiveRequesterTimezoneForCli(context);
+  const occurrence = getCurrentOccurrence(event);
+  const notifications = occurrence ? listNotificationInstances(event, occurrence) : [];
   return {
     ...event,
     scheduleSummary: scheduleEventScheduleSummary(context.config, event),
-    scheduledAtLocal: localScheduledAt(context, event),
+    displayTimezone,
+    requesterTimezone: requesterTimezone || null,
+    effectiveRequesterTimezone,
+    scheduledAtDisplayLocal: localScheduledAt(event, displayTimezone),
+    scheduledAtRequesterLocal: localScheduledAt(event, effectiveRequesterTimezone),
+    currentOccurrence: occurrence ? {
+      scheduledAt: occurrence.scheduledAt,
+      scheduledAtDisplayLocal: formatIsoInTimezoneLocalString(occurrence.scheduledAt, displayTimezone),
+      scheduledAtRequesterLocal: formatIsoInTimezoneLocalString(occurrence.scheduledAt, effectiveRequesterTimezone),
+    } : null,
+    notificationsDetailed: notifications.map((notification) => ({
+      notificationId: notification.notificationId,
+      label: notification.label,
+      offsetMinutes: notification.offsetMinutes,
+      notifyAt: notification.notifyAt,
+      notifyAtDisplayLocal: formatIsoInTimezoneLocalString(notification.notifyAt, displayTimezone),
+      notifyAtRequesterLocal: formatIsoInTimezoneLocalString(notification.notifyAt, effectiveRequesterTimezone),
+    })),
   };
 }
 
@@ -41,7 +62,11 @@ export async function handleSchedulesList(context: RepoCliContext): Promise<void
   const visible = canManageAllSchedules(accessLevel)
     ? schedules
     : schedules.filter((event) => canManageOwnSchedules(accessLevel) && event.createdByUserId === requesterUserId);
-  context.output({ ok: true, schedules: visible.map((event) => serializeScheduleForCli(context, event)) });
+  const match = context.parseObjectArg(context.args.match) || {};
+  const filtered = Object.keys(match).length > 0
+    ? visible.filter((event) => scheduleMatchesFilters(event, match, effectiveRequesterTimezoneForCli(context)))
+    : visible;
+  context.output({ ok: true, schedules: filtered.map((event) => serializeScheduleForCli(context, event)) });
 }
 
 export async function handleSchedulesGet(context: RepoCliContext): Promise<void> {

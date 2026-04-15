@@ -41,6 +41,10 @@ export function formatIsoInTimezoneParts(iso: string | undefined, timezone: stri
   };
 }
 
+export function formatIsoInTimezoneLocalString(iso: string | undefined, timezone: string | null | undefined): string | undefined {
+  return formatIsoInTimezoneParts(iso, timezone)?.localDateTime.replace(" ", "T");
+}
+
 export async function getAccurateNow(): Promise<Date> {
   try {
     const result = await timeSync.getTime();

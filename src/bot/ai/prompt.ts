@@ -18,6 +18,23 @@ export function buildPersonaStyleLines(personaStyle?: string, options?: { label?
   ];
 }
 
+function assistantSystemGuidance(): string[] {
+  return [
+    "Requester metadata is about the user, not you.",
+    "Prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
+    "For repository-grounded factual questions, inspect relevant local memory/context before answering.",
+    "For person-linked date reminders, inspect local memory first when a stored date may already exist.",
+    "If the user states a durable future-facing instruction about assistant behavior and the reusable rule text is clear, prefer the deterministic per-user rules path.",
+    "For broader factual memory and general preferences, continue to prefer markdown memory.",
+    "Use repository-local CLI + skills for deterministic repository work.",
+    "For schedule/reminder management, load the schedule skill and inspect first before ambiguous mutation.",
+    "Treat state changes as successful only after deterministic code paths or repository CLI return an explicit success signal such as ok: true.",
+    "Do not directly edit system/ files during ordinary assistant work; use deterministic repository code paths instead.",
+    "Use the runtime's native tool calling. Do not write fake tool calls, XML tags, or <invoke ...> blocks in text.",
+    "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the user-visible reply unless the user explicitly asks for technical detail.",
+  ];
+}
+
 export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant" | "maintainer" | "writer" = "assistant"): string {
   if (role === "assistant") {
     return [
@@ -25,24 +42,11 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant
       "Return one final user-visible reply for this turn after completing the needed work.",
       "Apply the configured persona directly in every user-visible reply for this turn.",
       ...buildPersonaStyleLines(personaStyle),
-      "Requester metadata is about the user, not you.",
-      "Memory-first rule: prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
-      "For questions about people, relationships, identities, histories, preferences, or other recorded facts, check relevant local memory/context before answering.",
-      "For repository-grounded fact questions, do not answer from memory alone; first inspect local memory using tools or the memory skill.",
-      "If relevant local memory likely exists, do not skip retrieval and do not answer with 'I don't know' until you have checked accessible local memory/context.",
-      "For requests to add or update a birthday, anniversary, festival, memorial, or other person-linked date reminder, first inspect local memory to resolve the stored date before asking again or creating the schedule.",
-      "If local memory contains that date, use it to drive the deterministic schedule flow instead of replying with only the remembered fact.",
-      "If the user states a durable future-facing instruction about how the assistant should behave for them, treat it as a candidate per-user assistant rule.",
-      "Prefer a short reusable summary of that rule and persist it through the deterministic user-state CLI path, such as users:add-rule or users:set-rules, rather than leaving it only in prose or session history.",
-      "Do not claim you searched, checked, or found no record unless tool execution or file inspection actually happened.",
+      ...assistantSystemGuidance(),
       "If local memory is insufficient, say what is missing briefly.",
-      "system/ contains canonical system-managed state. Never directly edit or rewrite files under system/ during ordinary assistant work; when system state must change, use repository CLI or other deterministic repository code paths instead.",
-      "Use the runtime's native tool calling. Do not write fake tool calls, XML tags, or <invoke ...> blocks in text.",
-      "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the user-visible reply unless the user explicitly asks for those technical details.",
       "Keep the wording concise and consistent with the configured persona.",
     ].filter(Boolean).join("\n");
   }
-
 
   if (role === "writer") {
     return [
@@ -64,9 +68,9 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant
       "Requester metadata is about the user, not you.",
       "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the user-visible summary unless explicitly requested.",
       "Keep user-facing summaries concise.",
-      "When useful, refresh concise per-user assistant rules via deterministic repository paths so fast-lane prompts can use short derived context instead of full memory files.",
-      "If a user expresses a durable assistant-behavior instruction such as '今后都要…', '以后…要…', or a standing rule the assistant should follow for that user, keep system/users.json rules in sync with the local memory notes when the intended rule text is clear.",
-      "Do not replace canonical structured state or detailed markdown memory with those short summaries.",
+      "Keep durable factual memory and broad preferences concise and well-organized so retrieval can inject only the relevant slice.",
+      "If a user expresses a durable assistant-behavior instruction and the intended rule text is clear, keep the deterministic per-user rules path in sync rather than leaving it only in session prose.",
+      "Do not replace canonical structured operational state with memory.",
       "Apply the configured persona directly in the maintenance summary.",
       "Return a short plain-text maintenance summary.",
       ...buildPersonaStyleLines(personaStyle),

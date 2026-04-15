@@ -5,17 +5,15 @@ description: Use when the task is about repository-stored user access, user iden
 
 # Access control
 
-Use this skill when the task is primarily about who has access, what user record is stored locally, or whether temporary authorization should be created or changed.
+Use this skill when the task is primarily about who has access or whether temporary authorization should be created or changed.
 
 ## Scope
 
 This skill covers:
 
 - listing known users
-- inspecting a stored user record
+- inspecting a stored user record when it is needed for an access/admin decision
 - changing access level
-- changing stored timezone
-- adding or replacing per-user assistant rules
 - adding pending authorization state
 
 It is not for current-turn reply publication and it is not for Telegram outbound delivery.
@@ -33,9 +31,6 @@ Relevant command families:
 - `users:list`
 - `users:get`
 - `users:set-access`
-- `users:set-timezone`
-- `users:add-rule`
-- `users:set-rules`
 - `auth:add-pending`
 
 ## Workflow
@@ -48,13 +43,11 @@ Relevant command families:
 ## Guidance
 
 - Use `users:list` for overview questions.
-- Use `users:get` when one specific identity must be inspected.
+- Use `users:get` when one specific identity must be inspected for access/admin work.
 - Use `users:set-access` for granting, reducing, or clearing stored access overrides.
-- Use `users:set-timezone` when updating only the stored timezone.
-- Use `users:add-rule` when the user expresses one new durable assistant-behavior rule and the intended short reusable rule text is clear.
-- Use `users:set-rules` when replacing the full per-user assistant rule list deterministically.
 - Use `auth:add-pending` for temporary authorization flows represented in runtime state.
-- Prefer concise reusable rule summaries, not verbatim long quotes. Rules should capture durable assistant behavior for that user, e.g. “先查本地记忆再回答” rather than a transcript fragment.
+- If the task is mainly about durable assistant-behavior rules such as "以后都要…" or "今后请遵守…", use `cli-rules`.
+- If the task is mainly about durable factual memory or general preferences rather than a deterministic standing rule, use `memory`.
 - Do not promise access changes or authorization changes unless the CLI call actually succeeded.
 - Keep permission hard constraints in code and runtime; this skill only guides the execution workflow.
 
@@ -84,23 +77,6 @@ bun run repo:cli -- users:set-access '{"requesterUserId":1,"userId":200,"accessL
 bun run repo:cli -- users:set-access '{"requesterUserId":1,"userId":200,"accessLevel":"clear"}'
 ```
 
-### Set timezone
-
-```bash
-bun run repo:cli -- users:set-timezone '{"requesterUserId":1,"userId":200,"timezone":"Asia/Tokyo"}'
-```
-
-### Add one assistant rule
-
-```bash
-bun run repo:cli -- users:add-rule '{"requesterUserId":1,"userId":200,"rule":"先查本地记忆再回答"}'
-```
-
-### Replace the full assistant rule list
-
-```bash
-bun run repo:cli -- users:set-rules '{"requesterUserId":1,"userId":200,"rules":["先查本地记忆再回答","遇到生日提醒先查记忆库"]}'
-```
 
 ### Add pending authorization
 

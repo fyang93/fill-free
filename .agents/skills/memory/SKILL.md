@@ -38,10 +38,12 @@ Use this skill for repository-local memory: retrieving recorded facts, storing l
 
 ## Preferences
 
-- If the user wants a standing preference, style, habit, or future behavior instruction remembered, store it as durable reusable guidance.
+- If the user wants a standing preference, style, habit, or durable factual context remembered, store it as durable reusable guidance in markdown memory.
 - Keep related preferences grouped together instead of scattering them across unrelated notes.
 - Choose the narrowest correct scope for standing guidance.
 - If the user is revising an existing standing rule, update or replace it instead of accumulating near-duplicates.
+- If the task is specifically about adding or replacing a deterministic per-user assistant rule, use `cli-rules`.
+- Distinguish standing assistant rules from ordinary memory: deterministic standing rules belong in `cli-rules`, while durable facts, preferences, and background context stay in `memory`.
 
 ## Boundary with schedules
 

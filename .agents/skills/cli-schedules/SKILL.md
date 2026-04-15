@@ -55,11 +55,14 @@ Canonical schedule commands:
 - For explicit dated events like `4月28日`, `Apr 28`, or `2026-04-28`, prefer one-time schedules unless recurrence is explicitly requested.
 - For schedule interpretation and drafting, use requester-local date/time plus timezone.
 - Do not pre-convert local reminder times to UTC in the model unless the user explicitly provided an absolute timestamp with `Z` or a numeric UTC offset.
+- When reading schedule CLI results, prefer the requester-local projection fields returned by the CLI such as `scheduledAtRequesterLocal`, `currentOccurrence.scheduledAtRequesterLocal`, and `notificationsDetailed[*].notifyAtRequesterLocal` instead of inferring local time from raw UTC or generic summaries.
 - Treat CLI payloads as deterministic command arguments, not as a place to invent broad persistence shapes. Name only the fields that code actually needs.
 - Prefer intent-level decisions over title heuristics. Do not assume that a title containing “生日” is enough; set the semantic fields explicitly when the intent is birthday/festival/anniversary/memorial.
 - For person-linked date reminders, memory-first is mandatory when the date may already be recorded locally. Search `memory/` first, then call the CLI with the resolved date. Do not stop after merely reporting the remembered date if the user's request was to create/update the reminder.
 - Before `schedules:create` for birthdays and similar reminders, inspect the most relevant local memory note(s), determine whether the stored date is solar (`1996-01-22`, `1月22日`) or lunar (`农历五月初三`), then build the narrow CLI payload from that resolved fact.
 - For temporary wording such as “先停一下”, “暂停”, or “下周再恢复”, prefer `schedules:pause` over delete.
+- Distinguish current schedule mutation from future standing behavior. If the user also states a durable future-facing instruction about how schedule/reminder handling should work by default from now on, consider `cli-rules` in addition to the immediate schedule action.
+- Do not mistake a one-off schedule change for a standing rule, and do not satisfy a clear standing default only by changing the current schedule.
 - For explicit permanent removal wording, prefer `schedules:delete`.
 - For recurring generated content such as daily news, weather, market summaries, or exchange-rate digests, create `category: "scheduled-task"` instead of a routine reminder.
 - For special recurring reminders, always set semantic fields explicitly:
@@ -96,6 +99,8 @@ Canonical schedule commands:
 ```bash
 bun run repo:cli -- schedules:list '{"requesterUserId":872940661}'
 ```
+
+You may also provide `match` to narrow the result set before interpreting times, for example by id, title, or scheduled date.
 
 ### Create a one-time reminder
 

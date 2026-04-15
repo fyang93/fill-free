@@ -42,8 +42,9 @@ This document is ordered by decision strength:
 ### Canonical structured context vs human-readable memory
 
 - Use markdown memory for durable notes, reference material, and user preferences.
-- Store user preferences and behavioral guidance in markdown memory rather than a separate structured rules store.
 - Keep canonical operational state in structured persistence, and keep human-readable memory as reference context rather than operational truth.
+- If the product intentionally keeps a narrow structured standing-rules path, keep its scope explicit and do not let it expand into a second general-purpose memory system.
+- Do not let human-readable memory and structured rules compete to own the same long-term guidance category.
 
 ### User-visible output boundaries
 
@@ -86,6 +87,7 @@ This document is ordered by decision strength:
 - Prefer repository-local CLI commands for general repository work.
 - Use skills to teach stable repository workflows.
 - Avoid baking workflow-specific behavior into the core when a clearer module, extension point, CLI contract, or model judgment will do.
+- Prefer fewer concepts, fewer layers, and fewer files when the simpler structure preserves the same truth boundaries.
 
 ### Structured context and persistence shape
 
@@ -138,6 +140,8 @@ This document is ordered by decision strength:
 - Keep prompts concise and restrained.
 - Do not introduce extra persistence layers, queues, or schemas unless they protect a real correctness, scheduling, or recovery boundary.
 - Do not maintain derived index layers when the same work can already be expressed cleanly through CLI or direct repository access.
+- Delete policy duplication instead of letting the same rule spread across code, prompts, skills, and docs.
+- Prefer removing indirection over adding a new abstraction layer when both preserve clarity and correctness.
 
 ### Evolution and migration
 

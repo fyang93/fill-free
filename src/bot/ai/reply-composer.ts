@@ -22,7 +22,7 @@ export class ReplyComposer {
       "The Telegram bot has just started.",
       "Send one short proactive startup greeting to the administrator.",
       ...await this.buildStartupGreetingContextLines(input),
-    ], { preferredLanguage: this.resolveReplyLanguage(input?.preferredLanguage) });
+    ], { preferredLanguage: input?.preferredLanguage });
     const raw = await this.promptForStartupText(request);
     const message = raw.trim();
     return message || null;
@@ -34,7 +34,7 @@ export class ReplyComposer {
       `Schedule content: ${scheduleText}`,
       `Scheduled time: ${scheduledAt}`,
       `Repeat rule: ${recurrenceDescription}`,
-    ]);
+    ], { preferredLanguage: this.config.bot.language });
 
     const result = this.extractDirectTextReply(await this.promptForText(request)).trim();
     return result;
@@ -63,7 +63,7 @@ export class ReplyComposer {
       kind === "initial"
         ? "Do not promise a completion time."
         : "Do not promise a completion time; just say work is still in progress.",
-    ], { preferredLanguage: this.resolveReplyLanguage(input?.preferredLanguage) });
+    ], { preferredLanguage: input?.preferredLanguage });
 
     return this.extractDirectTextReply(await this.promptForText(request)).trim();
   }
@@ -75,7 +75,7 @@ export class ReplyComposer {
       "Lean hard on the configured persona.",
       "User-facing only.",
       "Do not mention tools or time estimates.",
-    ], { preferredLanguage: this.resolveReplyLanguage(input?.preferredLanguage) });
+    ], { preferredLanguage: input?.preferredLanguage });
 
     return this.extractDirectTextReply(await this.promptForText(request)).trim();
   }
@@ -90,7 +90,7 @@ export class ReplyComposer {
       "User-facing only.",
       "Do not mention tools or time estimates.",
       "Return exactly one message per line with no numbering, bullets, or commentary.",
-    ], { preferredLanguage: this.resolveReplyLanguage(input?.preferredLanguage) });
+    ], { preferredLanguage: input?.preferredLanguage });
 
     const raw = this.extractDirectTextReply(await this.promptForText(request)).trim();
     return raw.split(/\r?\n+/)
@@ -113,7 +113,7 @@ export class ReplyComposer {
       cleanBase ? `Current draft reply: ${cleanBase}` : "",
       cleanFacts.length > 0 ? "Facts:" : "",
       ...cleanFacts.map((item) => `- ${item}`),
-    ], { preferredLanguage: this.resolveReplyLanguage(input?.preferredLanguage) });
+    ], { preferredLanguage: input?.preferredLanguage });
 
     const composed = this.extractDirectTextReply(await this.promptForText(request)).trim();
     return composed || cleanBase;
@@ -226,10 +226,6 @@ export class ReplyComposer {
 
     if (input?.chatType) return [`Conversation: ${input.chatType}.`].concat(structured);
     return structured;
-  }
-
-  private resolveReplyLanguage(preferredLanguage?: string): string {
-    return preferredLanguage?.trim() || this.config.bot.language;
   }
 
   private extractDirectTextReply(rawText: string): string {

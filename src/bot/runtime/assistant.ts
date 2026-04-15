@@ -67,15 +67,15 @@ async function saveWaitingMessagePool(config: AppConfig, pool: WaitingMessagePoo
   await persistState(config.paths.stateFile);
 }
 
-async function generateWaitingMessageBatch(agentService: AiService, config: AppConfig, count: number): Promise<string[]> {
+async function generateWaitingMessageBatch(agentService: AiService, count: number): Promise<string[]> {
   try {
-    const outputs = await agentService.generateWaitingMessageCandidates(count, { preferredLanguage: config.bot.language });
+    const outputs = await agentService.generateWaitingMessageCandidates(count);
     return dedupeWaitingMessageTexts(outputs, count);
   } catch {
     const rawCount = Math.max(count * 2, count + 2);
     const outputs = await Promise.all(Array.from({ length: Math.max(0, rawCount) }, async () => {
       try {
-        const text = await agentService.generateWaitingMessageCandidate({ preferredLanguage: config.bot.language });
+        const text = await agentService.generateWaitingMessageCandidate();
         return text.trim();
       } catch {
         return "";
@@ -99,7 +99,7 @@ export function warmWaitingMessageCandidates(agentService: AiService, config: Ap
   waitingMessageCache.promise = (async () => {
     const base = state.waitingMessageCandidates.filter((item) => !item.used).map((item) => ({ ...item, used: false }));
     const missing = Math.max(0, waitingMessageTargetCount(config) - base.length);
-    const generated = missing > 0 ? await generateWaitingMessageBatch(agentService, config, missing) : [];
+    const generated = missing > 0 ? await generateWaitingMessageBatch(agentService, missing) : [];
     const seen = new Set<string>();
     const merged = [...base, ...generated.map((text) => ({ text, used: false }))].filter((item) => {
       const normalized = normalizeWaitingMessageText(item.text);

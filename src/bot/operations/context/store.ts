@@ -22,7 +22,6 @@ export type UserRecord = {
   rules?: string[];
   lastSeenAt?: string;
   updatedAt?: string;
-  preferredLanguage?: "zh-CN" | "en";
 };
 
 export type ChatRecord = {
@@ -30,21 +29,6 @@ export type ChatRecord = {
   title?: string;
   participants?: Record<string, { lastInteractedAt: string }>;
   lastSeenAt?: string;
-  updatedAt?: string;
-};
-
-export type RuleRecord = {
-  id: string;
-  topic: string;
-  appliesTo: {
-    domain: string;
-    selector?: string;
-    userIds?: string[];
-    chatIds?: string[];
-    taskIds?: string[];
-  };
-  content: Record<string, unknown>;
-  createdBy?: string;
   updatedAt?: string;
 };
 
@@ -98,11 +82,6 @@ export function loadUsers(repoRoot: string): Record<string, UserRecord> {
         rules: cleanRules(record.rules),
         lastSeenAt: cleanText(record.lastSeenAt),
         updatedAt: cleanText(record.updatedAt),
-        preferredLanguage: record.preferredLanguage === "en"
-          ? "en"
-          : record.preferredLanguage === "zh" || record.preferredLanguage === "zh-CN"
-            ? "zh-CN"
-            : undefined,
       } satisfies UserRecord];
     }),
   );

@@ -1,5 +1,4 @@
 import type { AppConfig } from "./types";
-import { getUserPreferredLanguage } from "bot/operations/context/user-prefs";
 
 export type Locale = "zh-CN" | "en";
 
@@ -33,16 +32,9 @@ const dictionaries: Record<Locale, Dictionary> = {
       file_processing_too_large_telegram_limit: "文件处理失败：Telegram 官方 Bot API 在未使用本地 Bot API 后端时，上传/下载文件大小限制约为 20MB。这个文件超过了该限制，请压缩、分割，或改发外部下载链接。",
       command_new: "新建会话",
       command_model: "查看或切换模型",
-      command_lang: "切换界面语言",
       command_help: "查看帮助",
-      choose_language: "请选择界面语言：",
-      lang_name_zh_cn: "中文",
-      lang_name_en: "English",
       trusted_only_command: "这个命令仅限可信用户使用。",
       admin_only_command: "这个命令仅限管理员使用。",
-      lang_switched: "已切换语言为：{lang}",
-      lang_current: "当前语言：{lang}",
-      lang_available: "可用语言：{langs}",
       config_mutation_admin_only: "只有 admin 可以要求修改 config.toml 或运行时配置。",
       config_reload_notice: "config 已热重载。",
       config_reload_applied: "已生效: {keys}",
@@ -141,16 +133,9 @@ const dictionaries: Record<Locale, Dictionary> = {
       file_processing_too_large_telegram_limit: "File processing failed: without a local Telegram Bot API server, the official Telegram Bot API only supports uploads/downloads up to about 20 MB. This file exceeds that limit. Please compress it, split it, or send an external download link instead.",
       command_new: "Create a new session",
       command_model: "View or switch model",
-      command_lang: "Switch language",
       command_help: "Get help",
-      choose_language: "Choose interface language:",
-      lang_name_zh_cn: "中文",
-      lang_name_en: "English",
       trusted_only_command: "This command is only available to trusted users.",
       admin_only_command: "This command is only available to admin.",
-      lang_switched: "Language switched to: {lang}",
-      lang_current: "Current language: {lang}",
-      lang_available: "Available: {langs}",
       config_mutation_admin_only: "Only the admin user may request changes to config.toml or runtime configuration.",
       config_reload_notice: "Config hot-reloaded.",
       config_reload_applied: "Applied: {keys}",
@@ -231,10 +216,6 @@ export function formatTemplate(template: string, values: Record<string, string |
   return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => String(values[key] ?? `{${key}}`));
 }
 
-function localeNameKey(locale: Locale): string {
-  return locale === "zh-CN" ? "lang_name_zh_cn" : "lang_name_en";
-}
-
 export function getDictionary(config: AppConfig): Dictionary {
   return dictionaries[config.bot.language];
 }
@@ -249,15 +230,13 @@ export function tForLocale(locale: Locale, key: string, values: Record<string, s
   return formatTemplate(dict.strings[key] || key, values);
 }
 
-export function userLocale(config: AppConfig, userId: number | undefined): Locale {
-  return getUserPreferredLanguage(config, userId);
+export function userLocale(config: AppConfig, _userId: number | undefined): Locale {
+  return config.bot.language;
 }
 
 export function tForUser(config: AppConfig, userId: number | undefined, key: string, values: Record<string, string | number> = {}): string {
   return tForLocale(userLocale(config, userId), key, values);
 }
-
-export { localeNameKey };
 
 export function uiLocaleTag(config: AppConfig): string {
   return getDictionary(config).localeTag;
