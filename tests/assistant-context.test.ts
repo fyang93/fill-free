@@ -46,7 +46,7 @@ async function createTempConfig(): Promise<AppConfig> {
   const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-assistant-context-"));
   tempDirs.push(repoRoot);
   await mkdir(path.join(repoRoot, "system"), { recursive: true });
-  await writeFile(path.join(repoRoot, "system", "users.json"), '{"users":{"1":{"displayName":"Admin Test","timezone":"Asia/Tokyo","rules":["今后添加某人的生日提醒时，先查记忆库再创建"]}}}\n', "utf8");
+  await writeFile(path.join(repoRoot, "system", "users.json"), '{"users":{"1":{"displayName":"Admin Test","timezone":"Asia/Tokyo","personPath":"memory/people/admin-test/README.md","rules":["今后添加某人的生日提醒时，先查记忆库再创建"]}}}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{"1":{"type":"private","title":"Admin Chat"}}}\n', "utf8");
   return createTestConfig(repoRoot);
 }
@@ -76,8 +76,7 @@ describe("assistant clarification context", () => {
     expect(context).toContain('"turnTime"');
     expect(context).toContain('"rules"');
     expect(context).toContain('今后添加某人的生日提醒时，先查记忆库再创建');
-    expect(context).toContain('"localDate": "2026-04-06"');
-    expect(context).toContain('"localTime": "01:51:25"');
+    expect(context).toContain('Requester person path: memory/people/admin-test/README.md');
     expect(context).toContain('"localDateTime": "2026-04-06 01:51:25"');
     expect(context).not.toContain('"messageTimeUtc"');
   });
@@ -95,5 +94,6 @@ describe("assistant clarification context", () => {
 
     expect(context).toContain('"recentClarification": null');
     expect(context).toContain('"turnTime"');
+    expect(context).toContain('Requester person path: memory/people/admin-test/README.md');
   });
 });

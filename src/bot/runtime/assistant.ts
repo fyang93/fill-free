@@ -225,23 +225,9 @@ export async function runAssistantTask(deps: RunAssistantTaskDeps): Promise<void
   const effectivePromptText = telegramRequestContext ? `${promptText}\n\n${telegramRequestContext}` : promptText;
   const taskStartedAt = Date.now();
 
-  void warmWaitingMessageCandidates(agentService, config);
-  let progressTextShown = "";
-
-  const publishProgressText = async (rawText: string): Promise<void> => {
-    const text = rawText.trim();
-    if (!text || task.cancelled || !isTaskCurrent(task.scopeKey, task.id) || progressTextShown === text) return;
-    progressTextShown = text;
-    onStopWaiting(task);
-    if (typeof task.waitingMessageId === "number") {
-      await editMessageTextFormatted(ctx, task.chatId, task.waitingMessageId, text).catch(() => {});
-      return;
-    }
-    const sent = await replyFormatted(ctx, text).catch(() => null) as { message_id?: number } | null;
-    if (sent && typeof sent.message_id === "number") {
-      task.waitingMessageId = sent.message_id;
-    }
-  };
+  if (config.telegram.waitingMessage) {
+    void warmWaitingMessageCandidates(agentService, config);
+  }
 
   try {
     const { assistantContextText, requesterTimezone } = await prepareAssistantContext(config, {
@@ -258,6 +244,7 @@ export async function runAssistantTask(deps: RunAssistantTaskDeps): Promise<void
       agentService,
       ctx,
       requesterUserId: userId,
+      uploadedFiles,
       attachments,
       messageTime,
       requesterTimezone,
@@ -268,9 +255,6 @@ export async function runAssistantTask(deps: RunAssistantTaskDeps): Promise<void
       scopeKey: task.scopeKey,
       scopeLabel: task.scopeLabel,
       isTaskCurrent: () => !task.cancelled,
-      onProgress: async (progressMessage) => {
-        await publishProgressText(progressMessage);
-      },
     } satisfies ExecuteAssistantActionsInput);
     const assistantMs = Date.now() - startedAt;
 

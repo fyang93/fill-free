@@ -3,7 +3,7 @@ import type { AppConfig, AiAttachment, UploadedFile } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import { formatIsoInTimezoneParts } from "bot/app/time";
 import { state, touchActivity } from "bot/app/state";
-import { buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
+import { buildAccessConstraintLines, buildProjectSystemPrompt, type RequestAccessRole } from "./prompt";
 import { extractAiTurnResultFromText, isDisplayableUserText } from "./response";
 import type { AiTurnResult, AssistantPlanResult, AssistantProgressHandler } from "./types";
 import { ReplyComposer, type ReplyComposerInputContext } from "./reply-composer";
@@ -55,6 +55,13 @@ function summarizeExecutionParts(parts: unknown): Array<{ tool: string; status: 
       outputChars: typeof output === "string" ? output.length : JSON.stringify(output || "").length,
     }];
   });
+}
+
+function ensureNoToolExecution(role: PromptRole | undefined, parts: unknown): void {
+  if (!role || role === "assistant") return;
+  const executionParts = summarizeExecutionParts(parts);
+  if (executionParts.length === 0) return;
+  throw new Error(`${role} text generation must not execute tools.`);
 }
 
 export class AiService {
@@ -226,6 +233,7 @@ export class AiService {
     chatId?: number;
     chatType?: string;
     accessRole: RequestAccessRole;
+    uploadedFiles?: UploadedFile[];
     attachments?: AiAttachment[];
     messageTime?: string;
     requesterTimezone?: string | null;
@@ -243,8 +251,12 @@ export class AiService {
       `chatType=${input.chatType || "unknown"}`,
       `accessRole=${input.accessRole}`,
       localMessageTime ? `requesterLocalTime=${localMessageTime.localDateTime} (${localMessageTime.timezone})` : "",
+      ...buildAccessConstraintLines(input.accessRole),
       input.sharedConversationContextText?.trim() ? "Assistant context:" : "",
       input.sharedConversationContextText?.trim() || "",
+      input.uploadedFiles && input.uploadedFiles.length > 0 ? "Saved files:" : "",
+      ...(input.uploadedFiles || []).map((file) => `- ${file.savedPath} (${file.mimeType}, ${Math.ceil(file.sizeBytes / 1024)} KB)`),
+      input.uploadedFiles && input.uploadedFiles.length > 0 ? "Use repository tools to inspect saved local files when needed. Do not claim the image/file is unsupported just because raw multimodal input is unavailable." : "",
       "User request:",
       input.userRequestText.trim(),
     ].filter(Boolean).join("\n");
@@ -263,7 +275,7 @@ export class AiService {
             "Do not write XML, <invoke ...> blocks, or tool-call text.",
             "Use the needed tools, then return the final user-visible reply for this turn in the configured persona.",
           ].join("\n");
-      const response = await this.promptInScopedAssistantSession(attemptPrompt, input.attachments || [], input.scopeKey, input.scopeLabel, input.onProgress);
+      const response = await this.promptInScopedAssistantSession(attemptPrompt, [], input.scopeKey, input.scopeLabel, input.onProgress);
       if (input.isTaskCurrent && !input.isTaskCurrent()) {
         await logger.warn("assistant agent response ignored because task became stale");
         return { message: "", usedNativeExecution: false, completedActions: response.completedActions, files: [], attachments: [] };
@@ -492,6 +504,7 @@ export class AiService {
       },
     }) as any;
     const payload = response.data ?? response;
+    ensureNoToolExecution(role, payload?.parts);
     const rawText = extractText(payload).trim();
     await logger.info(`opencode text prompt response ms=${Date.now() - startedAt} sessionId=${sessionId} rawChars=${rawText.length} parts=${Array.isArray(payload?.parts) ? payload.parts.length : 0} mode=light`);
     if (!rawText) throw new Error("OpenCode returned no text output.");

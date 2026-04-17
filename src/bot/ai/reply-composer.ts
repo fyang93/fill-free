@@ -20,11 +20,11 @@ export class ReplyComposer {
   async generateStartupGreeting(input?: ReplyComposerInputContext): Promise<string | null> {
     const request = this.buildUserFacingTextRequest([
       "The Telegram bot has just started.",
-      "Send one short proactive startup greeting to the administrator.",
+      "Write one short proactive startup greeting for the administrator.",
+      "Return only the greeting text. Do not send it and do not take any action.",
       ...await this.buildStartupGreetingContextLines(input),
     ], { preferredLanguage: input?.preferredLanguage });
-    const raw = await this.promptForStartupText(request);
-    const message = raw.trim();
+    const message = this.extractDirectTextReply(await this.promptForStartupText(request)).trim();
     return message || null;
   }
 
@@ -155,6 +155,7 @@ export class ReplyComposer {
       id: String(requesterUserId),
       username: known.username || null,
       displayName: known.displayName || null,
+      personPath: known.personPath || null,
       timezone: known.timezone || null,
       accessLevel: known.accessLevel || null,
       lastSeenAt: known.lastSeenAt || null,
@@ -189,7 +190,9 @@ export class ReplyComposer {
     const runtime = state.telegramUserCache[String(requesterUserId)];
     const lines: string[] = [];
     if (known) {
-      lines.push(`Current requester: ${known.displayName}${known.username ? ` (@${known.username})` : ""}.`);
+      const name = known.displayName || known.username || String(requesterUserId);
+      lines.push(`Current requester: ${name}${known.username ? ` (@${known.username})` : ""}.`);
+      if (known.personPath) lines.push(`Requester person file: ${known.personPath}.`);
     } else if (runtime) {
       lines.push(`Current requester: ${runtime.displayName}${runtime.username ? ` (@${runtime.username})` : ""}.`);
     } else {

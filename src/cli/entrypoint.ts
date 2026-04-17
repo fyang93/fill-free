@@ -1,7 +1,7 @@
 import { addPendingAuthorization, appendCliLogLine, CliOutput, initializeRepoCli, logCliInvocation, summarizeArgsForLog } from "cli/runtime";
 import { handleSchedulesCreate, handleSchedulesGet, handleScheduleMutation, handleSchedulesList } from "cli/commands/schedules";
 import { handleTelegramResolveRecipient, handleTelegramScheduleMessage, handleTelegramSendFile, handleTelegramSendMessage } from "cli/commands/telegram";
-import { handleUsersAddRule, handleUsersGet, handleUsersList, handleUsersSetAccess, handleUsersSetRules, handleUsersSetTimezone } from "cli/commands/users";
+import { handleUsersAddRule, handleUsersGet, handleUsersList, handleUsersSetAccess, handleUsersSetPersonPath, handleUsersSetRules, handleUsersSetTimezone } from "cli/commands/users";
 
 export async function runRepoCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const rawDomain = argv[0]?.trim() || "";
@@ -19,6 +19,7 @@ export async function runRepoCli(argv: string[] = process.argv.slice(2)): Promis
       case "users:get": await handleUsersGet(context); break;
       case "users:set-access": await handleUsersSetAccess(context); break;
       case "users:set-timezone": await handleUsersSetTimezone(context); break;
+      case "users:set-person-path": await handleUsersSetPersonPath(context); break;
       case "users:add-rule": await handleUsersAddRule(context); break;
       case "users:set-rules": await handleUsersSetRules(context); break;
       case "schedules:list": await handleSchedulesList(context); break;

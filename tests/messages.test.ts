@@ -466,6 +466,32 @@ describe("message delivery flow", () => {
     }
   });
 
+  test("users:set-person-path updates a narrow field deterministically", async () => {
+    const { repoRoot, originalCwd } = await createTempConfig();
+    try {
+      await mkdir(path.join(repoRoot, "memory", "people"), { recursive: true });
+      await mkdir(path.join(repoRoot, "memory", "people", "yang-fan"), { recursive: true });
+      await writeFile(path.join(repoRoot, "memory", "people", "yang-fan", "README.md"), "# 羊帆\n", "utf8");
+
+      const proc = Bun.spawn(["bun", cliPath, "users:set-person-path", JSON.stringify({ requesterUserId: 1, userId: 200, personPath: "memory/people/yang-fan/README.md" })], {
+        cwd: repoRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = await new Response(proc.stdout).text();
+      expect(await proc.exited).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.user.personPath).toBe("memory/people/yang-fan/README.md");
+
+      const users = JSON.parse(await readFile(path.join(repoRoot, "system", "users.json"), "utf8"));
+      expect(users.users["200"].personPath).toBe("memory/people/yang-fan/README.md");
+    } finally {
+      process.chdir(originalCwd);
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   test("users:set-timezone updates a narrow field deterministically", async () => {
     const { repoRoot, originalCwd } = await createTempConfig();
     try {

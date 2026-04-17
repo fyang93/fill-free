@@ -5,67 +5,62 @@ description: Use when the task involves repository-local memory, persistent user
 
 # Memory
 
-Use this skill for repository-local memory: retrieving recorded facts, storing long-term notes, and handling durable preferences or other persistent context.
+Use this skill for repository-local memory: recorded facts, durable preferences, and long-term notes.
 
 ## Retrieval
 
-- Prefer repository-local sources first for recorded facts, memory, schedules, files, logs, and repository-grounded capability questions.
-- Start with the smallest useful local evidence. Broaden inspection only when needed.
-- For factual lookup in `memory/`, begin with keyword search using `rg -n --no-ignore` over `memory/` before concluding nothing is recorded.
-- Search for the user's exact wording, likely aliases, usernames, transliterations, related names, and key relationship words when relevant.
-- Check both frontmatter and body text, including links and nearby context, but treat frontmatter as lightweight support rather than the only source.
-- After `rg` finds candidate files, read the most relevant hits and answer from those files instead of guessing.
-- If wording, habits, preferences, or long-term context may matter, check local memory notes early.
+- Prefer local sources first.
+- In this multi-user bot, identify the relevant owner first. If a user is known in `system/users.json` with a `personPath`, use that as the primary entry point for user-specific memory.
+- Start memory retrieval with keyword search over relevant markdown notes using the exact wording plus likely aliases or related terms.
+- For stored files, use markdown entry points and linked paths before guessing file locations.
+- Read the most relevant hits before answering.
+- Do not say nothing is recorded until you have done a reasonable local search.
 - Use web search only when local sources are insufficient.
 
-### Retrieval pattern
+## Writing
 
-- Prefer `rg -n --no-ignore` for first-pass keyword lookup, for example searching `memory/` for the exact term and likely aliases.
-- When you need to enumerate candidate files or inspect note layout before reading, prefer `fd --no-ignore`.
-- If the first search misses, broaden with alternate spellings, nicknames, usernames, and relationship terms.
-- Do not say memory has no record until you have tried a reasonable keyword search over `memory/`.
-
-## Writing memory
-
-- All long-term markdown notes belong under `memory/`.
-- Merge into an existing note when the information clearly fits.
-- Create a new note only when the information is a distinct long-lived topic.
-- Keep each file focused on one stable topic or entity whenever practical.
-- Prefer small, easy-to-scan notes.
+- Store long-term markdown notes under `memory/`.
+- In this multi-user bot, store user-specific memory under the correct owner path rather than at top-level `memory/`.
+- If the current requester or target user has a linked `personPath`, treat that as the default owner unless the request clearly refers to someone else.
+- If no `personPath` is linked yet, a small provisional person note is acceptable.
+- Merge into an existing note when it clearly fits; otherwise create a focused new note.
+- Keep notes short, single-purpose, and easy to scan.
 - Prefer bullet facts over long prose.
-- Avoid catch-all dumps and unnecessary duplication.
-- If new information conflicts with an existing note, update only when the intended replacement is clear; otherwise ask.
+- Frontmatter is optional; do not invent rigid schemas.
+- If new information conflicts with an existing note and replacement is unclear, ask.
 
-## Preferences
+## Organization
 
-- If the user wants a standing preference, style, habit, or durable factual context remembered, store it as durable reusable guidance in markdown memory.
-- Keep related preferences grouped together instead of scattering them across unrelated notes.
-- Choose the narrowest correct scope for standing guidance.
-- If the user is revising an existing standing rule, update or replace it instead of accumulating near-duplicates.
-- If the task is specifically about adding or replacing a deterministic per-user assistant rule, use `cli-rules`.
-- Distinguish standing assistant rules from ordinary memory: deterministic standing rules belong in `cli-rules`, while durable facts, preferences, and background context stay in `memory`.
+- Prefer one stable taxonomy over ad-hoc top-level files.
+- Organize memory by scope first, then by topic.
+- Use `memory/people/` for one-person material, `memory/shared/` for shared owner material, and `memory/common/` for repository-wide reference material.
+- Prefer directory-style person storage with a canonical entry at `memory/people/<slug>/README.md` and supporting notes nearby.
+- Keep top-level `memory/` for rare navigation indexes only.
+- When reorganizing existing notes, update links and remove obsolete duplicates.
 
-## Boundary with schedules
+## Boundaries
 
-- Do not turn every date, appointment, or birthday into a memory note.
-- If the main task is interpreting, creating, changing, or reviewing schedules, use the `cli-schedules` skill.
-- Write to `memory/` only when there is durable context worth remembering beyond the schedule itself.
+- Use `cli-rules` for deterministic standing assistant rules.
+- Use `cli-schedules` when the main task is schedule state.
+- Do not turn every appointment or date into memory.
 
 ## Files
 
-- If a file from `tmp/` should be kept long-term, persist the real file under `assets/` with a clear name in a sensible subdirectory.
-- Link the real asset path from the relevant markdown.
-- After successful persistence, clean up the old `tmp/` file unless the user clearly asked to keep it.
+- Prefer the simplest owner-local file layout that keeps related material together.
+- If a `tmp/` file should be kept, persist it directly under the relevant owner-scoped `memory/` directory.
+- Keep person-owned files under that person's directory and shared-owner files under the shared owner path.
+- Add or update a small markdown entry point when it helps retrieval.
+- Link kept files from the relevant markdown entry point.
+- After persistence, remove the old `tmp/` file unless the user asked to keep it.
 
 ## Sensitive data
 
 - Persisted data may enter AI context.
-- Passwords may be persisted only when the user clearly and explicitly asks.
-- Never persist API keys, private keys, recovery codes, seed phrases, session tokens, 2FA backup codes, or CVV.
-- For other highly sensitive values, warn briefly and ask for confirmation before storing unless the user already clearly asked to persist them.
-- If the user insists on storing a sensitive value that is not in the never-store list, do the minimum necessary and avoid repeating the raw value unless required.
+- Never store API keys, private keys, recovery codes, seed phrases, session tokens, 2FA backup codes, or CVV.
+- Store passwords only if the user explicitly asks.
+- For other sensitive values, warn briefly and confirm unless the user already clearly asked to store them.
 
 ## Validation
 
 - Do not claim something was saved, moved, merged, linked, or persisted unless the repository was actually updated.
-- After changes, quickly verify that referenced files exist and links point to the real asset path.
+- When ownership becomes clearer later, prefer cleanup that consolidates provisional notes into the canonical owner path.

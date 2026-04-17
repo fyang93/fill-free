@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { clearStoredUserAccessLevel, setStoredUserAccessLevel } from "bot/operations/access/roles";
 import { loadUsers, resolveUser } from "bot/operations/context/store";
 import type { RepoCliContext } from "cli/runtime";
@@ -17,7 +19,7 @@ function resolveEffectiveUser(context: RepoCliContext): { userId?: number; usern
   return { userId, username, displayName, effectiveUserId: resolvedUserId ?? userId };
 }
 
-function updateUserField(context: RepoCliContext, field: "timezone", value: string): { effectiveUserId: number; user: Record<string, unknown>; changed: boolean } {
+function updateUserField(context: RepoCliContext, field: "timezone" | "personPath", value: string): { effectiveUserId: number; user: Record<string, unknown>; changed: boolean } {
   const { nowIso, output } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
@@ -79,6 +81,54 @@ export async function handleUsersSetTimezone(context: RepoCliContext): Promise<v
   if (!value) context.output({ ok: false, error: "missing-timezone" });
   const result = updateUserField(context, "timezone", value as string);
   context.output({ ok: true, userId: result.effectiveUserId, changed: result.changed, user: result.user });
+}
+
+export async function handleUsersSetPersonPath(context: RepoCliContext): Promise<void> {
+  const { args, cleanText, output, nowIso } = context;
+  context.requireAdminRequester();
+  const { effectiveUserId } = resolveEffectiveUser(context);
+  if (!effectiveUserId) {
+    output({ ok: false, error: "userId-required-for-personPath" });
+    return;
+  }
+
+  const rawPath = cleanText(args.personPath);
+  if (rawPath === undefined) {
+    output({ ok: false, error: "missing-personPath" });
+    return;
+  }
+
+  if (rawPath === "clear" || rawPath === "none") {
+    const previous = resolveUser(context.config.paths.repoRoot, effectiveUserId) || {};
+    const next = updateUserDoc(context, effectiveUserId, (current) => {
+      const { personPath: _removed, ...rest } = current;
+      return { ...rest, updatedAt: nowIso() };
+    });
+    output({ ok: true, changed: JSON.stringify(previous) !== JSON.stringify(next), userId: effectiveUserId, user: next });
+    return;
+  }
+
+  if (path.isAbsolute(rawPath)) {
+    output({ ok: false, error: "personPath-must-be-relative" });
+    return;
+  }
+  if (!/^memory\/people\/(?:.+\/)?README\.md$/i.test(rawPath)) {
+    output({ ok: false, error: "invalid-personPath" });
+    return;
+  }
+  const absolutePath = path.join(context.config.paths.repoRoot, rawPath);
+  if (!existsSync(absolutePath)) {
+    output({ ok: false, error: "personPath-not-found" });
+    return;
+  }
+
+  const previous = resolveUser(context.config.paths.repoRoot, effectiveUserId) || {};
+  const next = updateUserDoc(context, effectiveUserId, (current) => ({
+    ...current,
+    personPath: rawPath,
+    updatedAt: nowIso(),
+  }));
+  output({ ok: true, changed: JSON.stringify(previous) !== JSON.stringify(next), userId: effectiveUserId, user: next });
 }
 
 export async function handleUsersAddRule(context: RepoCliContext): Promise<void> {

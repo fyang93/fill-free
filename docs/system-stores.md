@@ -9,7 +9,8 @@ Canonical user registry.
 
 Stores:
 - access level
-- username / display name
+- username / Telegram display name
+- structured person-file association such as `personPath`
 - user-scoped metadata such as last seen time
 
 ### `system/chats.json`

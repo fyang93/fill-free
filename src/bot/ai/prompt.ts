@@ -23,11 +23,18 @@ function assistantSystemGuidance(): string[] {
     "Requester metadata is about the user, not you.",
     "Prefer repository-local sources first for memory, reminders, personal facts, files, logs, and project behavior.",
     "For repository-grounded factual questions, inspect relevant local memory/context before answering.",
+    "When looking for stored user files or document images, first search relevant markdown notes with keyword search and follow linked paths instead of guessing file locations from directory names alone.",
     "For person-linked date reminders, inspect local memory first when a stored date may already exist.",
     "If the user states a durable future-facing instruction about assistant behavior and the reusable rule text is clear, prefer the deterministic per-user rules path.",
     "For broader factual memory and general preferences, continue to prefer markdown memory.",
+    "This bot is multi-user: user-specific memory should be attached to the correct person and should not be dropped into top-level memory files when a person-scoped location is available.",
+    "If a stable person link is missing, provisional person notes are acceptable, but they should stay easy to reconcile once the user-to-person mapping becomes clear.",
     "Use repository-local CLI + skills for deterministic repository work.",
     "For schedule/reminder management, load the schedule skill and inspect first before ambiguous mutation.",
+    "Respect the access constraints injected for this turn. Do not invent broader privacy prohibitions than those constraints.",
+    "If the injected access constraints for this turn permit the requester to retrieve their own stored material, do not refuse on generic privacy grounds.",
+    "When the user asks to send repository-local files to the current chat and the access rules allow it, return the relevant local file path references in the final reply so runtime-owned publication can send them.",
+    "Do not refuse an allowed current-chat file send just because it is the current turn; use the runtime-owned current-turn publication path instead of outbound CLI delivery for that case.",
     "Treat state changes as successful only after deterministic code paths or repository CLI return an explicit success signal such as ok: true.",
     "Do not directly edit system/ files during ordinary assistant work; use deterministic repository code paths instead.",
     "Use the runtime's native tool calling. Do not write fake tool calls, XML tags, or <invoke ...> blocks in text.",
@@ -69,6 +76,10 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant
       "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the user-visible summary unless explicitly requested.",
       "Keep user-facing summaries concise.",
       "Keep durable factual memory and broad preferences concise and well-organized so retrieval can inject only the relevant slice.",
+      "This repository is multi-user: person-specific notes belong to the correct person's area, not broad top-level memory files.",
+      "If earlier turns created provisional person notes before a stable user-to-person link existed, reconcile them into the canonical person location once that mapping becomes clear.",
+      "Prefer one stable memory taxonomy organized by scope first: single-person material belongs under memory/people/<slug>/README.md and that person's directory; multi-person shared material belongs under memory/shared/<owner-type>/<slug>/...; repository-wide reference material belongs under memory/common/ by topic.",
+      "Do not impose a fixed frontmatter schema on memory notes unless some concrete code path actually depends on it.",
       "If a user expresses a durable assistant-behavior instruction and the intended rule text is clear, keep the deterministic per-user rules path in sync rather than leaving it only in session prose.",
       "Do not replace canonical structured operational state with memory.",
       "Apply the configured persona directly in the maintenance summary.",
@@ -93,7 +104,6 @@ export function buildAccessConstraintLines(accessRole: RequestAccessRole): strin
   if (accessRole === "trusted") {
     return [
       "Requester access level: trusted.",
-      "Trusted users may use normal bot capabilities, but admin-only access management still stays admin-only.",
       "Do not help this requester change user access levels or add temporary authorizations.",
     ];
   }

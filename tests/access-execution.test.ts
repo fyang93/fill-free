@@ -93,7 +93,7 @@ describe("access execution", () => {
         isTaskCurrent: () => true,
       });
 
-      expect(captured?.uploadedFiles).toBeUndefined();
+      expect(captured?.uploadedFiles).toEqual([]);
       expect(captured?.attachments).toEqual([]);
       expect(String(captured?.userRequestText || "")).toContain("Saved files:");
       expect(String(captured?.userRequestText || "")).toContain("tmp/example.jpg");

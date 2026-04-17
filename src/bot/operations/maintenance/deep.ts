@@ -37,6 +37,12 @@ async function buildMaintenanceRequest(repoRoot: string, lastMaintainedAt: strin
       ? `Files changed since last maintainer pass:\n${changedFiles.map((filePath) => `- ${filePath}`).join("\n")}`
       : "Files changed since last maintainer pass: none",
     "Focus on changed files first. Inspect other memory files only if needed for merging or consistency.",
+    "Apply the repository memory taxonomy when reorganizing notes by scope first: single-person material belongs under memory/people/<slug>/README.md and that person's directory; multi-person shared material belongs under memory/shared/<owner-type>/<slug>/...; repository-wide reference material belongs under memory/common/ by topic.",
+    "This repository is multi-user: person-specific notes should be filed under the correct person's area instead of broad top-level memory files.",
+    "If a stable user-to-person link became available after earlier provisional notes were created, consolidate those provisional notes into the linked canonical person location.",
+    "Do not preserve duplicate person files when one is only a provisional display-name-based note and the canonical person mapping is now known.",
+    "Do not impose a fixed frontmatter schema on memory notes unless some concrete code path actually depends on it.",
+    "Prefer moving obviously misfiled notes into the right bucket and updating links over leaving duplicate copies.",
     "Reply with a short summary of repository changes, or say no change.",
   ].filter(Boolean).join("\n\n");
 

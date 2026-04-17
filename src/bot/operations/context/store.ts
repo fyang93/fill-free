@@ -17,6 +17,7 @@ export function invalidateContextStoreCache(filePath?: string): void {
 export type UserRecord = {
   username?: string;
   displayName?: string;
+  personPath?: string;
   accessLevel?: "admin" | "allowed" | "trusted";
   timezone?: string;
   rules?: string[];
@@ -40,7 +41,7 @@ function cleanObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function cleanRules(value: unknown): string[] | undefined {
+function cleanStringList(value: unknown): string[] | undefined {
   if (typeof value === "string" && value.trim()) return [value.trim()];
   if (!Array.isArray(value)) return undefined;
   const items = value
@@ -48,6 +49,10 @@ function cleanRules(value: unknown): string[] | undefined {
     .filter((item): item is string => Boolean(item));
   const deduped = Array.from(new Set(items));
   return deduped.length > 0 ? deduped : undefined;
+}
+
+function cleanRules(value: unknown): string[] | undefined {
+  return cleanStringList(value);
 }
 
 function readJsonCached<T>(filePath: string, fallback: T): T {
@@ -73,6 +78,7 @@ export function loadUsers(repoRoot: string): Record<string, UserRecord> {
       return [userId, {
         username: cleanText(record.username),
         displayName: cleanText(record.displayName),
+        personPath: cleanText(record.personPath) || cleanText(record.memoryPath),
         accessLevel: record.accessLevel === "admin" || record.accessLevel === "allowed" || record.accessLevel === "trusted"
           ? record.accessLevel
           : record.role === "allowed" || record.role === "trusted"
@@ -183,10 +189,12 @@ export function buildStructuredContextLines(repoRoot: string, input: { requester
 
   if (requesterUserId && requesterUser) {
     lines.push(`Requester user: ${requesterUserId}${requesterUser.displayName ? ` (${requesterUser.displayName})` : ""}.`);
+    if (requesterUser.personPath) lines.push(`Requester person file: ${requesterUser.personPath}.`);
   }
 
   if (replyUserId && replyUser) {
     lines.push(`Reply target user: ${replyUserId}${replyUser.displayName ? ` (${replyUser.displayName})` : ""}.`);
+    if (replyUser.personPath) lines.push(`Reply target person file: ${replyUser.personPath}.`);
   }
 
   if (chat) {

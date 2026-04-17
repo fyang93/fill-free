@@ -338,7 +338,7 @@ describe("assistant orchestration", () => {
     expect(calls.some((c) => c === "reply:最终完成")).toBe(true);
   });
 
-  test("runtime surfaces turn progress through the waiting message before the final reply", async () => {
+  test("runtime ignores assistant progress callbacks and only publishes the final reply", async () => {
     const config = await createTempConfig();
     const calls: string[] = [];
     const ctx = {
@@ -395,7 +395,7 @@ describe("assistant orchestration", () => {
       onReleaseActiveTask: () => {},
     });
 
-    expect(calls).toContain("edit:1:11:我先确认一下现有记录。");
+    expect(calls).not.toContain("edit:1:11:我先确认一下现有记录。");
     expect(calls).toContain("delete:1:11");
     expect(calls).toContain("reply:已经处理好了");
   });

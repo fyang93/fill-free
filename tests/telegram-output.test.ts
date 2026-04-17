@@ -42,15 +42,15 @@ function createTestConfig(repoRoot: string): AppConfig {
 }
 
 describe("telegram current-turn output", () => {
-  test("extractCandidateFilePaths resolves markdown relative asset links", () => {
-    expect(extractCandidateFilePaths("照片在这里：[锅巴照片](../assets/imgs/guoba.jpg)")).toEqual(["assets/imgs/guoba.jpg"]);
+  test("extractCandidateFilePaths resolves markdown relative memory links", () => {
+    expect(extractCandidateFilePaths("照片在这里：[锅巴照片](../memory/shared/households/yang-fan-family/guoba.jpg)")).toEqual(["memory/shared/households/yang-fan-family/guoba.jpg"]);
   });
 
   test("deliverAiOutputs sends current-chat image through shared telegram delivery path", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-output-test-"));
     try {
-      await mkdir(path.join(repoRoot, "assets", "imgs"), { recursive: true });
-      await writeFile(path.join(repoRoot, "assets", "imgs", "guoba.jpg"), "fake-jpg", "utf8");
+      await mkdir(path.join(repoRoot, "memory", "shared", "households", "yang-fan-family"), { recursive: true });
+      await writeFile(path.join(repoRoot, "memory", "shared", "households", "yang-fan-family", "guoba.jpg"), "fake-jpg", "utf8");
       const config = createTestConfig(repoRoot);
       const calls: string[] = [];
       const ctx = {
@@ -85,7 +85,7 @@ describe("telegram current-turn output", () => {
       } as any;
 
       await deliverAiOutputs(ctx, config, {
-        message: "这是锅巴的照片：[锅巴照片](../assets/imgs/guoba.jpg)",
+        message: "这是锅巴的照片：[锅巴照片](../memory/shared/households/yang-fan-family/guoba.jpg)",
         answerMode: "needs-execution",
         files: [],
         attachments: [],

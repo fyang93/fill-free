@@ -182,7 +182,7 @@ export function listKnownTelegramUsers(allowedUserIds?: number[]): KnownTelegram
       username: value.username ?? previous?.username,
       firstName: value.firstName ?? previous?.firstName,
       lastName: value.lastName ?? previous?.lastName,
-      displayName: value.displayName || previous?.displayName || String(numericId),
+      displayName: previous?.displayName || value.displayName || String(numericId),
       lastSeenAt: [value.lastSeenAt, previous?.lastSeenAt].filter(Boolean).sort().at(-1) || "",
     });
   }

@@ -136,6 +136,29 @@ describe("gateway execution history", () => {
     }
   });
 
+  test("writer mode rejects tool execution in light text sessions", async () => {
+    const service = new AiService(createTestConfig()) as any;
+    service.client = {
+      path: {
+        get: async () => ({ data: {} }),
+      },
+      session: {
+        create: async () => ({ data: { id: "ses_writer_tool_violation" } }),
+        abort: async () => ({ data: {} }),
+        prompt: async () => ({
+          data: {
+            parts: [
+              { type: "tool", tool: "telegram:send-message", state: { status: "completed" } },
+              { type: "text", text: "已发送启动问候给管理员。" },
+            ],
+          },
+        }),
+      },
+    };
+
+    await expect(service.generateStartupGreeting({ requesterUserId: 1 })).rejects.toThrow("writer text generation must not execute tools");
+  });
+
   test("assistant can recover completed actions from session history when final payload omits execution parts", async () => {
     const service = new AiService(createTestConfig()) as any;
     service.client = {

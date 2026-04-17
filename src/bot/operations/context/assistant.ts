@@ -47,6 +47,7 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
       id: String(input.requesterUserId),
       username: requesterUser.username || null,
       displayName: requesterUser.displayName || null,
+      personPath: requesterUser.personPath || null,
       timezone: requesterUser.timezone || null,
       rules: requesterUser.rules && requesterUser.rules.length > 0 ? requesterUser.rules : undefined,
     } : null,
@@ -59,10 +60,13 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
     recentClarification,
   };
 
-  return [
+  const lines = [
+    requesterUser?.personPath ? `Requester person path: ${requesterUser.personPath}` : "",
     "Assistant context JSON:",
     "```json",
     JSON.stringify(payload, null, 2),
     "```",
-  ].join("\n");
+  ].filter(Boolean);
+
+  return lines.join("\n");
 }

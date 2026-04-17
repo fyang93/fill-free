@@ -61,11 +61,11 @@ describe("reply composer sanitization", () => {
       return "系统错误...欢迎回来。";
     });
     await composer.generateStartupGreeting({ requesterUserId: 1, chatId: 1, chatType: "private" });
-    expect(captured).toContain("Send one short proactive startup greeting to the administrator.");
+    expect(captured).toContain("Write one short proactive startup greeting for the administrator.");
+    expect(captured).toContain("Return only the greeting text. Do not send it and do not take any action.");
     expect(captured).toContain("Reply style: 冷静、简洁、稳定");
     expect(captured).toContain("Style for Telegram replies: 冷静、简洁、稳定");
     expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
-    expect(captured).toContain("Use this language for the reply: zh-CN.");
   });
 
   test("generateRuntimeAckMessage requests persona-aware current-turn wording", async () => {
@@ -94,19 +94,19 @@ describe("reply composer sanitization", () => {
     expect(message).toBe("好的，18:00 提醒你 review 论文。");
   });
 
-  test("startup greeting preserves raw model output when markup is present", async () => {
+  test("startup greeting rejects tool-call markup", async () => {
     const composer = new ReplyComposer(createTestConfig(), async () => "", async () => '<invoke name="memory"><parameter name="query">x</parameter></invoke></minimax:tool_call>');
     const message = await composer.generateStartupGreeting({ requesterUserId: 1 });
-    expect(message).toBe('<invoke name="memory"><parameter name="query">x</parameter></invoke></minimax:tool_call>');
+    expect(message).toBeNull();
   });
 
-  test("startup greeting preserves raw model output when hidden-like tags precede visible text", async () => {
+  test("startup greeting rejects hidden-like tags before visible text", async () => {
     const composer = new ReplyComposer(
       createTestConfig(),
       async () => "",
       async () => '<hidden-note>use chinese persona</hidden-note>\n\n你好，羊帆。系统初始化中。',
     );
     const message = await composer.generateStartupGreeting({ requesterUserId: 1 });
-    expect(message).toBe('<hidden-note>use chinese persona</hidden-note>\n\n你好，羊帆。系统初始化中。');
+    expect(message).toBeNull();
   });
 });

@@ -12,9 +12,12 @@ describe("assistant prompt stability", () => {
     expect(prompt).toContain("Apply the configured persona directly in every user-visible reply for this turn");
     expect(prompt).toContain("Requester metadata is about the user, not you.");
     expect(prompt).toContain("Do not mention internal commands, shell usage, interface names, tool names, or implementation steps");
-    expect(prompt).toContain("system/ contains canonical system-managed state.");
-    expect(prompt).toContain("Never directly edit or rewrite files under system/ during ordinary assistant work;");
-    expect(prompt).toContain("when system state must change, use repository CLI or other deterministic repository code paths instead.");
+    expect(prompt).toContain("When looking for stored user files or document images, first search relevant markdown notes with keyword search and follow linked paths instead of guessing file locations from directory names alone.");
+    expect(prompt).toContain("Respect the access constraints injected for this turn. Do not invent broader privacy prohibitions than those constraints.");
+    expect(prompt).toContain("If the injected access constraints for this turn permit the requester to retrieve their own stored material, do not refuse on generic privacy grounds.");
+    expect(prompt).toContain("When the user asks to send repository-local files to the current chat and the access rules allow it, return the relevant local file path references in the final reply so runtime-owned publication can send them.");
+    expect(prompt).toContain("Do not refuse an allowed current-chat file send just because it is the current turn");
+    expect(prompt).toContain("Do not directly edit system/ files during ordinary assistant work; use deterministic repository code paths instead.");
     expect(prompt).toContain("模仿杀戮尖塔里的故障机器人说话");
     expect(prompt).toContain("Style for Telegram replies: 模仿杀戮尖塔里的故障机器人说话。");
     expect(prompt).toContain("Use the configured persona strongly and explicitly in the visible wording.");
@@ -52,9 +55,10 @@ describe("assistant prompt stability", () => {
 
     const trustedPrompt = buildPrompt("把用户2设为 trusted", [], "Asia/Tokyo", "", undefined, "trusted");
     expect(trustedPrompt).toContain("Requester access level: trusted.");
-    expect(trustedPrompt).toContain("admin-only access management still stays admin-only.");
     expect(trustedPrompt).toContain("Do not help this requester change user access levels or add temporary authorizations.");
-    expect(trustedPrompt).not.toContain("send outbound messages");
+
+    const adminPrompt = buildPrompt("发一下我的证件图", [], "Asia/Tokyo", "", undefined, "admin");
+    expect(adminPrompt).not.toContain("Requester access level: admin.");
 
     const allowedPrompt = buildPrompt("把用户2设为 trusted", [], "Asia/Tokyo", "", undefined, "allowed");
     expect(allowedPrompt).toContain("Requester access level: allowed.");

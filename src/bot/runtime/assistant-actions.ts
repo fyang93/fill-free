@@ -3,7 +3,7 @@ import { logger } from "bot/app/logger";
 import type { AiService } from "bot/ai";
 import type { RequestAccessRole } from "bot/ai/prompt";
 import type { AiTurnResult, AssistantProgressHandler } from "bot/ai/types";
-import type { AiAttachment, AppConfig } from "bot/app/types";
+import type { AiAttachment, AppConfig, UploadedFile } from "bot/app/types";
 
 export type AssistantTurnResult = {
   message: string;
@@ -20,6 +20,7 @@ export type ExecuteAssistantActionsInput = {
   answer?: AiTurnResult;
   ctx: Context;
   requesterUserId?: number;
+  uploadedFiles?: UploadedFile[];
   attachments?: AiAttachment[];
   messageTime?: string;
   requesterTimezone?: string | null;
@@ -43,6 +44,7 @@ export async function executeAssistantActions(input: ExecuteAssistantActionsInpu
     chatId: input.ctx.chat?.id,
     chatType: input.ctx.chat?.type,
     accessRole: input.accessRole,
+    uploadedFiles: input.uploadedFiles || [],
     attachments: input.attachments || [],
     messageTime: input.messageTime,
     requesterTimezone: input.requesterTimezone,

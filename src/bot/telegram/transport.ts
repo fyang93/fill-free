@@ -8,8 +8,8 @@ import { findTelegramFileByUniqueId, rememberTelegramFileRecord } from "bot/oper
 type AnyRecord = Record<string, unknown>;
 
 const INVALID_FILENAME_RE = /[^a-zA-Z0-9._-]+/g;
-const MARKDOWN_LOCAL_LINK_RE = /\]\(((?:\.\.\/|\.\/)*(?:assets|tmp)\/[^)\s]+|\/[^)\s]+)\)/gm;
-const TEXT_LOCAL_PATH_RE = /(?:^|[\s`"'(<\[])(((?:\.\.\/|\.\/)*(?:assets|tmp)\/[^\s`"')>\]]+)|\/[^\s`"')>\]]+)(?=$|[\s`"')>\]])/gm;
+const MARKDOWN_LOCAL_LINK_RE = /\]\(((?:\.\.\/|\.\/)*(?:memory|tmp)\/[^)\s]+|\/[^)\s]+)\)/gm;
+const TEXT_LOCAL_PATH_RE = /(?:^|[\s`"'(<\[])(((?:\.\.\/|\.\/)*(?:memory|tmp)\/[^\s`"')>\]]+)|\/[^\s`"')>\]]+)(?=$|[\s`"')>\]])/gm;
 const PROTECTED_SYSTEM_FILES = new Set([
   path.join("system", "schedules.json"),
   path.join("system", "state.json"),
@@ -231,7 +231,7 @@ function normalizeCandidateFilePath(rawPath: string): string | null {
   if (!trimmed) return null;
   if (trimmed.startsWith("/")) return trimmed;
   const normalized = trimmed.replace(/^(?:\.\.\/|\.\/)+/, "");
-  if (normalized.startsWith("assets/") || normalized.startsWith("tmp/")) return normalized;
+  if (normalized.startsWith("memory/") || normalized.startsWith("tmp/")) return normalized;
   return null;
 }
 
