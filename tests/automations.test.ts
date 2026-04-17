@@ -6,8 +6,8 @@ import type { AppConfig } from "../src/bot/app/types";
 import { buildEventRecord, createEventRecord, getEventRecord, readEventRecords, updateEventRecord } from "../src/bot/operations/events/store";
 import { deliverDueSchedules } from "../src/bot/operations/events/delivery";
 import { buildScheduledTaskPrompt, prepareScheduleDeliveryText, shouldGenerateScheduledTaskOnDelivery, shouldPrepareScheduleDeliveryText } from "../src/bot/operations/events/preparation";
-import { runScheduleTask } from "../src/bot/operations/events/task-actions";
-import { schedulePreparationTaskHandler } from "../src/bot/tasks/runtime/handlers/events";
+import { runEventTask } from "../src/bot/operations/events/task-actions";
+import { eventPreparationTaskHandler } from "../src/bot/tasks/runtime/handlers/events";
 import type { TaskRecord } from "../src/bot/tasks/runtime/store";
 import type { EventRecord, ReminderInstance } from "../src/bot/operations/events/types";
 
@@ -60,7 +60,7 @@ function makeTask(payload: Record<string, unknown>, requesterUserId = 1): TaskRe
   return {
     id: "tsk_test",
     state: "queued",
-    domain: "schedules",
+    domain: "events",
     operation: "upsert",
     payload,
     source: { requesterUserId },
@@ -247,7 +247,7 @@ describe("automation category", () => {
     await createEventRecord(event, config);
 
     let updated = false;
-    const result = await schedulePreparationTaskHandler.run({
+    const result = await eventPreparationTaskHandler.run({
       config,
       agentService: {
         generateScheduleMessage: async () => {
@@ -264,14 +264,14 @@ describe("automation category", () => {
     } as any, {
       id: "tsk_prepare",
       state: "queued",
-      domain: "schedules",
+      domain: "events",
       operation: "prepare-delivery-text",
-      payload: { scheduleId: event.id },
+      payload: { eventId: event.id },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     } as any);
 
-    expect(result.result?.reason).toBe("schedule-changed-during-prepare");
+    expect(result.result?.reason).toBe("event-changed-during-prepare");
     const latest = await getEventRecord(config, event.id);
     expect((latest?.schedule as any)?.scheduledAt).not.toBe(scheduledAt);
     expect(latest?.deliveryText).toBeUndefined();
@@ -314,7 +314,7 @@ describe("automation category", () => {
 
   test("automation can be created via upsert task operation", async () => {
     const config = await createTempConfig();
-    const result = await runScheduleTask(config, makeTask({
+    const result = await runEventTask(config, makeTask({
       title: "每日新闻推送",
       note: "获取今日科技新闻并生成摘要",
       category: "automation",
@@ -344,10 +344,10 @@ describe("automation category", () => {
     await createEventRecord(event, config);
 
     const deleteNow = new Date().toISOString();
-    const result = await runScheduleTask(config, {
+    const result = await runEventTask(config, {
       id: "tsk_delete",
       state: "queued",
-      domain: "schedules",
+      domain: "events",
       operation: "delete",
       payload: { match: { title: "每日新闻" } },
       source: { requesterUserId: 1 },
@@ -369,7 +369,7 @@ describe("automation category", () => {
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1], time: { hour: 9, minute: 0 } },
     }, 999);
 
-    const result = await runScheduleTask(config, nonAdminTask);
+    const result = await runEventTask(config, nonAdminTask);
     expect(result.skipped).toBe(true);
     expect(result.reason).toBe("schedule-create-not-allowed");
 

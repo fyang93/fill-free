@@ -2,18 +2,18 @@ import type { Bot, Context } from "grammy";
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import type { AiService } from "bot/ai";
-import { dequeueRunnableTask, failStaleRunningTasks, markTaskState, pruneFinishedTasks, pruneOrphanedSchedulePreparationTasks, removeTask } from "./store";
+import { dequeueRunnableTask, failStaleRunningTasks, markTaskState, pruneFinishedTasks, pruneOrphanedEventPreparationTasks, removeTask } from "./store";
 import { runTaskWithHandlers } from "./handlers";
 import { sendTaskFailureReply, taskLogContext } from "./handlers/shared";
 
 function isQuietNoopTask(task: Awaited<ReturnType<typeof dequeueRunnableTask>>, result?: Record<string, unknown>): boolean {
   if (!task) return false;
-  if (task.domain !== "schedules" || task.operation !== "prepare-delivery-text") return false;
+  if (task.domain !== "events" || task.operation !== "prepare-delivery-text") return false;
   return result?.changed === false;
 }
 
 function shouldLogTaskStart(task: Awaited<ReturnType<typeof dequeueRunnableTask>>): boolean {
-  return !(task && task.domain === "schedules" && task.operation === "prepare-delivery-text");
+  return !(task && task.domain === "events" && task.operation === "prepare-delivery-text");
 }
 
 export function startTaskWorker(config: AppConfig, agentService: AiService, bot: Bot<Context>, intervalMs = 15_000): NodeJS.Timeout {
@@ -24,8 +24,8 @@ export function startTaskWorker(config: AppConfig, agentService: AiService, bot:
     try {
       const recovered = await failStaleRunningTasks(config);
       if (recovered.changed > 0) await logger.warn(`recovered ${recovered.changed} stale running tasks`);
-      const orphaned = await pruneOrphanedSchedulePreparationTasks(config);
-      if (orphaned.removed > 0) await logger.info(`pruned ${orphaned.removed} orphaned schedule preparation tasks`);
+      const orphaned = await pruneOrphanedEventPreparationTasks(config);
+      if (orphaned.removed > 0) await logger.info(`pruned ${orphaned.removed} orphaned event preparation tasks`);
       const pruned = await pruneFinishedTasks(config);
       if (pruned.removed > 0) await logger.info(`pruned ${pruned.removed} finished tasks`);
       while (true) {

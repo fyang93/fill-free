@@ -63,7 +63,7 @@ async function walkMemoryFiles(root: string, dir = root): Promise<string[]> {
     if (entry.isDirectory()) return walkMemoryFiles(root, fullPath);
     if (!entry.isFile()) return [];
     const relative = path.relative(root, fullPath);
-    if (!relative || relative === "schedules.json") return [];
+    if (!relative || relative === "events.json") return [];
     return [fullPath];
   }));
 

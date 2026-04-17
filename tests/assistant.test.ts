@@ -48,7 +48,7 @@ async function createTempConfig(): Promise<AppConfig> {
   await mkdir(path.join(repoRoot, "system"), { recursive: true });
   await writeFile(path.join(repoRoot, "system", "users.json"), '{"users":{"1":{"displayName":"Admin Test","timezone":"Asia/Tokyo"}}}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{"1":{"type":"private","title":"Admin Chat"}}}\n', "utf8");
-  await writeFile(path.join(repoRoot, "system", "schedules.json"), '[]\n', "utf8");
+  await writeFile(path.join(repoRoot, "system", "events.json"), '[]\n', "utf8");
   return createTestConfig(repoRoot);
 }
 

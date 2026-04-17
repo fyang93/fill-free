@@ -1,12 +1,12 @@
 import type { TaskHandler, TaskHandlerContext, TaskHandlerResult } from "./types";
 import type { TaskRecord } from "../store";
-import { schedulePreparationTaskHandler, schedulesTaskHandler } from "bot/operations/events";
+import { eventPreparationTaskHandler, eventsTaskHandler } from "bot/operations/events";
 import { messagesDeliverTaskHandler } from "./messages";
 import { accessGrantTemporaryTaskHandler, accessSetRoleTaskHandler } from "bot/operations/access";
 
 const taskHandlers: TaskHandler[] = [
-  schedulePreparationTaskHandler,
-  schedulesTaskHandler,
+  eventPreparationTaskHandler,
+  eventsTaskHandler,
   messagesDeliverTaskHandler,
   accessGrantTemporaryTaskHandler,
   accessSetRoleTaskHandler,

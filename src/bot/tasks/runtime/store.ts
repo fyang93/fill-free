@@ -153,8 +153,8 @@ function taskSummary(task: TaskRecord): string {
   const base = `${task.domain}.${task.operation}`;
   const subjectKind = task.subject?.kind?.trim();
   const subjectId = task.subject?.id?.trim();
-  if (task.domain === "schedules" && subjectKind === "schedule" && subjectId) {
-    return `${base}（schedule: ${subjectId}）`;
+  if (task.domain === "events" && subjectKind === "event" && subjectId) {
+    return `${base}（event: ${subjectId}）`;
   }
   if (task.domain === "messages") {
     const recipient = typeof task.payload.recipientLabel === "string" && task.payload.recipientLabel.trim()
@@ -171,7 +171,7 @@ function taskSummary(task: TaskRecord): string {
 }
 
 function shouldLogTaskAccepted(task: Pick<TaskRecord, "domain" | "operation">): boolean {
-  return !(task.domain === "schedules" && task.operation === "prepare-delivery-text");
+  return !(task.domain === "events" && task.operation === "prepare-delivery-text");
 }
 
 async function mutateTaskStore<T>(config: AppConfig, operation: (store: TaskStore) => Promise<T>): Promise<T> {
@@ -289,16 +289,16 @@ export async function pruneFinishedTasks(config: AppConfig): Promise<{ removed: 
   });
 }
 
-export async function pruneOrphanedSchedulePreparationTasks(config: AppConfig): Promise<{ removed: number; removedSummaries: string[] }> {
-  const schedules = await readEventRecords(config);
-  const existingScheduleIds = new Set(schedules.map((event) => event.id));
+export async function pruneOrphanedEventPreparationTasks(config: AppConfig): Promise<{ removed: number; removedSummaries: string[] }> {
+  const events = await readEventRecords(config);
+  const existingEventIds = new Set(events.map((event) => event.id));
   return mutateTaskStore(config, async (store) => {
     const removedTasks = store.tasks.filter((task) => {
-      if (task.domain !== "schedules" || task.operation !== "prepare-delivery-text") return false;
-      const payloadScheduleId = typeof task.payload.scheduleId === "string" && task.payload.scheduleId.trim() ? task.payload.scheduleId.trim() : "";
-      const subjectScheduleId = task.subject?.kind === "schedule" && task.subject?.id?.trim() ? task.subject.id.trim() : "";
-      const scheduleId = payloadScheduleId || subjectScheduleId;
-      return !scheduleId || !existingScheduleIds.has(scheduleId);
+      if (task.domain !== "events" || task.operation !== "prepare-delivery-text") return false;
+      const payloadEventId = typeof task.payload.eventId === "string" && task.payload.eventId.trim() ? task.payload.eventId.trim() : "";
+      const subjectEventId = task.subject?.kind === "event" && task.subject?.id?.trim() ? task.subject.id.trim() : "";
+      const eventId = payloadEventId || subjectEventId;
+      return !eventId || !existingEventIds.has(eventId);
     });
     const removedIds = new Set(removedTasks.map((task) => task.id));
     const next = store.tasks.filter((task) => !removedIds.has(task.id));

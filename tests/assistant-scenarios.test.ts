@@ -85,7 +85,7 @@ async function createTempConfig(opts?: {
     };
   }
   await writeFile(path.join(repoRoot, "system", "chats.json"), JSON.stringify({ chats }), "utf8");
-  await writeFile(path.join(repoRoot, "system", "schedules.json"), "[]\n", "utf8");
+  await writeFile(path.join(repoRoot, "system", "events.json"), "[]\n", "utf8");
 
   if (opts?.withMemory) {
     await mkdir(path.join(repoRoot, "memory"), { recursive: true });

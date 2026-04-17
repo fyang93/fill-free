@@ -6,7 +6,7 @@ import type { AppConfig } from "../src/bot/app/types";
 import { buildEventRecord, createEventRecord, pruneInactiveEventRecords, readEventRecords } from "../src/bot/operations/events/store";
 import { getCurrentOccurrence, normalizeRecurrence, scheduleEventScheduleSummary } from "../src/bot/operations/events";
 import { buildEventScheduleFromExternal } from "../src/bot/operations/events/schedule_parser";
-import { runScheduleTask } from "../src/bot/operations/events/task-actions";
+import { runEventTask } from "../src/bot/operations/events/task-actions";
 import { prepareScheduleDeliveryText, clearPreparedScheduleDeliveryText, isPreparedScheduleDeliveryTextUsable, nextPendingScheduleInstance } from "../src/bot/operations/events/preparation";
 import type { TaskRecord } from "../src/bot/tasks/runtime/store";
 
@@ -59,7 +59,7 @@ function makeTask(payload: Record<string, unknown>, requesterUserId = 1): TaskRe
   return {
     id: "tsk_test",
     state: "queued",
-    domain: "schedules",
+    domain: "events",
     operation: "delete",
     payload,
     source: { requesterUserId },
@@ -100,7 +100,7 @@ describe("schedule task matching", () => {
     }, "Asia/Tokyo");
     await createEventRecord(event, config);
 
-    const result = await runScheduleTask(config, makeTask({
+    const result = await runEventTask(config, makeTask({
       match: {
         title: "组会提醒",
         scheduledDate: "2026-04-07",
@@ -124,7 +124,7 @@ describe("schedule task matching", () => {
     }, "Asia/Tokyo");
     await createEventRecord(event, config);
 
-    const result = await runScheduleTask(config, makeTask({
+    const result = await runEventTask(config, makeTask({
       match: {
         title: "组会提醒",
         scheduledAt: "2026-04-07T15:00:00",
@@ -157,7 +157,7 @@ describe("schedule task matching", () => {
     await createEventRecord(april7, config);
     await createEventRecord(april8, config);
 
-    const result = await runScheduleTask(config, makeTask({
+    const result = await runEventTask(config, makeTask({
       match: {
         title: "组会提醒",
         scheduledDate: "2026-04-07",
@@ -170,7 +170,7 @@ describe("schedule task matching", () => {
     expect(events.find((item) => item.id === april8.id)?.status).toBe("active");
   });
 
-  test("删除提醒支持按 id / scheduleId 精确匹配", async () => {
+  test("删除提醒支持按 id 精确匹配", async () => {
     const config = await createTempConfig();
     const event = buildEventRecord(config, {
       title: "4月28日组会",
@@ -182,7 +182,7 @@ describe("schedule task matching", () => {
     }, "Asia/Tokyo");
     await createEventRecord(event, config);
 
-    const byId = await runScheduleTask(config, makeTask({ match: { id: event.id } }));
+    const byId = await runEventTask(config, makeTask({ match: { id: event.id } }));
     expect(byId.changed).toBe(true);
 
     const recreated = buildEventRecord(config, {
@@ -195,8 +195,8 @@ describe("schedule task matching", () => {
     }, "Asia/Tokyo");
     await createEventRecord(recreated, config);
 
-    const byScheduleId = await runScheduleTask(config, makeTask({ match: { scheduleId: recreated.id } }));
-    expect(byScheduleId.changed).toBe(true);
+    const byRecreatedId = await runEventTask(config, makeTask({ match: { id: recreated.id } }));
+    expect(byRecreatedId.changed).toBe(true);
   });
 
   test("已过时但仍 active 的一次性提醒不会被启动/maintainer 清理提前删掉", { timeout: 15000 }, async () => {
@@ -278,10 +278,10 @@ describe("schedule task matching", () => {
     }, null, 2) + "\n", "utf8");
 
     const now = new Date().toISOString();
-    const result = await runScheduleTask(config, {
+    const result = await runEventTask(config, {
       id: "tsk_allowed_create",
       state: "queued",
-      domain: "schedules",
+      domain: "events",
       operation: "create",
       payload: {
         title: "allowed提醒",
@@ -306,10 +306,10 @@ describe("schedule task matching", () => {
       },
     }, null, 2) + "\n", "utf8");
     const now = new Date().toISOString();
-    const result = await runScheduleTask(config, {
+    const result = await runEventTask(config, {
       id: "tsk_upsert_create",
       state: "queued",
-      domain: "schedules",
+      domain: "events",
       operation: "upsert",
       payload: {
         title: "review论文",
@@ -568,12 +568,12 @@ describe("schedule delivery text pipeline", () => {
     event.deliveryState = { currentOccurrence: { scheduledAt: "2026-06-01T09:00:00.000Z", sentReminderIds: [] } };
     await createEventRecord(event, config);
 
-    // Update the schedule via runScheduleTask
+    // Update the schedule via runEventTask
     const now = new Date().toISOString();
     const updateTask: TaskRecord = {
       id: "tsk_update",
       state: "queued",
-      domain: "schedules",
+      domain: "events",
       operation: "update",
       payload: {
         match: { title: "修改时间测试" },
@@ -583,7 +583,7 @@ describe("schedule delivery text pipeline", () => {
       createdAt: now,
       updatedAt: now,
     };
-    await runScheduleTask(config, updateTask);
+    await runEventTask(config, updateTask);
 
     const events = await readEventRecords(config);
     const updated = events.find((e) => e.title === "修改时间测试");

@@ -44,7 +44,7 @@ function extractLocalScheduledAt(event: EventRecord, fallbackTimezone: string): 
 }
 
 function scheduleTargetSubject(targets: EventTarget[]): TaskRecord["subject"] {
-  if (targets.length !== 1) return { kind: "schedule" };
+  if (targets.length !== 1) return { kind: "event" };
   return {
     kind: targets[0].targetKind,
     id: String(targets[0].targetId),
@@ -98,16 +98,14 @@ function idMatches(event: EventRecord, match: Record<string, unknown>): boolean 
   return true;
 }
 
-function explicitScheduleIds(match: Record<string, unknown>): string[] {
-  const raw = Array.isArray(match.scheduleIds)
-    ? match.scheduleIds
-    : Array.isArray(match.ids)
-      ? match.ids
-      : [];
+function explicitEventIds(match: Record<string, unknown>): string[] {
+  const raw = Array.isArray(match.ids)
+    ? match.ids
+    : [];
   return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
 }
 
-export function scheduleMatchesFilters(event: EventRecord, match: Record<string, unknown>, defaultTimezone: string): boolean {
+export function eventMatchesFilters(event: EventRecord, match: Record<string, unknown>, defaultTimezone: string): boolean {
   if (!idMatches(event, match)) return false;
   if (!titleMatches(event, match)) return false;
   const scheduledDate = typeof match.scheduledDate === "string" && match.scheduledDate.trim() ? match.scheduledDate.trim() : undefined;
@@ -127,7 +125,7 @@ export function scheduleMatchesFilters(event: EventRecord, match: Record<string,
   return true;
 }
 
-export async function resolveSchedulesByMatch(
+export async function resolveEventsByMatch(
   config: AppConfig,
   input: {
     match?: Record<string, unknown>;
@@ -147,13 +145,13 @@ export async function resolveSchedulesByMatch(
 
   const allEvents = (await readEventRecords(config)).filter((event) => allowedStatuses.includes(event.status));
   const matchedEvents = allEvents.filter((event) => {
-    if (canManageAllSchedules(accessLevel)) return scheduleMatchesFilters(event, match, config.bot.defaultTimezone);
+    if (canManageAllSchedules(accessLevel)) return eventMatchesFilters(event, match, config.bot.defaultTimezone);
     if (!canManageOwnSchedules(accessLevel)) return false;
     if (requesterUserId && event.createdByUserId !== requesterUserId) return false;
-    return scheduleMatchesFilters(event, match, config.bot.defaultTimezone);
+    return eventMatchesFilters(event, match, config.bot.defaultTimezone);
   });
 
-  const batchIds = explicitScheduleIds(match);
+  const batchIds = explicitEventIds(match);
   if (batchIds.length > 0) {
     const byId = new Map(allEvents.map((event) => [event.id, event]));
     const resolved = batchIds.map((id) => byId.get(id)).filter((event): event is EventRecord => Boolean(event));
@@ -166,13 +164,13 @@ export async function resolveSchedulesByMatch(
   return { mode: "single", events: [], reason: "schedule-not-resolved" };
 }
 
-async function resolveSchedulesForMutation(
+async function resolveEventsForMutation(
   config: AppConfig,
   task: TaskRecord,
   allowedStatuses: EventRecord["status"][] = ["active"],
 ): Promise<{ mode: "single" | "batch"; events: EventRecord[]; reason?: string }> {
   const payload = task.payload;
-  return resolveSchedulesByMatch(config, {
+  return resolveEventsByMatch(config, {
     match: payload.match && typeof payload.match === "object" && !Array.isArray(payload.match)
       ? payload.match as Record<string, unknown>
       : {},
@@ -203,7 +201,7 @@ export async function enqueueScheduleCreateTask(
       ? input.schedule.date.trim()
       : "floating";
   return enqueueTask(config, {
-    domain: "schedules",
+    domain: "events",
     operation: "create",
     subject: scheduleTargetSubject(input.targets),
     payload: {
@@ -223,24 +221,24 @@ export async function enqueueScheduleCreateTask(
   });
 }
 
-export async function enqueueSchedulePreparationTask(
+export async function enqueueEventPreparationTask(
   config: AppConfig,
-  scheduleId: string,
+  eventId: string,
   source?: TaskRecord["source"],
   supersedesTaskIds?: string[],
 ): Promise<TaskRecord> {
   return enqueueTask(config, {
-    domain: "schedules",
+    domain: "events",
     operation: "prepare-delivery-text",
-    subject: { kind: "schedule", id: scheduleId },
-    payload: { scheduleId },
-    dedupeKey: `schedules:prepare-delivery-text:${scheduleId}`,
+    subject: { kind: "event", id: eventId },
+    payload: { eventId },
+    dedupeKey: `events:prepare-delivery-text:${eventId}`,
     supersedesTaskIds,
     source,
   });
 }
 
-export async function runScheduleTask(config: AppConfig, task: TaskRecord): Promise<{ changed?: boolean; scheduleId?: string; scheduleIds?: string[]; skipped?: boolean; reason?: string }> {
+export async function runEventTask(config: AppConfig, task: TaskRecord): Promise<{ changed?: boolean; eventId?: string; eventIds?: string[]; skipped?: boolean; reason?: string }> {
   if (task.operation === "create") {
     const payload = task.payload;
     const title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "";
@@ -279,9 +277,9 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       targets,
     });
     if (!shouldGenerateScheduledTaskOnDelivery(event)) {
-      await enqueueSchedulePreparationTask(config, event.id, task.source, [task.id]);
+      await enqueueEventPreparationTask(config, event.id, task.source, [task.id]);
     }
-    return { changed: true, scheduleId: event.id };
+    return { changed: true, eventId: event.id };
   }
 
   if (task.operation === "upsert") {
@@ -289,13 +287,13 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
     const hasMatch = Boolean(payload.match && typeof payload.match === "object" && !Array.isArray(payload.match));
     const hasChanges = Boolean(payload.changes && typeof payload.changes === "object" && !Array.isArray(payload.changes));
     if (hasMatch || hasChanges) {
-      return runScheduleTask(config, { ...task, operation: "update" });
+      return runEventTask(config, { ...task, operation: "update" });
     }
-    return runScheduleTask(config, { ...task, operation: "create" });
+    return runEventTask(config, { ...task, operation: "create" });
   }
 
   if (task.operation === "update") {
-    const resolved = await resolveSchedulesForMutation(config, task);
+    const resolved = await resolveEventsForMutation(config, task);
     if (resolved.events.length === 0) return { skipped: true, reason: resolved.reason || "schedule-not-resolved" };
     const changes = task.payload.changes && typeof task.payload.changes === "object" && !Array.isArray(task.payload.changes)
       ? task.payload.changes as Record<string, unknown>
@@ -369,26 +367,26 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       event.updatedAt = new Date().toISOString();
       await updateEventRecord(config, event);
       if (!shouldGenerateScheduledTaskOnDelivery(event)) {
-        await enqueueSchedulePreparationTask(config, event.id, task.source, [task.id]);
+        await enqueueEventPreparationTask(config, event.id, task.source, [task.id]);
       }
       changedIds.push(event.id);
     }
-    return { changed: true, scheduleId: changedIds[0], scheduleIds: changedIds };
+    return { changed: true, eventId: changedIds[0], eventIds: changedIds };
   }
 
   if (task.operation === "delete") {
-    const resolved = await resolveSchedulesForMutation(config, task, ["active"]);
+    const resolved = await resolveEventsForMutation(config, task, ["active"]);
     if (resolved.events.length === 0) return { skipped: true, reason: resolved.reason || "schedule-not-resolved" };
     const changedIds: string[] = [];
     for (const event of resolved.events) {
       const changed = await deleteEventRecord(config, event.id);
       if (changed) changedIds.push(event.id);
     }
-    return { changed: changedIds.length > 0, scheduleId: changedIds[0], scheduleIds: changedIds };
+    return { changed: changedIds.length > 0, eventId: changedIds[0], eventIds: changedIds };
   }
 
   if (task.operation === "pause") {
-    const resolved = await resolveSchedulesForMutation(config, task, ["active"]);
+    const resolved = await resolveEventsForMutation(config, task, ["active"]);
     if (resolved.events.length === 0) return { skipped: true, reason: resolved.reason || "schedule-not-resolved" };
     const changedIds: string[] = [];
     for (const event of resolved.events) {
@@ -401,11 +399,11 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       await updateEventRecord(config, event);
       changedIds.push(event.id);
     }
-    return { changed: true, scheduleId: changedIds[0], scheduleIds: changedIds };
+    return { changed: true, eventId: changedIds[0], eventIds: changedIds };
   }
 
   if (task.operation === "resume") {
-    const resolved = await resolveSchedulesForMutation(config, task, ["paused"]);
+    const resolved = await resolveEventsForMutation(config, task, ["paused"]);
     if (resolved.events.length === 0) return { skipped: true, reason: resolved.reason || "schedule-not-resolved" };
     const changedIds: string[] = [];
     for (const event of resolved.events) {
@@ -418,11 +416,11 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       event.deliveryState = undefined;
       await updateEventRecord(config, event);
       if (!shouldGenerateScheduledTaskOnDelivery(event)) {
-        await enqueueSchedulePreparationTask(config, event.id, task.source, [task.id]);
+        await enqueueEventPreparationTask(config, event.id, task.source, [task.id]);
       }
       changedIds.push(event.id);
     }
-    return { changed: true, scheduleId: changedIds[0], scheduleIds: changedIds };
+    return { changed: true, eventId: changedIds[0], eventIds: changedIds };
   }
 
   return { skipped: true, reason: "unsupported-schedule-operation" };

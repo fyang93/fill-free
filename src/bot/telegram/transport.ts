@@ -11,7 +11,7 @@ const INVALID_FILENAME_RE = /[^a-zA-Z0-9._-]+/g;
 const MARKDOWN_LOCAL_LINK_RE = /\]\(((?:\.\.\/|\.\/)*(?:memory|tmp)\/[^)\s]+|\/[^)\s]+)\)/gm;
 const TEXT_LOCAL_PATH_RE = /(?:^|[\s`"'(<\[])(((?:\.\.\/|\.\/)*(?:memory|tmp)\/[^\s`"')>\]]+)|\/[^\s`"')>\]]+)(?=$|[\s`"')>\]])/gm;
 const PROTECTED_SYSTEM_FILES = new Set([
-  path.join("system", "schedules.json"),
+  path.join("system", "events.json"),
   path.join("system", "state.json"),
   path.join("system", "runtime-state.json"),
   path.join("system", "users.json"),

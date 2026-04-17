@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
 import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
-import { runScheduleTask } from "../src/bot/operations/events/task-actions";
+import { runEventTask } from "../src/bot/operations/events/task-actions";
 import type { TaskRecord } from "../src/bot/tasks/runtime/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { resolveUser } from "../src/bot/operations/context/store";
@@ -93,7 +93,7 @@ function makeScheduleTask(operation: "update" | "delete", payload: Record<string
   return {
     id: `tsk_${operation}_test`,
     state: "queued",
-    domain: "schedules",
+    domain: "events",
     operation,
     payload,
     source: { requesterUserId },
@@ -144,7 +144,7 @@ describe("自然语言回归测试", () => {
         targets: [{ targetKind: "user", targetId: 872940661 }],
       }, "Asia/Tokyo");
       await createEventRecord(event, config);
-      return { scheduleId: event.id };
+      return { eventId: event.id };
     });
 
     const created = await runLoggedScenario(config, "现在有哪些提醒", "schedules.read", async () => {
@@ -153,7 +153,7 @@ describe("自然语言回归测试", () => {
     });
     expect(created.some((item) => item.title === "组会提醒")).toBe(true);
 
-    const updateResult = await runLoggedScenario(config, "把 4/7 的组会提醒改成 4/7 16:00", "schedules.update", async () => runScheduleTask(config, makeScheduleTask("update", {
+    const updateResult = await runLoggedScenario(config, "把 4/7 的组会提醒改成 4/7 16:00", "schedules.update", async () => runEventTask(config, makeScheduleTask("update", {
       match: { title: "组会提醒", scheduledDate: "2026-04-07" },
       changes: { schedule: { kind: "once", scheduledAt: "2026-04-07T07:00:00.000Z" } },
     })));
@@ -163,7 +163,7 @@ describe("自然语言回归测试", () => {
     expect(updated.find((item) => item.title === "组会提醒")?.schedule.kind).toBe("once");
     expect((updated.find((item) => item.title === "组会提醒")?.schedule as { kind: "once"; scheduledAt: string } | undefined)?.scheduledAt).toBe("2026-04-07T07:00:00.000Z");
 
-    const deleteResult = await runLoggedScenario(config, "删除 4/7 那个提醒", "schedules.delete", async () => runScheduleTask(config, makeScheduleTask("delete", {
+    const deleteResult = await runLoggedScenario(config, "删除 4/7 那个提醒", "schedules.delete", async () => runEventTask(config, makeScheduleTask("delete", {
       match: { title: "组会提醒", scheduledDate: "2026-04-07" },
     })));
     expect(deleteResult.changed).toBe(true);

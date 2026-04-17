@@ -3,11 +3,11 @@ import { logger } from "bot/app/logger";
 import { canManageAllSchedules, canManageOwnSchedules, canReadSchedules, canRequesterCreateEventTargets } from "bot/operations/access/control";
 import { accessLevelForUser } from "bot/operations/access/roles";
 import { resolveUser } from "bot/operations/context/store";
-import { getCurrentOccurrence, listReminderInstances, resolveScheduleDisplayTimezone, resolveSchedulesByMatch, scheduleEventScheduleSummary, scheduleMatchesFilters, type EventRecord } from "bot/operations/events";
+import { getCurrentOccurrence, listReminderInstances, resolveScheduleDisplayTimezone, resolveEventsByMatch, scheduleEventScheduleSummary, eventMatchesFilters, type EventRecord } from "bot/operations/events";
 import { buildEventScheduleFromExternal } from "bot/operations/events/schedule_parser";
 import { createEventRecordWithDefaults, readEventRecords } from "bot/operations/events/store";
 import type { Reminder } from "bot/operations/events/types";
-import { runScheduleTask } from "bot/operations/events/task-actions";
+import { runEventTask } from "bot/operations/events/task-actions";
 import type { RepoCliContext } from "cli/runtime";
 
 function requesterTimezoneForCli(context: RepoCliContext): string | undefined {
@@ -96,7 +96,7 @@ export async function handleEventsList(context: RepoCliContext): Promise<void> {
     : events.filter((event) => canManageOwnSchedules(accessLevel) && event.createdByUserId === requesterUserId);
   const match = context.parseObjectArg(context.args.match) || {};
   const filtered = Object.keys(match).length > 0
-    ? visible.filter((event) => scheduleMatchesFilters(event, match, effectiveRequesterTimezoneForCli(context)))
+    ? visible.filter((event) => eventMatchesFilters(event, match, effectiveRequesterTimezoneForCli(context)))
     : visible;
   context.output({ ok: true, events: filtered.map((event) => serializeEventForCli(context, event)) });
 }
@@ -119,7 +119,7 @@ export async function handleEventsGet(context: RepoCliContext): Promise<void> {
   }
 
   const match = context.parseObjectArg(context.args.match) || {};
-  const result = await resolveSchedulesByMatch(context.config, {
+  const result = await resolveEventsByMatch(context.config, {
     match,
     requesterUserId,
     allowedStatuses: ["active", "paused"],
@@ -178,7 +178,7 @@ export async function handleEventsCreate(context: RepoCliContext): Promise<void>
     reminders,
     targets,
   });
-  await logger.info(`system tool schedules_create created scheduleId=${event.id} title=${logTextContent(event.title)}`);
+  await logger.info(`system tool events_create created eventId=${event.id} title=${logTextContent(event.title)}`);
   output({ ok: true, changed: true, eventId: event.id, event: serializeEventForCli(context, event) });
 }
 
@@ -213,10 +213,10 @@ export async function handleEventMutation(context: RepoCliContext, operation: "u
   const payload = operation === "update"
     ? { match, changes }
     : { match };
-  const result = await runScheduleTask(context.config, {
+  const result = await runEventTask(context.config, {
     id: `tool_${Date.now().toString(36)}`,
     state: "queued",
-    domain: "schedules",
+    domain: "events",
     operation,
     payload,
     source: requesterUserId ? { requesterUserId } : undefined,
@@ -226,11 +226,11 @@ export async function handleEventMutation(context: RepoCliContext, operation: "u
   if (result.skipped) {
     context.output({ ok: false, error: typeof result.reason === "string" && result.reason ? result.reason : `schedule-${operation}-failed`, ...result });
   }
-  const events = result.scheduleIds && result.scheduleIds.length > 0
-    ? (await readEventRecords(context.config)).filter((event) => result.scheduleIds?.includes(event.id)).map((event) => serializeEventForCli(context, event))
+  const events = result.eventIds && result.eventIds.length > 0
+    ? (await readEventRecords(context.config)).filter((event) => result.eventIds?.includes(event.id)).map((event) => serializeEventForCli(context, event))
     : undefined;
   const event = events && events.length > 0
-    ? events.find((item) => item.id === result.scheduleId) || events[0]
+    ? events.find((item) => item.id === result.eventId) || events[0]
     : undefined;
-  context.output({ ok: true, ...result, eventId: result.scheduleId, event, events });
+  context.output({ ok: true, ...result, event, events });
 }

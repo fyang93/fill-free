@@ -20,7 +20,7 @@ import { handleModelCallback } from "bot/telegram/model-selection/callback";
 import { ConversationController } from "bot/runtime/conversations/controller";
 import { createMaintainerRunner } from "bot/runtime";
 import { warmWaitingMessageCandidates } from "bot/runtime/assistant";
-import { enqueueSchedulePreparationTask, startTaskWorker } from "bot/tasks";
+import { enqueueEventPreparationTask, startTaskWorker } from "bot/tasks";
 import { shouldGenerateScheduledTaskOnDelivery, scheduledTaskPromptForEvent } from "bot/operations/events";
 
 const configPath = DEFAULT_CONFIG_PATH;
@@ -96,7 +96,7 @@ async function enqueueActiveSchedulePreparationTasks(): Promise<void> {
   for (const event of events) {
     if (event.status !== "active") continue;
     if (shouldGenerateScheduledTaskOnDelivery(event)) continue;
-    await enqueueSchedulePreparationTask(config, event.id);
+    await enqueueEventPreparationTask(config, event.id);
   }
 }
 
@@ -223,7 +223,7 @@ let scheduleLoop = await startScheduleLoop(
   },
   async (event) => {
     if (shouldGenerateScheduledTaskOnDelivery(event)) return;
-    await enqueueSchedulePreparationTask(config, event.id);
+    await enqueueEventPreparationTask(config, event.id);
   },
 );
 let taskWorker = startTaskWorker(config, agentService, bot);

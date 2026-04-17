@@ -238,7 +238,7 @@ describe("repo events CLI", () => {
     expect((created.event as any)?.targets).toEqual([{ targetKind: "user", targetId: 1 }]);
   });
 
-  test("explicit batch scheduleIds can retarget only the listed schedules", async () => {
+  test("explicit batch ids can retarget only the listed events", async () => {
     const repoRoot = await createTempRepo();
 
     const news1 = await runCli(repoRoot, "events:create", {
@@ -271,7 +271,7 @@ describe("repo events CLI", () => {
       targetChatId: -1003674455331,
     });
     expect(batch.ok).toBe(true);
-    expect(batch.scheduleIds).toEqual([(news1.event as any).id, (news2.event as any).id]);
+    expect(batch.eventIds).toEqual([(news1.event as any).id, (news2.event as any).id]);
 
     const events = await readEvents(repoRoot);
     expect(events.find((item) => item.id === (news1.event as any).id)?.targets).toEqual([{ targetKind: "chat", targetId: -1003674455331 }]);
