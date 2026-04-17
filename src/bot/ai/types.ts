@@ -21,7 +21,7 @@ export type ScheduleDraft = {
   timeSemantics?: "absolute" | "local";
   timezone?: string;
   subjectTimezone?: string;
-  notifications?: Array<{ id?: string; offsetMinutes: number; enabled?: boolean; label?: string }>;
+  reminders?: Array<{ id?: string; offsetMinutes: number; enabled?: boolean; label?: string }>;
   targetUser?: ActionTargetReference;
   targetUsers?: ActionTargetReference[];
 };

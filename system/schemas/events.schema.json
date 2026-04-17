@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "system/schemas/events.schema.json",
   "title": "Stored events in /system/events.json",
-  "description": "Canonical persisted schema for time-driven entries in /system/events.json. Top-level records may represent human-facing events or automations. Special reminders such as birthdays must use category='special' and specialKind='birthday'|'festival'|'anniversary'|'memorial'. Event reminders live inline on the record; automations should not use reminder notifications.",
+  "description": "Canonical persisted schema for time-driven entries in /system/events.json. Top-level records may represent human-facing events or automations. Special reminders such as birthdays must use category='special' and specialKind='birthday'|'festival'|'anniversary'|'memorial'. Event reminders live inline on the record; automations execute at occurrence time and do not carry reminder lists.",
   "type": "array",
   "items": { "$ref": "#/$defs/EventRecord" },
   "$defs": {

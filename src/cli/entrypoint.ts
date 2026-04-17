@@ -22,20 +22,13 @@ export async function runRepoCli(argv: string[] = process.argv.slice(2)): Promis
       case "users:set-person-path": await handleUsersSetPersonPath(context); break;
       case "users:add-rule": await handleUsersAddRule(context); break;
       case "users:set-rules": await handleUsersSetRules(context); break;
-      case "events:list":
-      case "schedules:list": await handleEventsList(context); break;
-      case "events:get":
-      case "schedules:get": await handleEventsGet(context); break;
-      case "events:create":
-      case "schedules:create": await handleEventsCreate(context); break;
-      case "events:update":
-      case "schedules:update": await handleEventMutation(context, "update"); break;
-      case "events:delete":
-      case "schedules:delete": await handleEventMutation(context, "delete"); break;
-      case "events:pause":
-      case "schedules:pause": await handleEventMutation(context, "pause"); break;
-      case "events:resume":
-      case "schedules:resume": await handleEventMutation(context, "resume"); break;
+      case "events:list": await handleEventsList(context); break;
+      case "events:get": await handleEventsGet(context); break;
+      case "events:create": await handleEventsCreate(context); break;
+      case "events:update": await handleEventMutation(context, "update"); break;
+      case "events:delete": await handleEventMutation(context, "delete"); break;
+      case "events:pause": await handleEventMutation(context, "pause"); break;
+      case "events:resume": await handleEventMutation(context, "resume"); break;
       case "auth:add-pending": await addPendingAuthorization(context); break;
       case "telegram:resolve-recipient": await handleTelegramResolveRecipient(context); break;
       case "telegram:send-message": await handleTelegramSendMessage(context); break;

@@ -105,10 +105,6 @@ function eventsPath(config: AppConfig): string {
   return path.join(config.paths.repoRoot, "system", "events.json");
 }
 
-function legacySchedulesPath(config: AppConfig): string {
-  return path.join(config.paths.repoRoot, "system", "schedules.json");
-}
-
 function normalizeTarget(raw: unknown): EventTarget | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
@@ -139,9 +135,6 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRe
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
   const title = typeof record.title === "string" && record.title.trim() ? record.title.trim() : "";
   const rawNote = typeof record.note === "string" && record.note.trim() ? record.note.trim() : undefined;
-  const legacySpecialKind = record.kind === "birthday" || record.kind === "festival" || record.kind === "anniversary" || record.kind === "memorial"
-    ? record.kind
-    : undefined;
   const timeSemantics = record.timeSemantics === "absolute" || record.timeSemantics === "local" ? record.timeSemantics : undefined;
   const schedule = normalizeEventSchedule(record.schedule);
   const createdByUserId = Number.isInteger(Number(record.createdByUserId))
@@ -153,15 +146,15 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRe
           .find((item) => item.targetKind === "user")
           ?.targetId
       : undefined;
-  const rawReminders = Array.isArray(record.reminders) ? record.reminders : Array.isArray(record.notifications) ? record.notifications : [];
+  const rawReminders = Array.isArray(record.reminders) ? record.reminders : [];
   const reminders = rawReminders.map(normalizeReminder).filter((item): item is Reminder => Boolean(item));
   const status = record.status === "active" || record.status === "paused" || record.status === "deleted" ? record.status : "active";
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt.trim() : "";
   const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : undefined;
   const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial"
     ? record.specialKind
-    : legacySpecialKind;
-  const category = record.category === "automation" || record.category === "scheduled-task" ? "automation" : record.category === "special" || specialKind ? "special" : "routine";
+    : undefined;
+  const category = record.category === "automation" ? "automation" : record.category === "special" || specialKind ? "special" : "routine";
   const note = category === "automation" ? buildScheduledTaskPrompt(title, rawNote) : rawNote;
   const targets = Array.isArray(record.targets)
     ? record.targets.map(normalizeTarget).filter((item): item is EventTarget => Boolean(item))
@@ -170,9 +163,7 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRe
   const deliveryTextGeneratedAt = typeof record.deliveryTextGeneratedAt === "string" && record.deliveryTextGeneratedAt.trim() ? record.deliveryTextGeneratedAt.trim() : undefined;
   const deliveryPreparedReminderId = typeof record.deliveryPreparedReminderId === "string" && record.deliveryPreparedReminderId.trim()
     ? record.deliveryPreparedReminderId.trim()
-    : typeof record.deliveryPreparedNotificationId === "string" && record.deliveryPreparedNotificationId.trim()
-      ? record.deliveryPreparedNotificationId.trim()
-      : undefined;
+    : undefined;
   const deliveryPreparedNotifyAt = typeof record.deliveryPreparedNotifyAt === "string" && record.deliveryPreparedNotifyAt.trim() ? record.deliveryPreparedNotifyAt.trim() : undefined;
   const deliveryState = record.deliveryState && typeof record.deliveryState === "object"
     ? (() => {
@@ -186,9 +177,7 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRe
                 scheduledAt: typeof current.scheduledAt === "string" ? current.scheduledAt : "",
                 sentReminderIds: Array.isArray(current.sentReminderIds)
                   ? current.sentReminderIds.filter((item): item is string => typeof item === "string")
-                  : Array.isArray(current.sentNotificationIds)
-                    ? current.sentNotificationIds.filter((item): item is string => typeof item === "string")
-                    : [],
+                  : [],
               },
             }
           : undefined;
@@ -224,16 +213,8 @@ function parseEventStore(raw: unknown, fallbackTimezone = "Asia/Tokyo"): EventSt
 }
 
 async function loadEventStore(config: AppConfig): Promise<EventStore> {
-  const candidatePaths = [eventsPath(config), legacySchedulesPath(config)];
   try {
-    let rawText = "";
-    for (const filePath of candidatePaths) {
-      try {
-        rawText = await readFile(filePath, "utf8");
-        break;
-      } catch {}
-    }
-    if (!rawText) return [];
+    const rawText = await readFile(eventsPath(config), "utf8");
     const parsed = JSON.parse(rawText) as unknown;
     return parseEventStore(parsed, defaultScheduleTimezone(config));
   } catch {

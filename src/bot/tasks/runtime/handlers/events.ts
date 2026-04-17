@@ -14,11 +14,11 @@ function schedulePreparationFingerprint(event: EventRecord): string {
     timeSemantics: event.timeSemantics,
     createdByUserId: event.createdByUserId,
     schedule: event.schedule,
-    notifications: event.notifications,
+    reminders: event.reminders,
     targets: event.targets,
     status: event.status,
     currentOccurrenceScheduledAt: event.deliveryState?.currentOccurrence?.scheduledAt,
-    sentNotificationIds: event.deliveryState?.currentOccurrence?.sentNotificationIds || [],
+    sentReminderIds: event.deliveryState?.currentOccurrence?.sentReminderIds || [],
   });
 }
 
@@ -42,7 +42,7 @@ async function runSchedulePreparationTaskHandler(
 
   latest.deliveryText = event.deliveryText;
   latest.deliveryTextGeneratedAt = event.deliveryTextGeneratedAt;
-  latest.deliveryPreparedNotificationId = event.deliveryPreparedNotificationId;
+  latest.deliveryPreparedReminderId = event.deliveryPreparedReminderId;
   latest.deliveryPreparedNotifyAt = event.deliveryPreparedNotifyAt;
   await updateEventRecord(context.config, latest);
   return { result: { changed, scheduleId } };

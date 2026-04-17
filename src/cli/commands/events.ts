@@ -102,7 +102,7 @@ export async function handleEventsList(context: RepoCliContext): Promise<void> {
 }
 
 export async function handleEventsGet(context: RepoCliContext): Promise<void> {
-  const eventId = context.cleanText(context.args.eventId) || context.cleanText(context.args.scheduleId);
+  const eventId = context.cleanText(context.args.eventId);
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const accessLevel = accessLevelForUser(context.config, requesterUserId);
   if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
@@ -155,15 +155,13 @@ export async function handleEventsCreate(context: RepoCliContext): Promise<void>
   const rawSpecialKind = cleanText(args.specialKind);
   const rawTimeSemantics = cleanText(args.timeSemantics);
   const parsedReminders = parseRemindersArg(args.reminders);
-  const normalizedCategory = rawSpecialKind === "automation" || rawSpecialKind === "scheduled-task" || rawTimeSemantics === "automation" || rawTimeSemantics === "scheduled-task"
+  const normalizedCategory = category === "automation"
     ? "automation"
-    : category === "automation" || category === "scheduled-task"
-      ? "automation"
-      : category === "special"
-        ? "special"
-        : category === "routine"
-          ? "routine"
-          : undefined;
+    : category === "special"
+      ? "special"
+      : category === "routine"
+        ? "routine"
+        : undefined;
   const normalizedSpecialKind = rawSpecialKind === "birthday" || rawSpecialKind === "festival" || rawSpecialKind === "anniversary" || rawSpecialKind === "memorial"
     ? rawSpecialKind as "birthday" | "festival" | "anniversary" | "memorial"
     : undefined;
@@ -188,12 +186,6 @@ export async function handleEventMutation(context: RepoCliContext, operation: "u
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const match = context.parseObjectArg(context.args.match) || {};
   const changes = context.parseObjectArg(context.args.changes) || {};
-  const scheduleIds = Array.isArray(context.args.scheduleIds)
-    ? context.args.scheduleIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
-    : [];
-  if (scheduleIds.length > 0 && !Array.isArray((match as Record<string, unknown>).scheduleIds)) {
-    (match as Record<string, unknown>).scheduleIds = scheduleIds;
-  }
   if (operation === "update") {
     const title = context.cleanText(context.args.title);
     const note = context.cleanText(context.args.note);
@@ -209,8 +201,8 @@ export async function handleEventMutation(context: RepoCliContext, operation: "u
     if (note !== undefined && changes.note == null) changes.note = note;
     if (timezone && changes.timezone == null) changes.timezone = timezone;
     if ((timeSemantics === "absolute" || timeSemantics === "local") && changes.timeSemantics == null) changes.timeSemantics = timeSemantics;
-    if ((category === "routine" || category === "special" || category === "automation" || category === "scheduled-task") && changes.category == null) {
-      changes.category = category === "scheduled-task" ? "automation" : category;
+    if ((category === "routine" || category === "special" || category === "automation") && changes.category == null) {
+      changes.category = category;
     }
     if ((specialKind === "birthday" || specialKind === "festival" || specialKind === "anniversary" || specialKind === "memorial") && changes.specialKind == null) changes.specialKind = specialKind;
     if (schedule && changes.schedule == null) changes.schedule = schedule;

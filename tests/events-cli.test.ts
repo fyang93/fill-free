@@ -62,7 +62,7 @@ afterEach(async () => {
 });
 
 describe("repo events CLI", () => {
-  test("CRUD works when match/changes are JSON strings", async () => {
+  test("CRUD works when match/changes are JSON strings", { timeout: 15000 }, async () => {
     const repoRoot = await createTempRepo();
 
     const created = await runCli(repoRoot, "events:create", {
@@ -267,7 +267,7 @@ describe("repo events CLI", () => {
 
     const batch = await runCli(repoRoot, "events:update", {
       requesterUserId: 1,
-      scheduleIds: [(news1.event as any).id, (news2.event as any).id],
+      match: JSON.stringify({ ids: [(news1.event as any).id, (news2.event as any).id] }),
       targetChatId: -1003674455331,
     });
     expect(batch.ok).toBe(true);

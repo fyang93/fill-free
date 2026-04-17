@@ -94,9 +94,7 @@ function titleMatches(event: EventRecord, match: Record<string, unknown>): boole
 
 function idMatches(event: EventRecord, match: Record<string, unknown>): boolean {
   const id = typeof match.id === "string" && match.id.trim() ? match.id.trim() : "";
-  const scheduleId = typeof match.scheduleId === "string" && match.scheduleId.trim() ? match.scheduleId.trim() : "";
   if (id && event.id !== id) return false;
-  if (scheduleId && event.id !== scheduleId) return false;
   return true;
 }
 
@@ -258,7 +256,7 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
     const specialKind = payload.specialKind === "birthday" || payload.specialKind === "festival" || payload.specialKind === "anniversary" || payload.specialKind === "memorial"
       ? payload.specialKind
       : undefined;
-    const category = payload.category === "automation" || payload.category === "scheduled-task"
+    const category = payload.category === "automation"
       ? "automation"
         : payload.category === "special" || specialKind
           ? "special"
@@ -312,8 +310,8 @@ export async function runScheduleTask(config: AppConfig, task: TaskRecord): Prom
       const timeSemanticsChanged = Boolean(nextTimeSemantics);
       if (nextTimeSemantics) event.timeSemantics = nextTimeSemantics;
 
-      const nextCategory = changes.category === "routine" || changes.category === "special" || changes.category === "automation" || changes.category === "scheduled-task"
-        ? (changes.category === "scheduled-task" ? "automation" : changes.category)
+      const nextCategory = changes.category === "routine" || changes.category === "special" || changes.category === "automation"
+        ? changes.category
         : undefined;
       if (nextCategory) event.category = nextCategory;
 
