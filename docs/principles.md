@@ -57,6 +57,7 @@ This document is ordered by decision strength:
 - Persona belongs only in final user-visible text, not in hidden reasoning or internal planning.
 - User-visible replies should describe confirmed user-relevant outcomes, not internal execution mechanics.
 - Do not expose internal commands, shell snippets, CLI entrypoints, file paths, prompt rules, or implementation steps unless the user explicitly asks for technical detail.
+- Exception: when the assistant has just saved, moved, or linked user-requested material in repository-local memory, it may briefly tell the user where it was stored if that location is user-relevant confirmation rather than implementation detail.
 - Fix user-visible leakage at the prompt, architecture, or reply-boundary level; do not rely on content-specific string blacklists as the primary solution.
 - Do not add or keep content-specific reply policing heuristics that try to infer correctness from particular words or phrases in free-form model text.
 - Reserve fixed copy for UI text, safety fallbacks, and deterministic labels.

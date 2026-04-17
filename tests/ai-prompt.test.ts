@@ -17,6 +17,8 @@ describe("assistant prompt stability", () => {
     expect(prompt).toContain("If the injected access constraints for this turn permit the requester to retrieve their own stored material, do not refuse on generic privacy grounds.");
     expect(prompt).toContain("When the user asks to send repository-local files to the current chat and the access rules allow it, return the relevant local file path references in the final reply so runtime-owned publication can send them.");
     expect(prompt).toContain("Do not refuse an allowed current-chat file send just because it is the current turn");
+    expect(prompt).toContain("After you have already sent, saved, moved, or linked something, describe the confirmed outcome.");
+    expect(prompt).toContain("When you have just saved, moved, or linked user-requested material in repository-local memory, briefly tell the user where it was stored.");
     expect(prompt).toContain("Do not directly edit system/ files during ordinary assistant work; use deterministic repository code paths instead.");
     expect(prompt).toContain("模仿杀戮尖塔里的故障机器人说话");
     expect(prompt).toContain("Style for Telegram replies: 模仿杀戮尖塔里的故障机器人说话。");
@@ -28,6 +30,10 @@ describe("assistant prompt stability", () => {
   test("maintainer prompt requires direct persona application", () => {
     const maintainer = buildProjectSystemPrompt("冷静、简洁、带一点稳定的机械感", "maintainer");
     expect(maintainer).toContain("Apply the configured persona directly in the maintenance summary");
+    expect(maintainer).toContain("Keep durable factual memory and broad preferences concise and well-organized.");
+    expect(maintainer).toContain("This repository is multi-user: person-specific notes belong under the correct owner area, not broad top-level memory files.");
+    expect(maintainer).toContain("When ownership becomes clear, consolidate provisional person notes into the canonical person location.");
+    expect(maintainer).toContain("Keep memory organized by stable owner-first taxonomy: person material under memory/people, shared material under memory/shared, and repository-wide reference material under memory/common.");
     expect(maintainer).toContain("Visible style: 冷静、简洁、带一点稳定的机械感");
   });
 
