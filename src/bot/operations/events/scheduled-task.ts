@@ -1,4 +1,4 @@
-import type { ScheduleEvent } from "./types";
+import type { EventRecord } from "./types";
 
 export function buildScheduledTaskPrompt(title: string, note?: string): string {
   const trimmedNote = note?.trim();
@@ -19,6 +19,6 @@ export function buildScheduledTaskPrompt(title: string, note?: string): string {
   return `围绕“${trimmedTitle}”生成一份最新、简洁、有用的定时内容；如果任务依赖最新外部信息，请先联网获取后再总结。`;
 }
 
-export function scheduledTaskPromptForEvent(event: ScheduleEvent): string {
+export function scheduledTaskPromptForEvent(event: EventRecord): string {
   return buildScheduledTaskPrompt(event.title, event.note);
 }

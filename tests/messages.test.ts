@@ -215,10 +215,10 @@ describe("message delivery flow", () => {
     }
   });
 
-  test("schedules:create accepts schedule passed as JSON string", async () => {
+  test("events:create accepts schedule passed as JSON string", async () => {
     const { repoRoot, originalCwd } = await createTempConfig();
     try {
-      const proc = Bun.spawn(["bun", cliPath, "schedules:create", JSON.stringify({ requesterUserId: 1, title: "喝鸡汤", schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-10T06:00:00.000Z" }) })], {
+      const proc = Bun.spawn(["bun", cliPath, "events:create", JSON.stringify({ requesterUserId: 1, title: "喝鸡汤", schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-10T06:00:00.000Z" }) })], {
         cwd: repoRoot,
         stdout: "pipe",
         stderr: "pipe",
@@ -230,7 +230,7 @@ describe("message delivery flow", () => {
       const jsonStart = stdout.lastIndexOf("\n{") >= 0 ? stdout.lastIndexOf("\n{") + 1 : stdout.indexOf("{");
       const parsed = JSON.parse(stdout.slice(jsonStart));
       expect(parsed.ok).toBe(true);
-      expect(parsed.schedule.title).toBe("喝鸡汤");
+      expect(parsed.event.title).toBe("喝鸡汤");
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });

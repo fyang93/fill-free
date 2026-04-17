@@ -22,7 +22,7 @@ If a side effect can be completed synchronously and reliably during the current 
 
 ### 1. Schedule follow-up preparation
 Current code:
-- schedule creation writes directly to `system/schedules.json`
+- event creation writes directly to `system/events.json`
 - only follow-up preparation queues `schedules.prepare-delivery-text`
 
 Assessment:

@@ -1,8 +1,8 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AiService } from "bot/ai";
-import { pruneInactiveScheduleEvents } from "bot/operations/schedules";
-import { readScheduleEvents, writeScheduleEvents } from "bot/operations/schedules/store";
+import { pruneInactiveEventRecords } from "bot/operations/events";
+import { readEventRecords, writeEventRecords } from "bot/operations/events/store";
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import { persistState, state } from "bot/app/state";
@@ -191,7 +191,7 @@ async function writeChatRegistry(config: AppConfig, chats: Record<string, unknow
   await writeFile(filePath, `${JSON.stringify({ chats }, null, 2)}\n`, "utf8");
 }
 
-async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChatIds: string[]; migratedScheduleTargets: number; pairs: Array<{ oldChatId: string; newChatId: string; title: string }> }> {
+async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChatIds: string[]; migratedEventTargets: number; pairs: Array<{ oldChatId: string; newChatId: string; title: string }> }> {
   const chatRegistry = loadChats(config.paths.repoRoot);
   const chats = Object.entries(chatRegistry)
     .map(([chatId, chat]) => ({ chatId, chat: { type: chat.type || "private", title: chat.title, lastSeenAt: chat.lastSeenAt || "" } }))
@@ -218,11 +218,11 @@ async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChat
     }
   }
 
-  if (pairs.length === 0) return { removedChatIds: [], migratedScheduleTargets: 0, pairs: [] };
+  if (pairs.length === 0) return { removedChatIds: [], migratedEventTargets: 0, pairs: [] };
 
   const migrationMap = new Map(pairs.map((pair) => [pair.oldChatId, pair]));
-  const schedules = await readScheduleEvents(config);
-  let migratedScheduleTargets = 0;
+  const schedules = await readEventRecords(config);
+  let migratedEventTargets = 0;
   let schedulesChanged = false;
   for (const event of schedules) {
     let eventChanged = false;
@@ -231,7 +231,7 @@ async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChat
       const migration = migrationMap.get(String(target.targetId));
       if (!migration) continue;
       target.targetId = Number(migration.newChatId);
-      migratedScheduleTargets += 1;
+      migratedEventTargets += 1;
       eventChanged = true;
     }
     if (eventChanged) {
@@ -240,7 +240,7 @@ async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChat
     }
   }
   if (schedulesChanged) {
-    await writeScheduleEvents(config, schedules);
+    await writeEventRecords(config, schedules);
   }
 
   const removedChatIds: string[] = [];
@@ -266,7 +266,7 @@ async function migrateLegacyGroupChats(config: AppConfig): Promise<{ removedChat
     }
   }
 
-  return { removedChatIds: removedChatIds.sort((a, b) => a.localeCompare(b)), migratedScheduleTargets, pairs };
+  return { removedChatIds: removedChatIds.sort((a, b) => a.localeCompare(b)), migratedEventTargets, pairs };
 }
 
 async function clearTmpContents(root: string, cutoffMs: number, dir = root): Promise<string[]> {
@@ -335,7 +335,7 @@ async function runMaintainerCycle(
     await logger.info(`maintainer loop replenished ${replenishedWaitingMessages} waiting message candidates`);
   }
 
-  const scheduleCleanup = await pruneInactiveScheduleEvents(config);
+  const scheduleCleanup = await pruneInactiveEventRecords(config);
   if (scheduleCleanup.removed > 0) {
     await logger.info(`maintainer loop pruned ${scheduleCleanup.removed} inactive schedules`);
     preChanges.push(`Removed ${scheduleCleanup.removed} inactive schedules: ${detailPreview(scheduleCleanup.removedSummaries)}.`);
@@ -378,15 +378,15 @@ async function runMaintainerCycle(
 
   const chatMigration = await migrateLegacyGroupChats(config);
   if (chatMigration.removedChatIds.length > 0) {
-    await logger.info(`maintainer loop migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups schedulesUpdated=${chatMigration.migratedScheduleTargets}`);
+    await logger.info(`maintainer loop migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups schedulesUpdated=${chatMigration.migratedEventTargets}`);
     preChanges.push(`Migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups: ${detailPreview(chatMigration.pairs.map((pair) => `${pair.title}: ${pair.oldChatId} -> ${pair.newChatId}`))}.`);
-    if (chatMigration.migratedScheduleTargets > 0) {
-      preChanges.push(`Updated ${chatMigration.migratedScheduleTargets} schedule chat targets linked to those chats.`);
+    if (chatMigration.migratedEventTargets > 0) {
+      preChanges.push(`Updated ${chatMigration.migratedEventTargets} schedule chat targets linked to those chats.`);
     }
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "chat migration cleanup"), {
       summary: `migrated ${chatMigration.removedChatIds.length} legacy group chats to supergroups`,
       pairs: chatMigration.pairs.map((pair) => `${pair.title}: ${pair.oldChatId} -> ${pair.newChatId}`).join(", "),
-      scheduleTargetsUpdated: String(chatMigration.migratedScheduleTargets),
+      scheduleTargetsUpdated: String(chatMigration.migratedEventTargets),
     });
   }
 

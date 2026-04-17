@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import type { AppConfig } from "bot/app/types";
-import type { ScheduleTarget } from "bot/operations/schedules";
+import type { EventTarget } from "bot/operations/events";
 import { grantPendingAllowedAccessIfMatched, pruneExpiredPendingAuthorizationsFromState } from "./authorizations";
 import { logger } from "bot/app/logger";
 import { touchActivity } from "bot/app/state";
@@ -59,7 +59,7 @@ export function canManageOwnSchedules(accessLevel: AccessLevel): boolean {
   return hasAccessLevel(accessLevel, "trusted");
 }
 
-export function canRequesterCreateScheduleTargets(config: AppConfig, requesterUserId: number | undefined, _targets: ScheduleTarget[]): boolean {
+export function canRequesterCreateEventTargets(config: AppConfig, requesterUserId: number | undefined, _targets: EventTarget[]): boolean {
   return canCreateSchedules(accessLevelForUserId(config, requesterUserId));
 }
 

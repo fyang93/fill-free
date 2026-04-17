@@ -34,7 +34,7 @@ Preferred runtime shape:
 
 This is the current preferred shape, not a permanent product doctrine. If a cleaner design emerges, change the architecture instead of preserving accidental structure.
 
-The current preference is therefore a single assistant that mainly works through repository-local CLI entrypoints and a small domain-oriented skill set (`cli-schedules`, `cli-telegram`, `cli-access`, `cli-rules`, and `memory`), while the runtime retains reply publication, waiting-state behavior, and safety responsibilities. The code should also keep the bot surface and the repo-CLI surface physically separate so their responsibilities stay explicit (`src/bot/**` vs `src/cli/**`).
+The current preference is therefore a single assistant that mainly works through repository-local CLI entrypoints and a small domain-oriented skill set (`cli-events`, `cli-telegram`, `cli-access`, `cli-rules`, and `memory`), while the runtime retains reply publication, waiting-state behavior, and safety responsibilities. The code should also keep the bot surface and the repo-CLI surface physically separate so their responsibilities stay explicit (`src/bot/**` vs `src/cli/**`).
 
 ### `assistant`
 - Interprets the request and performs needed work through repository-local CLI commands.
@@ -90,7 +90,7 @@ Document filenames, directories, and schemas only when code, maintainer workflow
 - Repository-local CLI commands should be the primary execution surface.
 - The current preferred entrypoint is `npm run repo:cli -- <command> '<json>'` (direct file form: `tsx --tsconfig tsconfig.json src/cli.ts <command> '<json>'`).
 - Skills should capture durable repository know-how and recurring research / maintenance workflows.
-- The current preferred skill map is: `cli-schedules` for schedule workflows, `cli-telegram` for outbound Telegram delivery, `cli-access` for access/auth workflows, `cli-rules` for structured standing assistant rules, and `memory` for durable repository-local notes and preferences.
+- The current preferred skill map is: `cli-events` for event workflows, `cli-telegram` for outbound Telegram delivery, `cli-access` for access/auth workflows, `cli-rules` for structured standing assistant rules, and `memory` for durable repository-local notes and preferences.
 - Timezone resolution should normally stay inside code and schedule-related CLI outputs/prompts, rather than becoming its own extra skill or assistant-facing workflow layer.
 - Natural-language interpretation such as whether a schedule should be treated as local or absolute remains a model responsibility; code should handle deterministic validation, normalization, persistence, and time projection after that interpretation.
 - Current-turn reply publication orchestration should stay in runtime code.
@@ -99,6 +99,6 @@ Document filenames, directories, and schemas only when code, maintainer workflow
 - Internal registries, task queues, chat synchronization, and maintenance state should stay in code rather than the assistant surface.
 - Markdown memory and structured standing rules should have explicit separate scopes instead of overlapping ownership.
 - User-visible wording should still carry the configured persona style.
-- The assistant should reply in the user's natural conversation language; fixed UI text should follow the user's selected UI locale.
+- The assistant should reply in the user's natural conversation language; fixed UI text should follow the configured default UI locale.
 - Time context injected into prompts should be converted into the requester's timezone before being shown to the model.
 - Prefer simplification passes that remove layers, duplicate policy, and unnecessary indirection once the feature set is stable.

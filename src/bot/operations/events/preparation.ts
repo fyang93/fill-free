@@ -1,56 +1,56 @@
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import type { AiService } from "bot/ai";
-import type { ScheduleEvent, ScheduleNotificationInstance } from "./types";
-import { getCurrentOccurrence, listNotificationInstances, scheduleEventScheduleSummary } from "./schedule";
-import { scheduledTaskPromptForEvent, buildScheduledTaskPrompt } from "./scheduled-task";
-import { readScheduleEvents, writeScheduleEvents } from "./store";
+import type { EventRecord, ReminderInstance } from "./types";
+import { getCurrentOccurrence, listReminderInstances, scheduleEventScheduleSummary } from "./schedule";
+import { scheduledTaskPromptForEvent, buildScheduledTaskPrompt } from "./automation";
+import { readEventRecords, writeEventRecords } from "./store";
 
 const PERIODIC_PREWARM_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export { buildScheduledTaskPrompt, scheduledTaskPromptForEvent };
 
-export function shouldGenerateScheduledTaskOnDelivery(event: ScheduleEvent): boolean {
-  return event.category === "scheduled-task";
+export function shouldGenerateScheduledTaskOnDelivery(event: EventRecord): boolean {
+  return event.category === "automation";
 }
 
-export function clearPreparedScheduleDeliveryText(event: ScheduleEvent): boolean {
+export function clearPreparedScheduleDeliveryText(event: EventRecord): boolean {
   const changed = Boolean(
     event.deliveryText
     || event.deliveryTextGeneratedAt
-    || event.deliveryPreparedNotificationId
+    || event.deliveryPreparedReminderId
     || event.deliveryPreparedNotifyAt,
   );
   event.deliveryText = undefined;
   event.deliveryTextGeneratedAt = undefined;
-  event.deliveryPreparedNotificationId = undefined;
+  event.deliveryPreparedReminderId = undefined;
   event.deliveryPreparedNotifyAt = undefined;
   return changed;
 }
 
-export function isPreparedScheduleDeliveryTextUsable(event: ScheduleEvent, instance: ScheduleNotificationInstance): boolean {
+export function isPreparedScheduleDeliveryTextUsable(event: EventRecord, instance: ReminderInstance): boolean {
   return Boolean(
     event.deliveryText
-    && event.deliveryPreparedNotificationId === instance.notificationId
+    && event.deliveryPreparedReminderId === instance.reminderId
     && event.deliveryPreparedNotifyAt === instance.notifyAt,
   );
 }
 
-export function nextPendingScheduleInstance(event: ScheduleEvent, now = new Date()): ScheduleNotificationInstance | null {
+export function nextPendingScheduleInstance(event: EventRecord, now = new Date()): ReminderInstance | null {
   const currentOccurrence = getCurrentOccurrence(event, now);
   if (currentOccurrence) {
-    const sentIds = event.deliveryState?.currentOccurrence?.sentNotificationIds || [];
-    const currentNext = listNotificationInstances(event, currentOccurrence).find((item) => !sentIds.includes(item.notificationId));
+    const sentIds = event.deliveryState?.currentOccurrence?.sentReminderIds || [];
+    const currentNext = listReminderInstances(event, currentOccurrence).find((item) => !sentIds.includes(item.reminderId));
     if (currentNext) return currentNext;
   }
   if (event.schedule.kind === "once") return null;
   const reference = currentOccurrence ? new Date(new Date(currentOccurrence.scheduledAt).getTime() + 1000) : now;
   const nextOccurrence = getCurrentOccurrence({ ...event, deliveryState: undefined }, reference);
   if (!nextOccurrence) return null;
-  return listNotificationInstances({ ...event, deliveryState: undefined }, nextOccurrence)[0] || null;
+  return listReminderInstances({ ...event, deliveryState: undefined }, nextOccurrence)[0] || null;
 }
 
-export function shouldPrepareScheduleDeliveryText(event: ScheduleEvent, now = new Date()): boolean {
+export function shouldPrepareScheduleDeliveryText(event: EventRecord, now = new Date()): boolean {
   if (shouldGenerateScheduledTaskOnDelivery(event)) return false;
   const nextInstance = nextPendingScheduleInstance(event, now);
   if (!nextInstance) return false;
@@ -59,7 +59,7 @@ export function shouldPrepareScheduleDeliveryText(event: ScheduleEvent, now = ne
   return Number.isFinite(notifyAt) && notifyAt - now.getTime() <= PERIODIC_PREWARM_WINDOW_MS;
 }
 
-export async function prepareScheduleDeliveryText(config: AppConfig, agentService: AiService, event: ScheduleEvent, now = new Date()): Promise<boolean> {
+export async function prepareScheduleDeliveryText(config: AppConfig, agentService: AiService, event: EventRecord, now = new Date()): Promise<boolean> {
   if (shouldGenerateScheduledTaskOnDelivery(event)) {
     return clearPreparedScheduleDeliveryText(event);
   }
@@ -85,13 +85,13 @@ export async function prepareScheduleDeliveryText(config: AppConfig, agentServic
   if (!trimmed) return false;
   event.deliveryText = trimmed;
   event.deliveryTextGeneratedAt = new Date().toISOString();
-  event.deliveryPreparedNotificationId = nextInstance.notificationId;
+  event.deliveryPreparedReminderId = nextInstance.reminderId;
   event.deliveryPreparedNotifyAt = nextInstance.notifyAt;
   return true;
 }
 
 export async function prewarmScheduleDeliveryTexts(config: AppConfig, agentService: AiService): Promise<void> {
-  const events = await readScheduleEvents(config);
+  const events = await readEventRecords(config);
   let changed = false;
   const now = new Date();
   for (const event of events) {
@@ -103,7 +103,7 @@ export async function prewarmScheduleDeliveryTexts(config: AppConfig, agentServi
     }
   }
   if (changed) {
-    await writeScheduleEvents(config, events);
+    await writeEventRecords(config, events);
     await logger.info("prewarmed schedule delivery texts");
   }
 }

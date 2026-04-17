@@ -16,7 +16,7 @@ export type ScheduleDraft = {
   title: string;
   note?: string;
   schedule: Record<string, unknown>;
-  category?: "routine" | "special" | "scheduled-task";
+  category?: "routine" | "special" | "automation";
   specialKind?: "birthday" | "festival" | "anniversary" | "memorial";
   timeSemantics?: "absolute" | "local";
   timezone?: string;

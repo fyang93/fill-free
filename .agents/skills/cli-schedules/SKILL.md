@@ -1,11 +1,11 @@
 ---
-name: cli-schedules
-description: Use when the task is primarily about creating, listing, updating, pausing, resuming, deleting, or interpreting reminders and scheduled tasks through the repository CLI.
+name: cli-events
+description: Use when the task is primarily about creating, listing, updating, pausing, resuming, deleting, or interpreting events, reminders, and automations through the repository CLI.
 ---
 
 # Schedules
 
-Use this skill for reminder and schedule management.
+Use this skill for event, reminder, and automation management.
 
 ## CLI surface
 
@@ -14,13 +14,13 @@ bun run repo:cli -- <command> '<json>'
 ```
 
 Commands:
-- `schedules:list`
+- `events:list`
 - `schedules:get`
-- `schedules:create`
-- `schedules:update`
-- `schedules:delete`
-- `schedules:pause`
-- `schedules:resume`
+- `events:create`
+- `events:update`
+- `events:delete`
+- `events:pause`
+- `events:resume`
 
 ## Guidance
 
@@ -37,7 +37,7 @@ Commands:
   - festival → `category: "special"`, `specialKind: "festival"`
   - anniversary → `category: "special"`, `specialKind: "anniversary"`
   - memorial → `category: "special"`, `specialKind: "memorial"`
-- For recurring generated content, use `category: "scheduled-task"`.
+- For recurring generated content, use `category: "automation"`.
 - For create, keep payloads narrow: `title`, `schedule`, `timezone`, one target field, and optional semantic fields.
 - Use `cli-rules` if the user is setting a standing future default rather than changing one schedule.
 - Do not claim success unless the CLI call succeeded.
@@ -45,10 +45,10 @@ Commands:
 ## Examples
 
 ```bash
-bun run repo:cli -- schedules:list '{"requesterUserId":872940661}'
-bun run repo:cli -- schedules:create '{"requesterUserId":872940661,"title":"组会","schedule":{"kind":"once","scheduledAt":"2026-04-28T10:00:00"},"timezone":"Asia/Tokyo","targetUserId":872940661}'
-bun run repo:cli -- schedules:create '{"requesterUserId":872940661,"title":"小雨生日","schedule":{"kind":"yearly","every":1,"month":1,"day":22,"time":{"hour":8,"minute":0}},"timezone":"Asia/Tokyo","targetUserId":872940661,"category":"special","specialKind":"birthday"}'
-bun run repo:cli -- schedules:create '{"requesterUserId":872940661,"title":"小雨农历生日","schedule":{"kind":"lunarYearly","month":5,"day":3,"time":{"hour":8,"minute":0}},"timezone":"Asia/Tokyo","targetUserId":872940661,"category":"special","specialKind":"birthday"}'
-bun run repo:cli -- schedules:pause '{"requesterUserId":872940661,"match":{"id":"rmd_xxx"}}'
-bun run repo:cli -- schedules:update '{"requesterUserId":872940661,"match":{"id":"rmd_xxx"},"changes":{"title":"新的标题"}}'
+bun run repo:cli -- events:list '{"requesterUserId":872940661}'
+bun run repo:cli -- events:create '{"requesterUserId":872940661,"title":"组会","schedule":{"kind":"once","scheduledAt":"2026-04-28T10:00:00"},"timezone":"Asia/Tokyo","targetUserId":872940661}'
+bun run repo:cli -- events:create '{"requesterUserId":872940661,"title":"小雨生日","schedule":{"kind":"yearly","every":1,"month":1,"day":22,"time":{"hour":8,"minute":0}},"timezone":"Asia/Tokyo","targetUserId":872940661,"category":"special","specialKind":"birthday"}'
+bun run repo:cli -- events:create '{"requesterUserId":872940661,"title":"小雨农历生日","schedule":{"kind":"lunarYearly","month":5,"day":3,"time":{"hour":8,"minute":0}},"timezone":"Asia/Tokyo","targetUserId":872940661,"category":"special","specialKind":"birthday"}'
+bun run repo:cli -- events:pause '{"requesterUserId":872940661,"match":{"id":"rmd_xxx"}}'
+bun run repo:cli -- events:update '{"requesterUserId":872940661,"match":{"id":"rmd_xxx"},"changes":{"title":"新的标题"}}'
 ```

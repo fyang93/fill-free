@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "system/schemas/schedules.schema.json",
-  "title": "Stored schedules in /system/schedules.json",
-  "description": "Canonical persisted schema for schedule events. Special reminders such as birthdays must use category='special' and specialKind='birthday'|'festival'|'anniversary'|'memorial'. If notifications is omitted at creation time, code may apply defaults; for special reminders the default notifications are typically 2 weeks before, 1 week before, 1 day before, and same day.",
+  "$id": "system/schemas/events.schema.json",
+  "title": "Stored events in /system/events.json",
+  "description": "Canonical persisted schema for time-driven entries in /system/events.json. Top-level records may represent human-facing events or automations. Special reminders such as birthdays must use category='special' and specialKind='birthday'|'festival'|'anniversary'|'memorial'. Event reminders live inline on the record; automations should not use reminder notifications.",
   "type": "array",
-  "items": { "$ref": "#/$defs/ScheduleEvent" },
+  "items": { "$ref": "#/$defs/EventRecord" },
   "$defs": {
-    "ScheduleNotification": {
+    "Reminder": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "offsetMinutes", "enabled"],
@@ -17,7 +17,7 @@
         "label": { "type": "string" }
       }
     },
-    "ScheduleTarget": {
+    "EventTarget": {
       "type": "object",
       "additionalProperties": false,
       "required": ["targetKind", "targetId"],
@@ -127,7 +127,7 @@
         "offsetDays": { "type": "integer" }
       }
     },
-    "ScheduleSchedule": {
+    "EventSchedule": {
       "oneOf": [
         { "$ref": "#/$defs/ScheduleOnce" },
         { "$ref": "#/$defs/ScheduleInterval" },
@@ -145,10 +145,10 @@
         "currentOccurrence": {
           "type": "object",
           "additionalProperties": true,
-          "required": ["scheduledAt", "sentNotificationIds"],
+          "required": ["scheduledAt", "sentReminderIds"],
           "properties": {
             "scheduledAt": { "type": "string", "format": "date-time" },
-            "sentNotificationIds": {
+            "sentReminderIds": {
               "type": "array",
               "items": { "type": "string" }
             }
@@ -156,7 +156,7 @@
         }
       }
     },
-    "ScheduleEvent": {
+    "EventRecord": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -165,7 +165,7 @@
         "timeSemantics",
         "timezone",
         "schedule",
-        "notifications",
+        "reminders",
         "category",
         "status",
         "createdAt",
@@ -177,13 +177,12 @@
         "note": { "type": "string" },
         "timeSemantics": { "enum": ["absolute", "local"] },
         "timezone": { "type": "string", "minLength": 1 },
-        "schedule": { "$ref": "#/$defs/ScheduleSchedule" },
-        "notifications": {
+        "schedule": { "$ref": "#/$defs/EventSchedule" },
+        "reminders": {
           "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/ScheduleNotification" }
+          "items": { "$ref": "#/$defs/Reminder" }
         },
-        "category": { "enum": ["routine", "special", "scheduled-task"] },
+        "category": { "enum": ["routine", "special", "automation"] },
         "specialKind": { "enum": ["birthday", "festival", "anniversary", "memorial"] },
         "status": { "enum": ["active", "paused", "deleted"] },
         "createdAt": { "type": "string", "format": "date-time" },
@@ -191,11 +190,11 @@
         "targets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/ScheduleTarget" }
+          "items": { "$ref": "#/$defs/EventTarget" }
         },
         "deliveryText": { "type": "string" },
         "deliveryTextGeneratedAt": { "type": "string", "format": "date-time" },
-        "deliveryPreparedNotificationId": { "type": "string" },
+        "deliveryPreparedReminderId": { "type": "string" },
         "deliveryPreparedNotifyAt": { "type": "string", "format": "date-time" },
         "deliveryState": { "$ref": "#/$defs/DeliveryState" }
       },

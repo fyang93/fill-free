@@ -226,8 +226,8 @@ export function resolveTelegramTargetUsers(config: AppConfig, rawTargets: unknow
   return { resolved, clarifications };
 }
 
-export type ScheduleTargetResolution = TelegramTargetResolution;
+export type EventTargetResolution = TelegramTargetResolution;
 
-export function resolveScheduleTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): ScheduleTargetResolution {
+export function resolveEventTargetUser(config: AppConfig, rawTarget: unknown, ctx: Context, requesterUserId?: number): EventTargetResolution {
   return resolveTelegramTargetUser(config, rawTarget, ctx, requesterUserId);
 }

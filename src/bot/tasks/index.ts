@@ -1,4 +1,4 @@
-export { enqueueSchedulePreparationTask } from "bot/operations/schedules/task-actions";
+export { enqueueSchedulePreparationTask } from "bot/operations/events/task-actions";
 export { startTaskWorker } from "./runtime/worker";
 export {
   dequeueRunnableTask,

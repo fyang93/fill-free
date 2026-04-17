@@ -12,7 +12,7 @@ import type { AppConfig } from "../src/bot/app/types";
 import { loadPersistentState, state } from "../src/bot/app/state";
 import { AiService } from "../src/bot/ai";
 import { buildAssistantContextBlock, lookupRequesterTimezone } from "../src/bot/operations/context/assistant";
-import { buildScheduleEvent, createScheduleEvent, readScheduleEvents } from "../src/bot/operations/schedules/store";
+import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { dequeueRunnableTask, markTaskState, readTasks, removeTask } from "../src/bot/tasks/runtime/store";
 import { runTaskWithHandlers } from "../src/bot/tasks/runtime/handlers";
@@ -75,45 +75,45 @@ const scenarios: Array<{ name: string; run: (config: AppConfig, agentService: Ai
     },
   },
   {
-    name: "2. 查看提醒列表 (schedules:list)",
+    name: "2. 查看提醒列表 (events:list)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "查看当前提醒列表");
       await log({ scenario: "查看提醒列表", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions } });
     },
   },
   {
-    name: "3. 创建提醒 (schedules:create)",
+    name: "3. 创建提醒 (events:create)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "创建提醒：明天下午3点开会");
       const taskResults = await drainTasks(config, agentService);
-      const schedules = await readScheduleEvents(config);
+      const schedules = await readEventRecords(config);
       await log({ scenario: "创建提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleCount: schedules.length, activeSchedules: schedules.filter(r => r.status === "active").map(r => r.title) });
     },
   },
   {
-    name: "4. 暂停提醒 (schedules:pause)",
+    name: "4. 暂停提醒 (events:pause)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "暂停开会提醒");
       const taskResults = await drainTasks(config, agentService);
-      const schedules = await readScheduleEvents(config);
+      const schedules = await readEventRecords(config);
       await log({ scenario: "暂停提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
     },
   },
   {
-    name: "5. 恢复提醒 (schedules:resume)",
+    name: "5. 恢复提醒 (events:resume)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "恢复开会提醒");
       const taskResults = await drainTasks(config, agentService);
-      const schedules = await readScheduleEvents(config);
+      const schedules = await readEventRecords(config);
       await log({ scenario: "恢复提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
     },
   },
   {
-    name: "6. 删除提醒 (schedules:delete)",
+    name: "6. 删除提醒 (events:delete)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "删除开会提醒");
       const taskResults = await drainTasks(config, agentService);
-      const schedules = await readScheduleEvents(config);
+      const schedules = await readEventRecords(config);
       await log({ scenario: "删除提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
     },
   },

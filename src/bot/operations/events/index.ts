@@ -1,22 +1,22 @@
 export type {
   ScheduleDeliveryState,
-  ScheduleEvent,
-  ScheduleNotification,
-  ScheduleNotificationInstance,
-  ScheduleOccurrence,
+  EventRecord,
+  Reminder,
+  ReminderInstance,
+  EventOccurrence,
   ScheduleRecurrence,
-  ScheduleSchedule,
+  EventSchedule,
   ScheduleSpecialKind,
-  ScheduleStore,
-  ScheduleTarget,
-  ScheduleTimeSemantics,
-  ScheduleView,
+  EventStore,
+  EventTarget,
+  EventTimeSemantics,
+  EventView,
 } from "./types";
 
 export {
-  formatScheduleEvent,
+  formatEventRecord,
   getCurrentOccurrence,
-  listNotificationInstances,
+  listReminderInstances,
   nextLunarYearlyOccurrence,
   normalizeRecurrence,
   normalizeScheduledAt,
@@ -37,19 +37,19 @@ export {
 } from "./preparation";
 
 export {
-  buildDefaultScheduleNotifications,
-  buildScheduleEvent,
-  createScheduleEvent,
-  createScheduleEventWithDefaults,
-  defaultScheduleTimeSemantics,
+  buildDefaultReminders,
+  buildEventRecord,
+  createEventRecord,
+  createEventRecordWithDefaults,
+  defaultEventTimeSemantics,
   isValidScheduleTimezone,
-  deleteScheduleEvent,
-  getScheduleEvent,
-  pruneInactiveScheduleEvents,
-  readScheduleEvents,
+  deleteEventRecord,
+  getEventRecord,
+  pruneInactiveEventRecords,
+  readEventRecords,
   resolveScheduleTimezone,
-  updateScheduleEvent,
-  writeScheduleEvents,
+  updateEventRecord,
+  writeEventRecords,
 } from "./store";
 
 export {
@@ -58,5 +58,5 @@ export {
 } from "./delivery";
 
 export { handleScheduleCallback } from "./ui";
-export { schedulePreparationTaskHandler, schedulesTaskHandler } from "bot/tasks/runtime/handlers/schedules";
+export { schedulePreparationTaskHandler, schedulesTaskHandler } from "bot/tasks/runtime/handlers/events";
 export { resolveSchedulesByMatch, scheduleMatchesFilters } from "./task-actions";

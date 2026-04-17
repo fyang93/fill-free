@@ -293,13 +293,13 @@ describe("scenario 4a: schedule creation", () => {
         message: "已设置提醒",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置今晚9点提醒你喝水"],
     });
 
-    const agentResult = { completedActions: ["schedules:create"] };
-    expect(agentResult.completedActions).toContain("schedules:create");
+    const agentResult = { completedActions: ["events:create"] };
+    expect(agentResult.completedActions).toContain("events:create");
     expect(calls.filter((c) => c.startsWith("reply:")).length).toBeGreaterThan(0);
   });
 });
@@ -317,7 +317,7 @@ describe("scenario 4b: schedule query", () => {
         message: "查询完成",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:你有3个提醒..."],
     });
@@ -341,7 +341,7 @@ describe("scenario 4c: schedule deletion", () => {
         message: "已删除",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:已删除提醒"],
     });
@@ -364,7 +364,7 @@ describe("scenario 4d: schedule target restriction", () => {
         message: "已设置",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
     });
 
@@ -449,10 +449,10 @@ describe("scenario 6b: message forwarding (allowed)", () => {
 });
 
 // ===========================================================================
-// Scenario 7: Recurring task (scheduled-task) — admin records schedules:create
+// Scenario 7: Recurring task (automation) — admin records events:create
 // ===========================================================================
 describe("scenario 7: recurring task creation (admin)", () => {
-  test("admin creating a recurring task records schedules:create and yields a visible reply", async () => {
+  test("admin creating a recurring task records events:create and yields a visible reply", async () => {
     const config = await createTempConfig();
     const { calls } = await runScenario({
       config,
@@ -462,7 +462,7 @@ describe("scenario 7: recurring task creation (admin)", () => {
         message: "已创建循环提醒",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置每日8点提醒你跑步"],
     });
@@ -658,7 +658,7 @@ describe("cross-cutting: reaction and task lifecycle", () => {
         message: "done",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
     });
 
@@ -737,7 +737,7 @@ describe("TTFR measurement", () => {
           message: "已设置",
           answerMode: "needs-execution" as const,
           usedNativeExecution: true,
-          completedActions: ["schedules:create"],
+          completedActions: ["events:create"],
         };
       },
     } as any;
@@ -821,7 +821,7 @@ describe("scenario 12b: agent context carries user preferences", () => {
         message: "已设置",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
     });
 
@@ -882,7 +882,7 @@ describe("scenario 13: schedule CRUD for all roles", () => {
         message: "已设置提醒",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置明天早上8点提醒你开会"],
     });
@@ -924,7 +924,7 @@ describe("scenario 13: schedule CRUD for all roles", () => {
         message: "已设置提醒",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置下午3点提醒你喝水"],
     });
@@ -1114,7 +1114,7 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
         message: "已设置",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置会议提醒（根据你的偏好，已同时设置提前一天的预提醒）"],
     });

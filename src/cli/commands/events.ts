@@ -1,12 +1,13 @@
 import { formatIsoInTimezoneLocalString } from "bot/app/time";
 import { logger } from "bot/app/logger";
-import { canManageAllSchedules, canManageOwnSchedules, canReadSchedules, canRequesterCreateScheduleTargets } from "bot/operations/access/control";
+import { canManageAllSchedules, canManageOwnSchedules, canReadSchedules, canRequesterCreateEventTargets } from "bot/operations/access/control";
 import { accessLevelForUser } from "bot/operations/access/roles";
 import { resolveUser } from "bot/operations/context/store";
-import { getCurrentOccurrence, listNotificationInstances, resolveScheduleDisplayTimezone, resolveSchedulesByMatch, scheduleEventScheduleSummary, scheduleMatchesFilters, type ScheduleEvent } from "bot/operations/schedules";
-import { buildScheduleScheduleFromExternal } from "bot/operations/schedules/schedule_parser";
-import { createScheduleEventWithDefaults, readScheduleEvents } from "bot/operations/schedules/store";
-import { runScheduleTask } from "bot/operations/schedules/task-actions";
+import { getCurrentOccurrence, listReminderInstances, resolveScheduleDisplayTimezone, resolveSchedulesByMatch, scheduleEventScheduleSummary, scheduleMatchesFilters, type EventRecord } from "bot/operations/events";
+import { buildEventScheduleFromExternal } from "bot/operations/events/schedule_parser";
+import { createEventRecordWithDefaults, readEventRecords } from "bot/operations/events/store";
+import type { Reminder } from "bot/operations/events/types";
+import { runScheduleTask } from "bot/operations/events/task-actions";
 import type { RepoCliContext } from "cli/runtime";
 
 function requesterTimezoneForCli(context: RepoCliContext): string | undefined {
@@ -19,17 +20,48 @@ function effectiveRequesterTimezoneForCli(context: RepoCliContext): string {
   return requesterTimezoneForCli(context) || context.config.bot.defaultTimezone;
 }
 
-function localScheduledAt(event: ScheduleEvent, timezone: string): string | undefined {
+function localScheduledAt(event: EventRecord, timezone: string): string | undefined {
   if (event.schedule.kind !== "once") return undefined;
   return formatIsoInTimezoneLocalString(event.schedule.scheduledAt, timezone);
 }
 
-function serializeScheduleForCli(context: RepoCliContext, event: ScheduleEvent): Record<string, unknown> {
+function parseRemindersArg(raw: unknown): Reminder[] | undefined {
+  const parsed = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string" && raw.trim()
+      ? (() => {
+          try {
+            const value = JSON.parse(raw);
+            return Array.isArray(value) ? value : undefined;
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+  if (!parsed) return undefined;
+
+  const reminders = parsed.flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const offsetMinutes = Number(record.offsetMinutes);
+    if (!Number.isInteger(offsetMinutes)) return [];
+    return [{
+      id: typeof record.id === "string" && record.id.trim() ? record.id.trim() : `n${index + 1}`,
+      offsetMinutes,
+      enabled: record.enabled !== false,
+      label: typeof record.label === "string" && record.label.trim() ? record.label.trim() : undefined,
+    } satisfies Reminder];
+  });
+
+  return reminders.length > 0 ? reminders : undefined;
+}
+
+function serializeEventForCli(context: RepoCliContext, event: EventRecord): Record<string, unknown> {
   const displayTimezone = resolveScheduleDisplayTimezone(context.config, event);
   const requesterTimezone = requesterTimezoneForCli(context);
   const effectiveRequesterTimezone = effectiveRequesterTimezoneForCli(context);
   const occurrence = getCurrentOccurrence(event);
-  const notifications = occurrence ? listNotificationInstances(event, occurrence) : [];
+  const reminders = occurrence ? listReminderInstances(event, occurrence) : [];
   return {
     ...event,
     scheduleSummary: scheduleEventScheduleSummary(context.config, event),
@@ -43,47 +75,47 @@ function serializeScheduleForCli(context: RepoCliContext, event: ScheduleEvent):
       scheduledAtDisplayLocal: formatIsoInTimezoneLocalString(occurrence.scheduledAt, displayTimezone),
       scheduledAtRequesterLocal: formatIsoInTimezoneLocalString(occurrence.scheduledAt, effectiveRequesterTimezone),
     } : null,
-    notificationsDetailed: notifications.map((notification) => ({
-      notificationId: notification.notificationId,
-      label: notification.label,
-      offsetMinutes: notification.offsetMinutes,
-      notifyAt: notification.notifyAt,
-      notifyAtDisplayLocal: formatIsoInTimezoneLocalString(notification.notifyAt, displayTimezone),
-      notifyAtRequesterLocal: formatIsoInTimezoneLocalString(notification.notifyAt, effectiveRequesterTimezone),
+    remindersDetailed: reminders.map((reminder) => ({
+      reminderId: reminder.reminderId,
+      label: reminder.label,
+      offsetMinutes: reminder.offsetMinutes,
+      notifyAt: reminder.notifyAt,
+      notifyAtDisplayLocal: formatIsoInTimezoneLocalString(reminder.notifyAt, displayTimezone),
+      notifyAtRequesterLocal: formatIsoInTimezoneLocalString(reminder.notifyAt, effectiveRequesterTimezone),
     })),
   };
 }
 
-export async function handleSchedulesList(context: RepoCliContext): Promise<void> {
+export async function handleEventsList(context: RepoCliContext): Promise<void> {
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const accessLevel = accessLevelForUser(context.config, requesterUserId);
   if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
-  const schedules = (await readScheduleEvents(context.config)).filter((event) => event.status !== "deleted");
+  const events = (await readEventRecords(context.config)).filter((event) => event.status !== "deleted");
   const visible = canManageAllSchedules(accessLevel)
-    ? schedules
-    : schedules.filter((event) => canManageOwnSchedules(accessLevel) && event.createdByUserId === requesterUserId);
+    ? events
+    : events.filter((event) => canManageOwnSchedules(accessLevel) && event.createdByUserId === requesterUserId);
   const match = context.parseObjectArg(context.args.match) || {};
   const filtered = Object.keys(match).length > 0
     ? visible.filter((event) => scheduleMatchesFilters(event, match, effectiveRequesterTimezoneForCli(context)))
     : visible;
-  context.output({ ok: true, schedules: filtered.map((event) => serializeScheduleForCli(context, event)) });
+  context.output({ ok: true, events: filtered.map((event) => serializeEventForCli(context, event)) });
 }
 
-export async function handleSchedulesGet(context: RepoCliContext): Promise<void> {
-  const scheduleId = context.cleanText(context.args.scheduleId);
+export async function handleEventsGet(context: RepoCliContext): Promise<void> {
+  const eventId = context.cleanText(context.args.eventId) || context.cleanText(context.args.scheduleId);
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const accessLevel = accessLevelForUser(context.config, requesterUserId);
   if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
-  if (scheduleId) {
-    const schedules = await readScheduleEvents(context.config);
-    const schedule = schedules.find((item) => item.id === scheduleId) || null;
-    if (!schedule) {
-      context.output({ ok: false, error: "schedule-not-resolved", schedule: null });
+  if (eventId) {
+    const events = await readEventRecords(context.config);
+    const event = events.find((item) => item.id === eventId) || null;
+    if (!event) {
+      context.output({ ok: false, error: "event-not-resolved", event: null });
     }
-    if (!canManageAllSchedules(accessLevel) && schedule.createdByUserId !== requesterUserId) {
-      context.output({ ok: false, error: "schedule-read-not-allowed" });
+    if (!canManageAllSchedules(accessLevel) && event.createdByUserId !== requesterUserId) {
+      context.output({ ok: false, error: "event-read-not-allowed" });
     }
-    context.output({ ok: true, schedule: serializeScheduleForCli(context, schedule) });
+    context.output({ ok: true, event: serializeEventForCli(context, event) });
   }
 
   const match = context.parseObjectArg(context.args.match) || {};
@@ -95,14 +127,14 @@ export async function handleSchedulesGet(context: RepoCliContext): Promise<void>
   if (result.events.length !== 1) {
     context.output({
       ok: false,
-      error: result.reason || "schedule-not-resolved",
-      schedules: result.events.map((event) => serializeScheduleForCli(context, event)),
+      error: result.reason || "event-not-resolved",
+      events: result.events.map((event) => serializeEventForCli(context, event)),
     });
   }
-  context.output({ ok: true, schedule: serializeScheduleForCli(context, result.events[0]) });
+  context.output({ ok: true, event: serializeEventForCli(context, result.events[0]) });
 }
 
-export async function handleSchedulesCreate(context: RepoCliContext): Promise<void> {
+export async function handleEventsCreate(context: RepoCliContext): Promise<void> {
   const { args, cleanText, asInt, parseObjectArg, output, logTextContent } = context;
   const title = cleanText(args.title);
   const note = cleanText(args.note);
@@ -114,7 +146,7 @@ export async function handleSchedulesCreate(context: RepoCliContext): Promise<vo
   if (!title || !schedule || (!targetUserId && targetChatId == null)) output({ ok: false, error: "missing-title-schedule-or-target", details: { hasTitle: Boolean(title), hasSchedule: Boolean(schedule), hasTarget: Boolean(targetUserId || targetChatId != null) } });
 
   const targets = targetChatId != null ? [{ targetKind: "chat" as const, targetId: targetChatId }] : [{ targetKind: "user" as const, targetId: targetUserId! }];
-  if (!canRequesterCreateScheduleTargets(context.config, requesterUserId, targets)) {
+  if (!canRequesterCreateEventTargets(context.config, requesterUserId, targets)) {
     output({ ok: false, error: "schedule-create-not-allowed" });
   }
 
@@ -122,10 +154,11 @@ export async function handleSchedulesCreate(context: RepoCliContext): Promise<vo
   const category = cleanText(args.category);
   const rawSpecialKind = cleanText(args.specialKind);
   const rawTimeSemantics = cleanText(args.timeSemantics);
-  const normalizedCategory = rawSpecialKind === "scheduled-task" || rawTimeSemantics === "scheduled-task"
-    ? "scheduled-task"
-    : category === "scheduled-task"
-      ? "scheduled-task"
+  const parsedReminders = parseRemindersArg(args.reminders);
+  const normalizedCategory = rawSpecialKind === "automation" || rawSpecialKind === "scheduled-task" || rawTimeSemantics === "automation" || rawTimeSemantics === "scheduled-task"
+    ? "automation"
+    : category === "automation" || category === "scheduled-task"
+      ? "automation"
       : category === "special"
         ? "special"
         : category === "routine"
@@ -134,22 +167,24 @@ export async function handleSchedulesCreate(context: RepoCliContext): Promise<vo
   const normalizedSpecialKind = rawSpecialKind === "birthday" || rawSpecialKind === "festival" || rawSpecialKind === "anniversary" || rawSpecialKind === "memorial"
     ? rawSpecialKind as "birthday" | "festival" | "anniversary" | "memorial"
     : undefined;
+  const reminders = normalizedCategory === "automation" ? [] : parsedReminders;
 
-  const event = await createScheduleEventWithDefaults(context.config, {
+  const event = await createEventRecordWithDefaults(context.config, {
     title: title as string,
     note,
-    schedule: buildScheduleScheduleFromExternal(schedule as Record<string, unknown>, timezone),
+    schedule: buildEventScheduleFromExternal(schedule as Record<string, unknown>, timezone),
     category: normalizedCategory,
     createdByUserId: requesterUserId,
     timeSemantics: rawTimeSemantics === "absolute" || rawTimeSemantics === "local" ? rawTimeSemantics : undefined,
     specialKind: normalizedSpecialKind,
+    reminders,
     targets,
   });
   await logger.info(`system tool schedules_create created scheduleId=${event.id} title=${logTextContent(event.title)}`);
-  output({ ok: true, changed: true, scheduleId: event.id, schedule: serializeScheduleForCli(context, event) });
+  output({ ok: true, changed: true, eventId: event.id, event: serializeEventForCli(context, event) });
 }
 
-export async function handleScheduleMutation(context: RepoCliContext, operation: "update" | "delete" | "pause" | "resume"): Promise<void> {
+export async function handleEventMutation(context: RepoCliContext, operation: "update" | "delete" | "pause" | "resume"): Promise<void> {
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const match = context.parseObjectArg(context.args.match) || {};
   const changes = context.parseObjectArg(context.args.changes) || {};
@@ -174,7 +209,9 @@ export async function handleScheduleMutation(context: RepoCliContext, operation:
     if (note !== undefined && changes.note == null) changes.note = note;
     if (timezone && changes.timezone == null) changes.timezone = timezone;
     if ((timeSemantics === "absolute" || timeSemantics === "local") && changes.timeSemantics == null) changes.timeSemantics = timeSemantics;
-    if ((category === "routine" || category === "special" || category === "scheduled-task") && changes.category == null) changes.category = category;
+    if ((category === "routine" || category === "special" || category === "automation" || category === "scheduled-task") && changes.category == null) {
+      changes.category = category === "scheduled-task" ? "automation" : category;
+    }
     if ((specialKind === "birthday" || specialKind === "festival" || specialKind === "anniversary" || specialKind === "memorial") && changes.specialKind == null) changes.specialKind = specialKind;
     if (schedule && changes.schedule == null) changes.schedule = schedule;
     if (Array.isArray(targets) && changes.targets == null) changes.targets = targets;
@@ -197,11 +234,11 @@ export async function handleScheduleMutation(context: RepoCliContext, operation:
   if (result.skipped) {
     context.output({ ok: false, error: typeof result.reason === "string" && result.reason ? result.reason : `schedule-${operation}-failed`, ...result });
   }
-  const schedules = result.scheduleIds && result.scheduleIds.length > 0
-    ? (await readScheduleEvents(context.config)).filter((event) => result.scheduleIds?.includes(event.id)).map((event) => serializeScheduleForCli(context, event))
+  const events = result.scheduleIds && result.scheduleIds.length > 0
+    ? (await readEventRecords(context.config)).filter((event) => result.scheduleIds?.includes(event.id)).map((event) => serializeEventForCli(context, event))
     : undefined;
-  const schedule = schedules && schedules.length > 0
-    ? schedules.find((item) => item.id === result.scheduleId) || schedules[0]
+  const event = events && events.length > 0
+    ? events.find((item) => item.id === result.scheduleId) || events[0]
     : undefined;
-  context.output({ ok: true, ...result, schedule, schedules });
+  context.output({ ok: true, ...result, eventId: result.scheduleId, event, events });
 }

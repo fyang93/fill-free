@@ -3,8 +3,8 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
-import { buildScheduleEvent, createScheduleEvent, readScheduleEvents } from "../src/bot/operations/schedules/store";
-import { runScheduleTask } from "../src/bot/operations/schedules/task-actions";
+import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
+import { runScheduleTask } from "../src/bot/operations/events/task-actions";
 import type { TaskRecord } from "../src/bot/tasks/runtime/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { resolveUser } from "../src/bot/operations/context/store";
@@ -135,20 +135,20 @@ describe("自然语言回归测试", () => {
     const config = await createTempConfig();
 
     await runLoggedScenario(config, "添加提醒：4月7日下午3点组会提醒", "schedules.direct-create", async () => {
-      const event = buildScheduleEvent(config, {
+      const event = buildEventRecord(config, {
         title: "组会提醒",
           timeSemantics: "absolute",
         timezone: "Asia/Tokyo",
         schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
-        notifications: [{ id: "n1", offsetMinutes: -1440, enabled: true }],
+        reminders: [{ id: "n1", offsetMinutes: -1440, enabled: true }],
         targets: [{ targetKind: "user", targetId: 872940661 }],
       }, "Asia/Tokyo");
-      await createScheduleEvent(event, config);
+      await createEventRecord(event, config);
       return { scheduleId: event.id };
     });
 
     const created = await runLoggedScenario(config, "现在有哪些提醒", "schedules.read", async () => {
-      const events = await readScheduleEvents(config);
+      const events = await readEventRecords(config);
       return events.filter((item) => item.status === "active").map((item) => ({ title: item.title, scheduledAt: item.schedule.kind === "once" ? item.schedule.scheduledAt : item.schedule.kind }));
     });
     expect(created.some((item) => item.title === "组会提醒")).toBe(true);
@@ -159,7 +159,7 @@ describe("自然语言回归测试", () => {
     })));
     expect(updateResult.changed).toBe(true);
 
-    const updated = await readScheduleEvents(config);
+    const updated = await readEventRecords(config);
     expect(updated.find((item) => item.title === "组会提醒")?.schedule.kind).toBe("once");
     expect((updated.find((item) => item.title === "组会提醒")?.schedule as { kind: "once"; scheduledAt: string } | undefined)?.scheduledAt).toBe("2026-04-07T07:00:00.000Z");
 
@@ -167,7 +167,7 @@ describe("自然语言回归测试", () => {
       match: { title: "组会提醒", scheduledDate: "2026-04-07" },
     })));
     expect(deleteResult.changed).toBe(true);
-    expect((await readScheduleEvents(config)).find((item) => item.title === "组会提醒")?.status).toBe("deleted");
+    expect((await readEventRecords(config)).find((item) => item.title === "组会提醒")?.status).toBe("deleted");
   });
 
   test("个人信息的增删查改", { timeout: REGRESSION_TEST_TIMEOUT_MS }, async () => {

@@ -52,8 +52,8 @@ async function runCli(repoRoot: string, domain: string, args: Record<string, unk
   }
 }
 
-async function readSchedules(repoRoot: string): Promise<Array<Record<string, unknown>>> {
-  const raw = await readFile(path.join(repoRoot, "system", "schedules.json"), "utf8");
+async function readEvents(repoRoot: string): Promise<Array<Record<string, unknown>>> {
+  const raw = await readFile(path.join(repoRoot, "system", "events.json"), "utf8");
   return JSON.parse(raw) as Array<Record<string, unknown>>;
 }
 
@@ -61,11 +61,11 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe("repo schedules CLI", () => {
+describe("repo events CLI", () => {
   test("CRUD works when match/changes are JSON strings", async () => {
     const repoRoot = await createTempRepo();
 
-    const created = await runCli(repoRoot, "schedules:create", {
+    const created = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "开会",
       targetUserId: 1,
@@ -73,10 +73,10 @@ describe("repo schedules CLI", () => {
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T06:00:00.000Z" }),
     });
     expect(created.ok).toBe(true);
-    expect((created.schedule as any)?.scheduleSummary).toBe("2026/04/11 15:00");
-    expect((created.schedule as any)?.scheduledAtLocal).toBe("2026-04-11T15:00:00");
+    expect((created.event as any)?.scheduleSummary).toBe("2026/04/11 15:00");
+    expect((created.event as any)?.scheduledAtDisplayLocal).toBe("2026-04-11T15:00:00");
 
-    const localCreated = await runCli(repoRoot, "schedules:create", {
+    const localCreated = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "本地午饭",
       targetUserId: 1,
@@ -84,31 +84,31 @@ describe("repo schedules CLI", () => {
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T12:00:00" }),
     });
     expect(localCreated.ok).toBe(true);
-    expect((localCreated.schedule as any)?.schedule?.scheduledAt).toBe("2026-04-11T03:00:00.000Z");
-    expect((localCreated.schedule as any)?.scheduleSummary).toBe("2026/04/11 12:00");
-    expect((localCreated.schedule as any)?.scheduledAtLocal).toBe("2026-04-11T12:00:00");
+    expect((localCreated.event as any)?.schedule?.scheduledAt).toBe("2026-04-11T03:00:00.000Z");
+    expect((localCreated.event as any)?.scheduleSummary).toBe("2026/04/11 12:00");
+    expect((localCreated.event as any)?.scheduledAtDisplayLocal).toBe("2026-04-11T12:00:00");
 
-    const listed = await runCli(repoRoot, "schedules:list", { requesterUserId: 1 });
+    const listed = await runCli(repoRoot, "events:list", { requesterUserId: 1 });
     expect(listed.ok).toBe(true);
-    expect(Array.isArray(listed.schedules)).toBe(true);
-    expect((listed.schedules as Array<any>).some((item) => item.title === "开会" && item.status === "active" && item.scheduleSummary === "2026/04/11 15:00")).toBe(true);
-    expect((listed.schedules as Array<any>).some((item) => item.title === "本地午饭" && item.scheduledAtLocal === "2026-04-11T12:00:00")).toBe(true);
+    expect(Array.isArray(listed.events)).toBe(true);
+    expect((listed.events as Array<any>).some((item) => item.title === "开会" && item.status === "active" && item.scheduleSummary === "2026/04/11 15:00")).toBe(true);
+    expect((listed.events as Array<any>).some((item) => item.title === "本地午饭" && item.scheduledAtDisplayLocal === "2026-04-11T12:00:00")).toBe(true);
 
-    const paused = await runCli(repoRoot, "schedules:pause", {
+    const paused = await runCli(repoRoot, "events:pause", {
       requesterUserId: 1,
       match: JSON.stringify({ title: "开会" }),
     });
     expect(paused.ok).toBe(true);
     expect(paused.changed).toBe(true);
 
-    const resumed = await runCli(repoRoot, "schedules:resume", {
+    const resumed = await runCli(repoRoot, "events:resume", {
       requesterUserId: 1,
       match: JSON.stringify({ title: "开会" }),
     });
     expect(resumed.ok).toBe(true);
     expect(resumed.changed).toBe(true);
 
-    const updated = await runCli(repoRoot, "schedules:update", {
+    const updated = await runCli(repoRoot, "events:update", {
       requesterUserId: 1,
       match: JSON.stringify({ title: "开会" }),
       changes: JSON.stringify({ title: "项目开会" }),
@@ -116,7 +116,7 @@ describe("repo schedules CLI", () => {
     expect(updated.ok).toBe(true);
     expect(updated.changed).toBe(true);
 
-    const retargeted = await runCli(repoRoot, "schedules:update", {
+    const retargeted = await runCli(repoRoot, "events:update", {
       requesterUserId: 1,
       match: JSON.stringify({ title: "项目开会" }),
       targetChatId: -1001234567890,
@@ -124,34 +124,39 @@ describe("repo schedules CLI", () => {
     expect(retargeted.ok).toBe(true);
     expect(retargeted.changed).toBe(true);
 
-    const afterRetarget = await readSchedules(repoRoot);
+    const afterRetarget = await readEvents(repoRoot);
     expect(afterRetarget.find((item) => item.title === "项目开会")?.targets).toEqual([{ targetKind: "chat", targetId: -1001234567890 }]);
 
-    const scheduledTask = await runCli(repoRoot, "schedules:create", {
+    const scheduledTask = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "每日新闻摘要",
       note: "生成最近一天的重要新闻摘要",
-      category: "scheduled-task",
+      category: "automation",
       targetUserId: 1,
       timezone: "Asia/Tokyo",
       schedule: JSON.stringify({ kind: "interval", unit: "day", every: 1, anchorAt: "2026-04-10T23:00:00.000Z" }),
+      reminders: JSON.stringify([
+        { id: "before-1h", offsetMinutes: -60, enabled: true, label: "提前1小时" },
+        { id: "default-now", offsetMinutes: 0, enabled: true, label: "准时" },
+      ]),
     });
     expect(scheduledTask.ok).toBe(true);
-    expect((scheduledTask.schedule as any)?.category).toBe("scheduled-task");
+    expect((scheduledTask.event as any)?.category).toBe("automation");
+    expect((scheduledTask.event as any)?.reminders).toEqual([]);
 
-    const daily = await runCli(repoRoot, "schedules:create", {
+    const daily = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "每日站会",
       targetUserId: 1,
       timezone: "Asia/Tokyo",
-      schedule: JSON.stringify({ kind: "daily", time: { hour: 9, minute: 30 }, anchorAt: "2026-04-10T00:30:00.000Z" }),
+      schedule: JSON.stringify({ kind: "daily", time: { hour: 9, minute: 30 } }),
     });
     expect(daily.ok).toBe(true);
-    expect((daily.schedule as any)?.schedule?.kind).toBe("interval");
-    expect((daily.schedule as any)?.schedule?.unit).toBe("day");
-    expect((daily.schedule as any)?.scheduleSummary).toContain("每天");
+    expect((daily.event as any)?.schedule?.kind).toBe("interval");
+    expect((daily.event as any)?.schedule?.unit).toBe("day");
+    expect((daily.event as any)?.scheduleSummary).toContain("每天");
 
-    const weekdays = await runCli(repoRoot, "schedules:create", {
+    const weekdays = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "工作日提醒",
       targetUserId: 1,
@@ -159,11 +164,11 @@ describe("repo schedules CLI", () => {
       schedule: JSON.stringify({ kind: "weekdays", time: { hour: 8, minute: 0 } }),
     });
     expect(weekdays.ok).toBe(true);
-    expect((weekdays.schedule as any)?.schedule?.kind).toBe("weekly");
-    expect((weekdays.schedule as any)?.schedule?.daysOfWeek).toEqual([1, 2, 3, 4, 5]);
-    expect((weekdays.schedule as any)?.scheduleSummary).toContain("工作日");
+    expect((weekdays.event as any)?.schedule?.kind).toBe("weekly");
+    expect((weekdays.event as any)?.schedule?.daysOfWeek).toEqual([1, 2, 3, 4, 5]);
+    expect((weekdays.event as any)?.scheduleSummary).toContain("工作日");
 
-    const weekends = await runCli(repoRoot, "schedules:create", {
+    const weekends = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "周末提醒",
       targetUserId: 1,
@@ -171,15 +176,15 @@ describe("repo schedules CLI", () => {
       schedule: JSON.stringify({ kind: "weekends", time: { hour: 10, minute: 0 } }),
     });
     expect(weekends.ok).toBe(true);
-    expect((weekends.schedule as any)?.schedule?.kind).toBe("weekly");
-    expect((weekends.schedule as any)?.schedule?.daysOfWeek).toEqual([0, 6]);
-    expect((weekends.schedule as any)?.scheduleSummary).toContain("周末");
+    expect((weekends.event as any)?.schedule?.kind).toBe("weekly");
+    expect((weekends.event as any)?.schedule?.daysOfWeek).toEqual([0, 6]);
+    expect((weekends.event as any)?.scheduleSummary).toContain("周末");
 
-    const schedules = await readSchedules(repoRoot);
-    expect(schedules.find((item) => item.title === "项目开会")?.status).toBe("active");
-    expect(schedules.find((item) => item.title === "每日新闻摘要")?.category).toBe("scheduled-task");
+    const events = await readEvents(repoRoot);
+    expect(events.find((item) => item.title === "项目开会")?.status).toBe("active");
+    expect(events.find((item) => item.title === "每日新闻摘要")?.category).toBe("automation");
 
-    const missing = await runCli(repoRoot, "schedules:update", {
+    const missing = await runCli(repoRoot, "events:update", {
       requesterUserId: 1,
       match: JSON.stringify({ title: "不存在的提醒" }),
       targetUserId: 1,
@@ -189,10 +194,27 @@ describe("repo schedules CLI", () => {
     expect(missing.skipped).toBe(true);
   });
 
+  test("events:* CLI aliases map to the event handlers", async () => {
+    const repoRoot = await createTempRepo();
+
+    const created = await runCli(repoRoot, "events:create", {
+      requesterUserId: 1,
+      title: "alias事件",
+      targetUserId: 1,
+      timezone: "Asia/Tokyo",
+      schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T06:00:00.000Z" }),
+    });
+    expect(created.ok).toBe(true);
+
+    const listed = await runCli(repoRoot, "events:list", { requesterUserId: 1 });
+    expect(listed.ok).toBe(true);
+    expect((listed.events as Array<any>).some((item) => item.title === "alias事件")).toBe(true);
+  });
+
   test("allowed requester cannot create schedules through CLI", async () => {
     const repoRoot = await createTempRepo();
 
-    const created = await runCli(repoRoot, "schedules:create", {
+    const created = await runCli(repoRoot, "events:create", {
       requesterUserId: 2,
       title: "allowed自建提醒",
       targetUserId: 2,
@@ -205,7 +227,7 @@ describe("repo schedules CLI", () => {
   test("trusted requester can create schedules for another user through CLI", async () => {
     const repoRoot = await createTempRepo();
 
-    const created = await runCli(repoRoot, "schedules:create", {
+    const created = await runCli(repoRoot, "events:create", {
       requesterUserId: 3,
       title: "帮 admin 建提醒",
       targetUserId: 1,
@@ -213,29 +235,29 @@ describe("repo schedules CLI", () => {
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T06:00:00.000Z" }),
     });
     expect(created.ok).toBe(true);
-    expect((created.schedule as any)?.targets).toEqual([{ targetKind: "user", targetId: 1 }]);
+    expect((created.event as any)?.targets).toEqual([{ targetKind: "user", targetId: 1 }]);
   });
 
   test("explicit batch scheduleIds can retarget only the listed schedules", async () => {
     const repoRoot = await createTempRepo();
 
-    const news1 = await runCli(repoRoot, "schedules:create", {
+    const news1 = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "每日新闻简报",
       targetUserId: 1,
       timezone: "Asia/Tokyo",
-      category: "scheduled-task",
+      category: "automation",
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-12T01:00:00.000Z" }),
     });
-    const news2 = await runCli(repoRoot, "schedules:create", {
+    const news2 = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "晚间新闻简报",
       targetUserId: 1,
       timezone: "Asia/Tokyo",
-      category: "scheduled-task",
+      category: "automation",
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-12T13:00:00.000Z" }),
     });
-    const meeting = await runCli(repoRoot, "schedules:create", {
+    const meeting = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "组会",
       targetUserId: 1,
@@ -243,24 +265,24 @@ describe("repo schedules CLI", () => {
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T06:00:00.000Z" }),
     });
 
-    const batch = await runCli(repoRoot, "schedules:update", {
+    const batch = await runCli(repoRoot, "events:update", {
       requesterUserId: 1,
-      scheduleIds: [(news1.schedule as any).id, (news2.schedule as any).id],
+      scheduleIds: [(news1.event as any).id, (news2.event as any).id],
       targetChatId: -1003674455331,
     });
     expect(batch.ok).toBe(true);
-    expect(batch.scheduleIds).toEqual([(news1.schedule as any).id, (news2.schedule as any).id]);
+    expect(batch.scheduleIds).toEqual([(news1.event as any).id, (news2.event as any).id]);
 
-    const schedules = await readSchedules(repoRoot);
-    expect(schedules.find((item) => item.id === (news1.schedule as any).id)?.targets).toEqual([{ targetKind: "chat", targetId: -1003674455331 }]);
-    expect(schedules.find((item) => item.id === (news2.schedule as any).id)?.targets).toEqual([{ targetKind: "chat", targetId: -1003674455331 }]);
-    expect(schedules.find((item) => item.id === (meeting.schedule as any).id)?.targets).toEqual([{ targetKind: "user", targetId: 1 }]);
+    const events = await readEvents(repoRoot);
+    expect(events.find((item) => item.id === (news1.event as any).id)?.targets).toEqual([{ targetKind: "chat", targetId: -1003674455331 }]);
+    expect(events.find((item) => item.id === (news2.event as any).id)?.targets).toEqual([{ targetKind: "chat", targetId: -1003674455331 }]);
+    expect(events.find((item) => item.id === (meeting.event as any).id)?.targets).toEqual([{ targetKind: "user", targetId: 1 }]);
   });
 
-  test("schedules:update can promote a routine yearly reminder into a birthday special and returns updated schedule", async () => {
+  test("events:update can promote a routine yearly reminder into a birthday special and returns updated schedule", async () => {
     const repoRoot = await createTempRepo();
 
-    const created = await runCli(repoRoot, "schedules:create", {
+    const created = await runCli(repoRoot, "events:create", {
       requesterUserId: 1,
       title: "小雨生日",
       targetUserId: 1,
@@ -270,13 +292,13 @@ describe("repo schedules CLI", () => {
     });
     expect(created.ok).toBe(true);
 
-    const updated = await runCli(repoRoot, "schedules:update", {
+    const updated = await runCli(repoRoot, "events:update", {
       requesterUserId: 1,
-      match: JSON.stringify({ id: (created.schedule as any).id }),
+      match: JSON.stringify({ id: (created.event as any).id }),
       changes: JSON.stringify({
         category: "special",
         specialKind: "birthday",
-        notifications: [
+        reminders: [
           { id: "default-2w", offsetMinutes: -14 * 24 * 60, enabled: true, label: "提前2周" },
           { id: "default-1w", offsetMinutes: -7 * 24 * 60, enabled: true, label: "提前1周" },
           { id: "default-1d", offsetMinutes: -24 * 60, enabled: true, label: "提前1天" },
@@ -285,15 +307,15 @@ describe("repo schedules CLI", () => {
       }),
     });
     expect(updated.ok).toBe(true);
-    expect((updated.schedule as any)?.category).toBe("special");
-    expect((updated.schedule as any)?.specialKind).toBe("birthday");
-    expect(Array.isArray((updated.schedule as any)?.notifications)).toBe(true);
-    expect(((updated.schedule as any)?.notifications || []).map((item: any) => item.id)).toEqual(["default-2w", "default-1w", "default-1d", "default-now"]);
+    expect((updated.event as any)?.category).toBe("special");
+    expect((updated.event as any)?.specialKind).toBe("birthday");
+    expect(Array.isArray((updated.event as any)?.reminders)).toBe(true);
+    expect(((updated.event as any)?.reminders || []).map((item: any) => item.id)).toEqual(["default-2w", "default-1w", "default-1d", "default-now"]);
 
-    const schedules = await readSchedules(repoRoot);
-    const stored = schedules.find((item) => item.id === (created.schedule as any).id);
+    const events = await readEvents(repoRoot);
+    const stored = events.find((item) => item.id === (created.event as any).id);
     expect(stored?.category).toBe("special");
     expect(stored?.specialKind).toBe("birthday");
-    expect((stored?.notifications as Array<any>)?.map((item) => item.id)).toEqual(["default-2w", "default-1w", "default-1d", "default-now"]);
+    expect((stored?.reminders as Array<any>)?.map((item) => item.id)).toEqual(["default-2w", "default-1w", "default-1d", "default-now"]);
   });
 });

@@ -276,7 +276,7 @@ function renderBlocks(tokens: MarkdownToken[]): string {
         break;
       }
       case "hr":
-        blocks.push(`<pre>${escapeHtml(repeat("-", 24))}</pre>`);
+        blocks.push(escapeHtml("────────────────────────"));
         break;
       case "table_open": {
         const rendered = renderTable(tokens, index);

@@ -3,13 +3,13 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
-import { buildScheduleEvent, createScheduleEvent, getScheduleEvent, readScheduleEvents, updateScheduleEvent } from "../src/bot/operations/schedules/store";
-import { deliverDueSchedules } from "../src/bot/operations/schedules/delivery";
-import { buildScheduledTaskPrompt, prepareScheduleDeliveryText, shouldGenerateScheduledTaskOnDelivery, shouldPrepareScheduleDeliveryText } from "../src/bot/operations/schedules/preparation";
-import { runScheduleTask } from "../src/bot/operations/schedules/task-actions";
-import { schedulePreparationTaskHandler } from "../src/bot/tasks/runtime/handlers/schedules";
+import { buildEventRecord, createEventRecord, getEventRecord, readEventRecords, updateEventRecord } from "../src/bot/operations/events/store";
+import { deliverDueSchedules } from "../src/bot/operations/events/delivery";
+import { buildScheduledTaskPrompt, prepareScheduleDeliveryText, shouldGenerateScheduledTaskOnDelivery, shouldPrepareScheduleDeliveryText } from "../src/bot/operations/events/preparation";
+import { runScheduleTask } from "../src/bot/operations/events/task-actions";
+import { schedulePreparationTaskHandler } from "../src/bot/tasks/runtime/handlers/events";
 import type { TaskRecord } from "../src/bot/tasks/runtime/store";
-import type { ScheduleEvent, ScheduleNotificationInstance } from "../src/bot/operations/schedules/types";
+import type { EventRecord, ReminderInstance } from "../src/bot/operations/events/types";
 
 const tempDirs: string[] = [];
 
@@ -73,34 +73,34 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe("scheduled-task category", () => {
-  test("buildScheduleEvent preserves category='scheduled-task'", async () => {
+describe("automation category", () => {
+  test("buildEventRecord preserves category='automation'", async () => {
     const config = await createTempConfig();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "每日新闻",
       note: "获取今日科技新闻摘要",
-      category: "scheduled-task",
+      category: "automation",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1, 2, 3, 4, 5], time: { hour: 9, minute: 0 } },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
 
-    expect(event.category).toBe("scheduled-task");
+    expect(event.category).toBe("automation");
     expect(event.note).toBe("获取今日科技新闻摘要");
     expect(event.title).toBe("每日新闻");
   });
 
-  test("buildScheduleEvent synthesizes a scheduled-task prompt when note is missing", async () => {
+  test("buildEventRecord synthesizes a automation prompt when note is missing", async () => {
     const config = await createTempConfig();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "每日新闻简报",
-      category: "scheduled-task",
+      category: "automation",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1, 2, 3, 4, 5], time: { hour: 9, minute: 0 } },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
 
@@ -108,9 +108,9 @@ describe("scheduled-task category", () => {
     expect(shouldGenerateScheduledTaskOnDelivery(event)).toBe(true);
   });
 
-  test("buildScheduleEvent still assigns 'special' for specialKind events", async () => {
+  test("buildEventRecord still assigns 'special' for specialKind events", async () => {
     const config = await createTempConfig();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "妈妈生日",
       specialKind: "birthday",
       timeSemantics: "local",
@@ -122,35 +122,35 @@ describe("scheduled-task category", () => {
     expect(event.category).toBe("special");
   });
 
-  test("buildScheduleEvent assigns 'routine' for routine category", async () => {
+  test("buildEventRecord assigns 'routine' for routine category", async () => {
     const config = await createTempConfig();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "开会",
       category: "routine",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1], time: { hour: 10, minute: 0 } },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
 
     expect(event.category).toBe("routine");
   });
 
-  test("scheduled-task is not prewarmed and is generated on delivery instead", async () => {
+  test("automation is not prewarmed and is generated on delivery instead", async () => {
     const config = await createTempConfig();
     const now = new Date("2026-04-08T00:00:00.000Z");
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "每日新闻",
       note: "获取今日科技新闻摘要",
-      category: "scheduled-task",
+      category: "automation",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-08T00:00:00.000Z" },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
-    await createScheduleEvent(event, config);
+    await createEventRecord(event, config);
 
     let scheduledTaskPromptReceived = "";
     let scheduleMessageCalled = false;
@@ -181,7 +181,7 @@ describe("scheduled-task category", () => {
       config,
       bot,
       async (currentEvent, _instance, fallback) => {
-        if (currentEvent.category !== "scheduled-task") return fallback;
+        if (currentEvent.category !== "automation") return fallback;
         const prompt = currentEvent.note?.trim();
         if (!prompt) return fallback;
         const text = await mockAiService.generateScheduledTaskContent(prompt);
@@ -194,22 +194,22 @@ describe("scheduled-task category", () => {
     expect(scheduleMessageCalled).toBe(false);
   });
 
-  test("scheduled-task delivery ignores stale prepared delivery text and renders fresh content", async () => {
+  test("automation delivery ignores stale prepared delivery text and renders fresh content", async () => {
     const config = await createTempConfig();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "每日新闻简报",
       note: "获取今日科技新闻摘要",
-      category: "scheduled-task",
+      category: "automation",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt: "2026-04-08T00:00:00.000Z" },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
       deliveryText: "旧的静态提醒",
-      deliveryPreparedNotificationId: "n1",
+      deliveryPreparedReminderId: "n1",
       deliveryPreparedNotifyAt: "2026-04-08T00:00:00.000Z",
     }, "Asia/Tokyo");
-    await createScheduleEvent(event, config);
+    await createEventRecord(event, config);
 
     const bot = {
       api: {
@@ -224,7 +224,7 @@ describe("scheduled-task category", () => {
       config,
       bot,
       async (currentEvent, _instance, fallback) => {
-        if (currentEvent.category !== "scheduled-task") return fallback;
+        if (currentEvent.category !== "automation") return fallback;
         return "今日科技新闻：AI 芯片取得突破...";
       },
     );
@@ -235,16 +235,16 @@ describe("scheduled-task category", () => {
   test("prepare handler does not overwrite schedule edits made while generation is running", async () => {
     const config = await createTempConfig();
     const scheduledAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "每日站会",
       category: "routine",
       timeSemantics: "absolute",
       timezone: "Asia/Tokyo",
       schedule: { kind: "once", scheduledAt },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
-    await createScheduleEvent(event, config);
+    await createEventRecord(event, config);
 
     let updated = false;
     const result = await schedulePreparationTaskHandler.run({
@@ -253,10 +253,10 @@ describe("scheduled-task category", () => {
         generateScheduleMessage: async () => {
           if (!updated) {
             updated = true;
-            const latest = await getScheduleEvent(config, event.id);
+            const latest = await getEventRecord(config, event.id);
             if (!latest) throw new Error("missing event during test");
             latest.schedule = { kind: "once", scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() } as any;
-            await updateScheduleEvent(config, latest);
+            await updateEventRecord(config, latest);
           }
           return "记得开站会";
         },
@@ -272,7 +272,7 @@ describe("scheduled-task category", () => {
     } as any);
 
     expect(result.result?.reason).toBe("schedule-changed-during-prepare");
-    const latest = await getScheduleEvent(config, event.id);
+    const latest = await getEventRecord(config, event.id);
     expect((latest?.schedule as any)?.scheduledAt).not.toBe(scheduledAt);
     expect(latest?.deliveryText).toBeUndefined();
   });
@@ -280,16 +280,16 @@ describe("scheduled-task category", () => {
   test("prepareScheduleDeliveryText uses title+schedule for regular schedules", async () => {
     const config = await createTempConfig();
     const now = new Date("2026-04-08T00:00:00.000Z");
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "组会提醒",
       category: "routine",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [3], time: { hour: 14, minute: 0 } },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
-    await createScheduleEvent(event, config);
+    await createEventRecord(event, config);
 
     let scheduledTaskCalled = false;
     let scheduleTitleReceived = "";
@@ -312,36 +312,36 @@ describe("scheduled-task category", () => {
     expect(event.deliveryText).toBe("组会马上开始了");
   });
 
-  test("scheduled-task can be created via upsert task operation", async () => {
+  test("automation can be created via upsert task operation", async () => {
     const config = await createTempConfig();
     const result = await runScheduleTask(config, makeTask({
       title: "每日新闻推送",
       note: "获取今日科技新闻并生成摘要",
-      category: "scheduled-task",
+      category: "automation",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1, 2, 3, 4, 5], time: { hour: 9, minute: 0 } },
     }));
 
     expect(result.changed).toBe(true);
-    const events = await readScheduleEvents(config);
+    const events = await readEventRecords(config);
     const created = events.find((item) => item.title.includes("新闻"));
     expect(Boolean(created)).toBe(true);
-    expect(created?.category).toBe("scheduled-task");
+    expect(created?.category).toBe("automation");
     expect(created?.note).toBe("获取今日科技新闻并生成摘要");
   });
 
-  test("scheduled-task can be deleted via task operation", async () => {
+  test("automation can be deleted via task operation", async () => {
     const config = await createTempConfig();
-    const event = buildScheduleEvent(config, {
+    const event = buildEventRecord(config, {
       title: "每日新闻",
       note: "获取今日科技新闻摘要",
-      category: "scheduled-task",
+      category: "automation",
       timeSemantics: "local",
       timezone: "Asia/Tokyo",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1, 2, 3, 4, 5], time: { hour: 9, minute: 0 } },
-      notifications: [{ id: "n1", offsetMinutes: 0, enabled: true }],
+      reminders: [{ id: "n1", offsetMinutes: 0, enabled: true }],
       targets: [{ targetKind: "user", targetId: 1 }],
     }, "Asia/Tokyo");
-    await createScheduleEvent(event, config);
+    await createEventRecord(event, config);
 
     const deleteNow = new Date().toISOString();
     const result = await runScheduleTask(config, {
@@ -356,16 +356,16 @@ describe("scheduled-task category", () => {
     });
 
     expect(result.changed).toBe(true);
-    const events = await readScheduleEvents(config);
+    const events = await readEventRecords(config);
     expect(events.find((item) => item.id === event.id)?.status).toBe("deleted");
   });
 
-  test("non-trusted requester cannot create scheduled-task", async () => {
+  test("non-trusted requester cannot create automation", async () => {
     const config = await createTempConfig();
     const nonAdminTask = makeTask({
       title: "非法定时任务",
       note: "不应该成功",
-      category: "scheduled-task",
+      category: "automation",
       schedule: { kind: "weekly", every: 1, daysOfWeek: [1], time: { hour: 9, minute: 0 } },
     }, 999);
 
@@ -373,7 +373,7 @@ describe("scheduled-task category", () => {
     expect(result.skipped).toBe(true);
     expect(result.reason).toBe("schedule-create-not-allowed");
 
-    const events = await readScheduleEvents(config);
+    const events = await readEventRecords(config);
     expect(events.find((item) => item.title.includes("非法"))).toBeUndefined();
   });
 });

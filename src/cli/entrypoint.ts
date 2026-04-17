@@ -1,5 +1,5 @@
 import { addPendingAuthorization, appendCliLogLine, CliOutput, initializeRepoCli, logCliInvocation, summarizeArgsForLog } from "cli/runtime";
-import { handleSchedulesCreate, handleSchedulesGet, handleScheduleMutation, handleSchedulesList } from "cli/commands/schedules";
+import { handleEventMutation, handleEventsCreate, handleEventsGet, handleEventsList } from "cli/commands/events";
 import { handleTelegramResolveRecipient, handleTelegramScheduleMessage, handleTelegramSendFile, handleTelegramSendMessage } from "cli/commands/telegram";
 import { handleUsersAddRule, handleUsersGet, handleUsersList, handleUsersSetAccess, handleUsersSetPersonPath, handleUsersSetRules, handleUsersSetTimezone } from "cli/commands/users";
 
@@ -22,13 +22,20 @@ export async function runRepoCli(argv: string[] = process.argv.slice(2)): Promis
       case "users:set-person-path": await handleUsersSetPersonPath(context); break;
       case "users:add-rule": await handleUsersAddRule(context); break;
       case "users:set-rules": await handleUsersSetRules(context); break;
-      case "schedules:list": await handleSchedulesList(context); break;
-      case "schedules:get": await handleSchedulesGet(context); break;
-      case "schedules:create": await handleSchedulesCreate(context); break;
-      case "schedules:update": await handleScheduleMutation(context, "update"); break;
-      case "schedules:delete": await handleScheduleMutation(context, "delete"); break;
-      case "schedules:pause": await handleScheduleMutation(context, "pause"); break;
-      case "schedules:resume": await handleScheduleMutation(context, "resume"); break;
+      case "events:list":
+      case "schedules:list": await handleEventsList(context); break;
+      case "events:get":
+      case "schedules:get": await handleEventsGet(context); break;
+      case "events:create":
+      case "schedules:create": await handleEventsCreate(context); break;
+      case "events:update":
+      case "schedules:update": await handleEventMutation(context, "update"); break;
+      case "events:delete":
+      case "schedules:delete": await handleEventMutation(context, "delete"); break;
+      case "events:pause":
+      case "schedules:pause": await handleEventMutation(context, "pause"); break;
+      case "events:resume":
+      case "schedules:resume": await handleEventMutation(context, "resume"); break;
       case "auth:add-pending": await addPendingAuthorization(context); break;
       case "telegram:resolve-recipient": await handleTelegramResolveRecipient(context); break;
       case "telegram:send-message": await handleTelegramSendMessage(context); break;

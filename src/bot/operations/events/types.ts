@@ -9,9 +9,9 @@ export type ScheduleRecurrence =
 
 export type ScheduleSpecialKind = "birthday" | "festival" | "anniversary" | "memorial";
 
-export type ScheduleView = "menu" | "upcoming" | "routine" | "special" | "special:birthday" | "special:festival" | "special:anniversary" | "special:memorial" | "all";
+export type EventView = "menu" | "upcoming" | "routine" | "special" | "special:birthday" | "special:festival" | "special:anniversary" | "special:memorial" | "all";
 
-export type ScheduleSchedule =
+export type EventSchedule =
   | { kind: "once"; scheduledAt: string }
   | { kind: "interval"; unit: "minute" | "hour" | "day" | "week" | "month" | "year"; every: number; anchorAt: string }
   | { kind: "weekly"; every: number; daysOfWeek: number[]; time: { hour: number; minute: number }; anchorDate?: string }
@@ -20,19 +20,19 @@ export type ScheduleSchedule =
   | { kind: "yearly"; every: number; month: number; day: number; time: { hour: number; minute: number } }
   | { kind: "lunarYearly"; month: number; day: number; isLeapMonth?: boolean; leapMonthPolicy?: "same-leap-only" | "prefer-non-leap" | "both"; time: { hour: number; minute: number } };
 
-export type ScheduleNotification = {
+export type Reminder = {
   id: string;
   offsetMinutes: number;
   enabled: boolean;
   label?: string;
 };
 
-export type ScheduleOccurrence = {
+export type EventOccurrence = {
   scheduledAt: string;
 };
 
-export type ScheduleNotificationInstance = {
-  notificationId: string;
+export type ReminderInstance = {
+  reminderId: string;
   offsetMinutes: number;
   notifyAt: string;
   label?: string;
@@ -41,36 +41,36 @@ export type ScheduleNotificationInstance = {
 export type ScheduleDeliveryState = {
   currentOccurrence?: {
     scheduledAt: string;
-    sentNotificationIds: string[];
+    sentReminderIds: string[];
   };
 };
 
-export type ScheduleTimeSemantics = "absolute" | "local";
+export type EventTimeSemantics = "absolute" | "local";
 
-export type ScheduleTarget = {
+export type EventTarget = {
   targetKind: "user" | "chat";
   targetId: number;
 };
 
-export type ScheduleEvent = {
+export type EventRecord = {
   id: string;
   title: string;
   note?: string;
-  timeSemantics: ScheduleTimeSemantics;
+  timeSemantics: EventTimeSemantics;
   createdByUserId?: number;
-  schedule: ScheduleSchedule;
-  notifications: ScheduleNotification[];
-  category?: "routine" | "special" | "scheduled-task";
+  schedule: EventSchedule;
+  reminders: Reminder[];
+  category?: "routine" | "special" | "automation";
   specialKind?: "birthday" | "festival" | "anniversary" | "memorial";
   status: "active" | "paused" | "deleted";
   createdAt: string;
   updatedAt?: string;
-  targets: ScheduleTarget[];
+  targets: EventTarget[];
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
-  deliveryPreparedNotificationId?: string;
+  deliveryPreparedReminderId?: string;
   deliveryPreparedNotifyAt?: string;
   deliveryState?: ScheduleDeliveryState;
 };
 
-export type ScheduleStore = ScheduleEvent[];
+export type EventStore = EventRecord[];

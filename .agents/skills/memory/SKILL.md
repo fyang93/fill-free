@@ -41,7 +41,7 @@ Use this skill for repository-local memory: recorded facts, durable preferences,
 ## Boundaries
 
 - Use `cli-rules` for deterministic standing assistant rules.
-- Use `cli-schedules` when the main task is schedule state.
+- Use `cli-events` when the main task is schedule state.
 - Do not turn every appointment or date into memory.
 
 ## Files

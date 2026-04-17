@@ -5,12 +5,12 @@ import { tForLocale, userLocale, type Locale } from "bot/app/i18n";
 import { getAccurateNow } from "bot/app/time";
 import { sendMessageFormatted } from "bot/telegram/format";
 import { listAuthorizedUserIds } from "bot/operations/access/roles";
-import type { ScheduleEvent, ScheduleNotificationInstance } from "./types";
+import type { EventRecord, ReminderInstance } from "./types";
 import { isPreparedScheduleDeliveryTextUsable } from "./preparation";
-import { allNotificationsSent, getCurrentOccurrence, listNotificationInstances } from "./schedule";
-import { readScheduleEvents, writeScheduleEvents } from "./store";
+import { allRemindersSent, getCurrentOccurrence, listReminderInstances } from "./schedule";
+import { readEventRecords, writeEventRecords } from "./store";
 
-function fallbackDeliveryMessage(_config: AppConfig, event: ScheduleEvent, instance: ScheduleNotificationInstance, locale: Locale): string {
+function fallbackDeliveryMessage(_config: AppConfig, event: EventRecord, instance: ReminderInstance, locale: Locale): string {
   let label = event.title;
   if (instance.label) {
     label = `${event.title}（${instance.label}）`;
@@ -22,15 +22,15 @@ function fallbackDeliveryMessage(_config: AppConfig, event: ScheduleEvent, insta
   return tForLocale(locale, "schedule_delivery", { text: label });
 }
 
-function markNotificationSent(event: ScheduleEvent, notificationId: string): void {
+function markReminderSent(event: EventRecord, reminderId: string): void {
   const current = event.deliveryState?.currentOccurrence;
   if (!current) return;
-  if (!current.sentNotificationIds.includes(notificationId)) {
-    current.sentNotificationIds.push(notificationId);
+  if (!current.sentReminderIds.includes(reminderId)) {
+    current.sentReminderIds.push(reminderId);
   }
 }
 
-function ensureOccurrenceState(event: ScheduleEvent, now: Date): ScheduleEvent | null {
+function ensureOccurrenceState(event: EventRecord, now: Date): EventRecord | null {
   if (event.status !== "active") return null;
   const occurrence = getCurrentOccurrence(event, now);
   if (!occurrence) return null;
@@ -38,14 +38,14 @@ function ensureOccurrenceState(event: ScheduleEvent, now: Date): ScheduleEvent |
     event.deliveryState = {
       currentOccurrence: {
         scheduledAt: occurrence.scheduledAt,
-        sentNotificationIds: [],
+        sentReminderIds: [],
       },
     };
   }
   return event;
 }
 
-function advanceOccurrence(event: ScheduleEvent, now: Date): void {
+function advanceOccurrence(event: EventRecord, now: Date): void {
   if (event.schedule.kind === "once") {
     event.status = "paused";
     event.updatedAt = now.toISOString();
@@ -61,13 +61,13 @@ function advanceOccurrence(event: ScheduleEvent, now: Date): void {
   event.deliveryState = {
     currentOccurrence: {
       scheduledAt: nextOccurrence.scheduledAt,
-      sentNotificationIds: [],
+      sentReminderIds: [],
     },
   };
   event.updatedAt = now.toISOString();
 }
 
-function scheduleTargets(config: AppConfig, event: ScheduleEvent): number[] {
+function scheduleTargets(config: AppConfig, event: EventRecord): number[] {
   const targets = event.targets
     .map((item) => item.targetId)
     .filter((item) => Number.isInteger(item));
@@ -77,10 +77,10 @@ function scheduleTargets(config: AppConfig, event: ScheduleEvent): number[] {
 export async function deliverDueSchedules(
   config: AppConfig,
   bot: Bot<Context>,
-  renderMessage?: (event: ScheduleEvent, instance: ScheduleNotificationInstance, fallback: string) => Promise<string>,
-  afterDelivery?: (event: ScheduleEvent, instance: ScheduleNotificationInstance) => Promise<void>,
+  renderMessage?: (event: EventRecord, instance: ReminderInstance, fallback: string) => Promise<string>,
+  afterDelivery?: (event: EventRecord, instance: ReminderInstance) => Promise<void>,
 ): Promise<number> {
-  const events = await readScheduleEvents(config);
+  const events = await readEventRecords(config);
   const now = await getAccurateNow();
   let sent = 0;
   let changed = false;
@@ -90,14 +90,14 @@ export async function deliverDueSchedules(
     const activeEvent = ensureOccurrenceState(event, now);
     if (!activeEvent?.deliveryState?.currentOccurrence) continue;
 
-    const instances = listNotificationInstances(activeEvent, { scheduledAt: activeEvent.deliveryState.currentOccurrence.scheduledAt });
+    const instances = listReminderInstances(activeEvent, { scheduledAt: activeEvent.deliveryState.currentOccurrence.scheduledAt });
     const dueInstances = instances.filter((instance) => {
-      const alreadySent = activeEvent.deliveryState?.currentOccurrence?.sentNotificationIds.includes(instance.notificationId) || false;
+      const alreadySent = activeEvent.deliveryState?.currentOccurrence?.sentReminderIds.includes(instance.reminderId) || false;
       return !alreadySent && Date.parse(instance.notifyAt) <= now.getTime();
     });
 
     for (const instance of dueInstances) {
-      const preparedMessage = activeEvent.category === "scheduled-task"
+      const preparedMessage = activeEvent.category === "automation"
         ? undefined
         : isPreparedScheduleDeliveryTextUsable(activeEvent, instance) ? activeEvent.deliveryText : undefined;
       const targets = scheduleTargets(config, activeEvent);
@@ -110,46 +110,46 @@ export async function deliverDueSchedules(
           try {
             deliveryMessage = await renderMessage(activeEvent, instance, fallbackMessage);
           } catch (error) {
-            await logger.warn(`schedule render fallback event=${activeEvent.id} notification=${instance.notificationId} error=${error instanceof Error ? error.message : String(error)}`);
+            await logger.warn(`schedule render fallback event=${activeEvent.id} reminder=${instance.reminderId} error=${error instanceof Error ? error.message : String(error)}`);
             deliveryMessage = fallbackMessage;
           }
         }
         try {
-          await logger.info(`schedule delivery attempt event=${activeEvent.id} title=${JSON.stringify(activeEvent.title)} target=${targetId} notification=${instance.notificationId} notifyAt=${instance.notifyAt} chars=${deliveryMessage.length}`);
+          await logger.info(`schedule delivery attempt event=${activeEvent.id} title=${JSON.stringify(activeEvent.title)} target=${targetId} reminder=${instance.reminderId} notifyAt=${instance.notifyAt} chars=${deliveryMessage.length}`);
           await sendMessageFormatted(bot, targetId, deliveryMessage);
-          await logger.info(`schedule delivery sent event=${activeEvent.id} title=${JSON.stringify(activeEvent.title)} target=${targetId} notification=${instance.notificationId}`);
+          await logger.info(`schedule delivery sent event=${activeEvent.id} title=${JSON.stringify(activeEvent.title)} target=${targetId} reminder=${instance.reminderId}`);
           delivered = true;
         } catch (error) {
           await logger.warn(`failed to deliver schedule ${activeEvent.id} to target=${targetId}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       if (!delivered) continue;
-      markNotificationSent(activeEvent, instance.notificationId);
+      markReminderSent(activeEvent, instance.reminderId);
       activeEvent.updatedAt = now.toISOString();
       activeEvent.deliveryText = undefined;
       activeEvent.deliveryTextGeneratedAt = undefined;
-      activeEvent.deliveryPreparedNotificationId = undefined;
+      activeEvent.deliveryPreparedReminderId = undefined;
       activeEvent.deliveryPreparedNotifyAt = undefined;
       if (afterDelivery) await afterDelivery(activeEvent, instance);
       sent += 1;
       changed = true;
     }
 
-    if (allNotificationsSent(activeEvent)) {
+    if (allRemindersSent(activeEvent)) {
       advanceOccurrence(activeEvent, now);
       changed = true;
     }
   }
 
-  if (changed) await writeScheduleEvents(config, events);
+  if (changed) await writeEventRecords(config, events);
   return sent;
 }
 
 export async function startScheduleLoop(
   config: AppConfig,
   bot: Bot<Context>,
-  renderMessage?: (event: ScheduleEvent, instance: ScheduleNotificationInstance, fallback: string) => Promise<string>,
-  afterDelivery?: (event: ScheduleEvent, instance: ScheduleNotificationInstance) => Promise<void>,
+  renderMessage?: (event: EventRecord, instance: ReminderInstance, fallback: string) => Promise<string>,
+  afterDelivery?: (event: EventRecord, instance: ReminderInstance) => Promise<void>,
 ): Promise<NodeJS.Timeout> {
   let running = false;
   return setInterval(async () => {

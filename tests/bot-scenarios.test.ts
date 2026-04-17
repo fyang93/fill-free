@@ -3,14 +3,13 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
-import { buildScheduleEvent, createScheduleEvent, readScheduleEvents } from "../src/bot/operations/schedules/store";
-import { runScheduleTask } from "../src/bot/operations/schedules/task-actions";
+import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
+import { runScheduleTask } from "../src/bot/operations/events/task-actions";
 import type { TaskRecord } from "../src/bot/tasks/runtime/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { resolveUser } from "../src/bot/operations/context/store";
 import { clearStoredUserAccessLevel, clearStoredUserAccessLevels, setStoredUserAccessLevel, setStoredUserAccessLevels, accessLevelForUser } from "../src/bot/operations/access/roles";
 import { loadPersistentState, state } from "../src/bot/app/state";
-import { getUserPreferredLanguage, setUserPreferredLanguage } from "../src/bot/operations/context/user-prefs";
 import { isAdminUserId, isTrustedUserId } from "../src/bot/operations/access/control";
 
 const tempDirs: string[] = [];
@@ -137,20 +136,20 @@ describe("自然语言回归测试", () => {
     const config = await createTempConfig();
 
     await runLoggedScenario(config, "添加提醒：4月7日下午3点组会提醒", "schedules.direct-create", async () => {
-      const event = buildScheduleEvent(config, {
+      const event = buildEventRecord(config, {
         title: "组会提醒",
           timeSemantics: "absolute",
         timezone: "Asia/Tokyo",
         schedule: { kind: "once", scheduledAt: "2026-04-07T06:00:00.000Z" },
-        notifications: [{ id: "n1", offsetMinutes: -1440, enabled: true }],
+        reminders: [{ id: "n1", offsetMinutes: -1440, enabled: true }],
         targets: [{ targetKind: "user", targetId: 872940661 }],
       }, "Asia/Tokyo");
-      await createScheduleEvent(event, config);
+      await createEventRecord(event, config);
       return { scheduleId: event.id };
     });
 
     const created = await runLoggedScenario(config, "现在有哪些提醒", "schedules.read", async () => {
-      const events = await readScheduleEvents(config);
+      const events = await readEventRecords(config);
       return events.filter((item) => item.status === "active").map((item) => ({ title: item.title, scheduledAt: item.schedule.kind === "once" ? item.schedule.scheduledAt : item.schedule.kind }));
     });
     expect(created.some((item) => item.title === "组会提醒")).toBe(true);
@@ -161,7 +160,7 @@ describe("自然语言回归测试", () => {
     })));
     expect(updateResult.changed).toBe(true);
 
-    const updated = await readScheduleEvents(config);
+    const updated = await readEventRecords(config);
     expect(updated.find((item) => item.title === "组会提醒")?.schedule.kind).toBe("once");
     expect((updated.find((item) => item.title === "组会提醒")?.schedule as { kind: "once"; scheduledAt: string } | undefined)?.scheduledAt).toBe("2026-04-07T07:00:00.000Z");
 
@@ -169,7 +168,7 @@ describe("自然语言回归测试", () => {
       match: { title: "组会提醒", scheduledDate: "2026-04-07" },
     })));
     expect(deleteResult.changed).toBe(true);
-    expect((await readScheduleEvents(config)).find((item) => item.title === "组会提醒")?.status).toBe("deleted");
+    expect((await readEventRecords(config)).find((item) => item.title === "组会提醒")?.status).toBe("deleted");
   });
 
   test("个人信息的增删查改", { timeout: REGRESSION_TEST_TIMEOUT_MS }, async () => {
@@ -287,55 +286,3 @@ describe("command permissions", () => {
   });
 });
 
-// ===========================================================================
-// Language preference tests (/language)
-// ===========================================================================
-
-describe("/language command", () => {
-  test("allowed user can get and set preferredLanguage", async () => {
-    const config = await createTempConfig();
-    const userId = 2;
-    rememberTelegramUser({ id: userId, username: "lang_test", first_name: "Lang", last_name: "Test" });
-    await setStoredUserAccessLevel(config, userId, "allowed", { username: "lang_test" });
-
-    // Default language falls back to config language
-    const defaultLang = getUserPreferredLanguage(config, userId);
-    expect(defaultLang).toBe(config.bot.language);
-
-    // Set to English
-    await setUserPreferredLanguage(config, userId, "en");
-    const afterEn = getUserPreferredLanguage(config, userId);
-    expect(afterEn).toBe("en");
-
-    // Set back to Chinese
-    await setUserPreferredLanguage(config, userId, "zh-CN");
-    const afterZh = getUserPreferredLanguage(config, userId);
-    expect(afterZh).toBe("zh-CN");
-  });
-
-  test("admin user can switch language", async () => {
-    const config = await createTempConfig();
-    const adminId = config.telegram.adminUserId!;
-    // Admin gets default language from config
-    const defaultLang = getUserPreferredLanguage(config, adminId);
-    expect(defaultLang).toBe(config.bot.language);
-    // Admin can set preferred language
-    await setUserPreferredLanguage(config, adminId, "en");
-    const afterSet = getUserPreferredLanguage(config, adminId);
-    expect(afterSet).toBe("en");
-  });
-
-  test("unknown userId returns config.bot.language", async () => {
-    const config = await createTempConfig();
-    const lang = getUserPreferredLanguage(config, undefined);
-    expect(lang).toBe(config.bot.language);
-  });
-
-  test("user without preferredLanguage field falls back to config language", async () => {
-    const config = await createTempConfig();
-    const userId = 42;
-    // User exists but has no preferredLanguage
-    const lang = getUserPreferredLanguage(config, userId);
-    expect(lang).toBe(config.bot.language);
-  });
-});

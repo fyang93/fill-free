@@ -1,11 +1,11 @@
-import type { ScheduleEvent } from "bot/operations/schedules";
-import { getScheduleEvent, updateScheduleEvent } from "bot/operations/schedules";
-import { prepareScheduleDeliveryText } from "bot/operations/schedules/preparation";
-import { runScheduleTask } from "bot/operations/schedules/task-actions";
+import type { EventRecord } from "bot/operations/events";
+import { getEventRecord, updateEventRecord } from "bot/operations/events";
+import { prepareScheduleDeliveryText } from "bot/operations/events/preparation";
+import { runScheduleTask } from "bot/operations/events/task-actions";
 import type { TaskHandler } from "./types";
 import { readTrimmedPayloadString } from "./shared";
 
-function schedulePreparationFingerprint(event: ScheduleEvent): string {
+function schedulePreparationFingerprint(event: EventRecord): string {
   return JSON.stringify({
     title: event.title,
     note: event.note,
@@ -28,13 +28,13 @@ async function runSchedulePreparationTaskHandler(
 ): Promise<{ result?: Record<string, unknown> }> {
   const scheduleId = readTrimmedPayloadString(task, "scheduleId") || task.subject?.id || "";
   if (!scheduleId) return { result: { skipped: true, reason: "missing-schedule-id" } };
-  const event = await getScheduleEvent(context.config, scheduleId);
+  const event = await getEventRecord(context.config, scheduleId);
   if (!event) return { result: { skipped: true, reason: "missing-schedule" } };
   const fingerprintBefore = schedulePreparationFingerprint(event);
   const changed = await prepareScheduleDeliveryText(context.config, context.agentService, event);
   if (!changed) return { result: { changed, scheduleId } };
 
-  const latest = await getScheduleEvent(context.config, scheduleId);
+  const latest = await getEventRecord(context.config, scheduleId);
   if (!latest) return { result: { skipped: true, reason: "missing-schedule-after-prepare" } };
   if (schedulePreparationFingerprint(latest) !== fingerprintBefore) {
     return { result: { changed: false, scheduleId, skipped: true, reason: "schedule-changed-during-prepare" } };
@@ -44,7 +44,7 @@ async function runSchedulePreparationTaskHandler(
   latest.deliveryTextGeneratedAt = event.deliveryTextGeneratedAt;
   latest.deliveryPreparedNotificationId = event.deliveryPreparedNotificationId;
   latest.deliveryPreparedNotifyAt = event.deliveryPreparedNotifyAt;
-  await updateScheduleEvent(context.config, latest);
+  await updateEventRecord(context.config, latest);
   return { result: { changed, scheduleId } };
 }
 

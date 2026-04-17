@@ -2,32 +2,32 @@ import type { Context } from "grammy";
 import type { ScheduleDraft } from "bot/ai/types";
 import type { AiService } from "bot/ai";
 import { rememberUserTimezone } from "bot/app/state";
-import { buildDefaultScheduleNotifications, defaultScheduleTimeSemantics, isValidScheduleTimezone, resolveScheduleTimezone, scheduleEventScheduleSummary, type ScheduleNotification } from ".";
+import { buildDefaultReminders, defaultEventTimeSemantics, isValidScheduleTimezone, resolveScheduleTimezone, scheduleEventScheduleSummary, type Reminder } from ".";
 import { enqueueScheduleCreateTask } from "./task-actions";
-import { buildScheduleScheduleFromExternal } from "./schedule_parser";
+import { buildEventScheduleFromExternal } from "./schedule_parser";
 import type { AppConfig } from "bot/app/types";
 import { resolveChatDisplayName, resolveUserDisplayName } from "bot/operations/context/store";
-import { resolveScheduleTargetUser, resolveTelegramTargetUsers, type ScheduleTargetResolution } from "bot/telegram/identity";
+import { resolveEventTargetUser, resolveTelegramTargetUsers, type EventTargetResolution } from "bot/telegram/identity";
 
-function buildScheduleNotifications(raw: unknown): ScheduleNotification[] | undefined {
+function buildReminders(raw: unknown): Reminder[] | undefined {
   if (!Array.isArray(raw)) return undefined;
-  const notifications: ScheduleNotification[] = [];
+  const reminders: Reminder[] = [];
   raw.forEach((item, index) => {
     if (!item || typeof item !== "object") return;
     const record = item as Record<string, unknown>;
     const offsetMinutes = Number(record.offsetMinutes);
     if (!Number.isInteger(offsetMinutes)) return;
-    notifications.push({
+    reminders.push({
       id: typeof record.id === "string" && record.id.trim() ? record.id.trim() : `n${index + 1}`,
       offsetMinutes,
       enabled: record.enabled !== false,
       label: typeof record.label === "string" && record.label.trim() ? record.label.trim() : undefined,
     });
   });
-  return notifications.length > 0 ? notifications : undefined;
+  return reminders.length > 0 ? reminders : undefined;
 }
 
-function scheduleCreatedFact(config: AppConfig, details: string, requesterUserId: number | undefined, target: ScheduleTargetResolution): string {
+function scheduleCreatedFact(config: AppConfig, details: string, requesterUserId: number | undefined, target: EventTargetResolution): string {
   if (target.chatId) {
     return `已受理提醒目标：${resolveChatDisplayName(config.paths.repoRoot, target.chatId) || target.displayName || String(target.chatId)}；详情：${details}`;
   }
@@ -47,15 +47,15 @@ function summarizeDraftSchedule(config: AppConfig, input: {
   specialKind?: "birthday" | "festival" | "anniversary" | "memorial";
 }): string {
   try {
-    const schedule = buildScheduleScheduleFromExternal(input.scheduleRaw, input.timezone);
+    const schedule = buildEventScheduleFromExternal(input.scheduleRaw, input.timezone);
     return scheduleEventScheduleSummary(config, {
       id: "draft",
       title: input.title,
       note: input.note,
       schedule,
       createdByUserId: input.createdByUserId,
-      timeSemantics: input.timeSemantics || defaultScheduleTimeSemantics(schedule),
-      notifications: buildDefaultScheduleNotifications(config, { specialKind: input.specialKind }),
+      timeSemantics: input.timeSemantics || defaultEventTimeSemantics(schedule),
+      reminders: buildDefaultReminders(config, { specialKind: input.specialKind }),
       status: "active",
       createdAt: new Date().toISOString(),
       targets: [],
@@ -123,7 +123,7 @@ export async function createStructuredSchedules(
       .filter((item): item is NonNullable<typeof item> => item !== null);
     if (targets.length === 0) continue;
 
-    const primaryTarget = targetResult.resolved[0] || resolveScheduleTargetUser(config, raw.targetUser, ctx, userId);
+    const primaryTarget = targetResult.resolved[0] || resolveEventTargetUser(config, raw.targetUser, ctx, userId);
     const recipientUserId = targets.find((target) => target.targetKind === "user")?.targetId;
     const isSelfOnlyTarget = targets.length === 1 && targets[0]?.targetKind === "user" && targets[0]?.targetId === userId;
     const scheduleKind = typeof (scheduleRaw as Record<string, unknown>).kind === "string" ? String((scheduleRaw as Record<string, unknown>).kind).trim() : "";
@@ -142,7 +142,7 @@ export async function createStructuredSchedules(
       timeSemantics,
       createdByUserId: userId,
       targets,
-      notifications: buildScheduleNotifications(raw.notifications),
+      reminders: buildReminders(raw.reminders),
     }, {
       requesterUserId: userId,
       chatId: ctx.chat?.id,

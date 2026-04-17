@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { readScheduleEvents } from "bot/operations/schedules/store";
+import { readEventRecords } from "bot/operations/events/store";
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 
@@ -290,7 +290,7 @@ export async function pruneFinishedTasks(config: AppConfig): Promise<{ removed: 
 }
 
 export async function pruneOrphanedSchedulePreparationTasks(config: AppConfig): Promise<{ removed: number; removedSummaries: string[] }> {
-  const schedules = await readScheduleEvents(config);
+  const schedules = await readEventRecords(config);
   const existingScheduleIds = new Set(schedules.map((event) => event.id));
   return mutateTaskStore(config, async (store) => {
     const removedTasks = store.tasks.filter((task) => {

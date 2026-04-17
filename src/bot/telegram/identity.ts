@@ -1,5 +1,5 @@
 export type {
-  ScheduleTargetResolution,
+  EventTargetResolution,
   TelegramTargetIssue,
   TelegramTargetResolution
 } from "./targets";
@@ -10,7 +10,7 @@ export {
   describeTelegramTargetIssue,
   preferredTelegramName,
   rememberTelegramParticipants,
-  resolveScheduleTargetUser,
+  resolveEventTargetUser,
   resolveTelegramTargetUser,
   resolveTelegramTargetUsers,
 } from "./targets";

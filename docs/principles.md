@@ -17,6 +17,10 @@ This document is ordered by decision strength:
 - Keep canonical runtime truth in structured system-managed persistence.
 - Keep canonical truth in local state and persistence, not in prompts, session history, CLI transcripts, or human-readable notes.
 - Keep canonical truth in structured stores such as schedules, users, tasks, chats, and registries when runtime behavior depends on it.
+- Treat files under `system/` as runtime-owned canonical stores with a closed mutation boundary.
+- Do not create, update, delete, or patch `system/` files through generic file-editing flows, ad-hoc repository patches, or free-form assistant tool use.
+- Canonical `system/` mutations must go through explicit repository CLI commands or narrowly-scoped deterministic mutation interfaces that back those CLI commands.
+- Reading `system/` files for inspection is fine; mutating them is not, unless the code being changed is itself implementing the approved deterministic mutation surface.
 - Treat successful runtime state mutation and deterministic code paths as the truth source for whether an action happened.
 - Do not duplicate that truth in prompt rules, session prose, or post-hoc text interpretation when code can decide it directly.
 - Do not let execution mutate canonical state before the runtime has a clear ownership boundary for the current turn's visible reply publication.
@@ -84,6 +88,7 @@ This document is ordered by decision strength:
 - Keep business logic in domain services.
 - Keep platform-specific logic in adapters.
 - Prefer a CLI + skills execution surface.
+- Treat repository CLI as the default mutation surface for canonical repository state, especially everything under `system/`.
 - Keep the bot-side code and the repo-CLI code in separate modules/directories so execution boundaries stay obvious in code as well as in prompts.
 - Prefer repository-local CLI commands for general repository work.
 - Use skills to teach stable repository workflows.
@@ -97,7 +102,7 @@ This document is ordered by decision strength:
 - Keep schemas general and flexible; avoid enum-heavy ontologies unless code truly needs them.
 - Prefer atomic structured items: one item should describe one action, target, recipient, schedule, or mutation.
 - Represent batch work as multiple atomic items rather than one item with embedded target arrays, unless grouped semantics are truly required by the domain.
-- For schedules, one real-world event should map to one schedule event record; multiple schedule times for that event should be represented as multiple notification offsets on the same event, not as duplicate schedule events.
+- For schedules, one real-world event should map to one event record record; multiple schedule times for that event should be represented as multiple notification offsets on the same event, not as duplicate event records.
 - Prefer model output at the intent layer over asking the model to emit final persistence-heavy schemas directly.
 - Let code compile narrow model intents into canonical structured persistence when structured persistence is still required.
 - Do not push large final JSON or YAML persistence shapes onto the model when a smaller intent contract plus deterministic code mapping will do.

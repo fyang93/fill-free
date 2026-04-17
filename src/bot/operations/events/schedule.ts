@@ -3,11 +3,11 @@ import { getUserTimezone } from "bot/app/state";
 import type { AppConfig } from "bot/app/types";
 import { t, tForLocale, uiLocaleTag, type Locale } from "bot/app/i18n";
 import type {
-  ScheduleEvent,
-  ScheduleNotificationInstance,
-  ScheduleOccurrence,
+  EventRecord,
+  ReminderInstance,
+  EventOccurrence,
   ScheduleRecurrence,
-  ScheduleSchedule,
+  EventSchedule,
 } from "./types";
 
 const MS_PER_MINUTE = 60 * 1000;
@@ -206,7 +206,7 @@ function lunarDayLabel(day: number): string {
   return solarLunar.toChinaDay(day);
 }
 
-function eventTime(schedule: ScheduleSchedule, timezone?: string): { hour: number; minute: number } {
+function eventTime(schedule: EventSchedule, timezone?: string): { hour: number; minute: number } {
   if (schedule.kind === "once") {
     const date = new Date(schedule.scheduledAt);
     if (timezone) {
@@ -354,7 +354,7 @@ export function nextLunarYearlyOccurrence(baseIso: string, now: Date, recurrence
   throw new Error(`Failed to compute next lunar schedule from ${baseIso}`);
 }
 
-function nextWeeklyEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "weekly" }>, reference: Date): string {
+function nextWeeklyEventOccurrence(schedule: Extract<EventSchedule, { kind: "weekly" }>, reference: Date): string {
   const start = cloneDate(reference);
   const anchor = schedule.anchorDate ? new Date(schedule.anchorDate) : start;
   for (let offset = 0; offset <= 366 * Math.max(1, schedule.every); offset += 1) {
@@ -368,7 +368,7 @@ function nextWeeklyEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "
   throw new Error("Failed to compute next weekly event occurrence");
 }
 
-function nextMonthlyEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "monthly" }>, reference: Date): string {
+function nextMonthlyEventOccurrence(schedule: Extract<EventSchedule, { kind: "monthly" }>, reference: Date): string {
   const startYear = reference.getFullYear();
   const startMonth = reference.getMonth();
   for (let monthOffset = 0; monthOffset <= schedule.every * 120; monthOffset += 1) {
@@ -386,7 +386,7 @@ function nextMonthlyEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: 
   throw new Error("Failed to compute next monthly event occurrence");
 }
 
-function nextYearlyEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "yearly" }>, reference: Date): string {
+function nextYearlyEventOccurrence(schedule: Extract<EventSchedule, { kind: "yearly" }>, reference: Date): string {
   for (let year = reference.getFullYear(); year <= reference.getFullYear() + schedule.every * 100; year += 1) {
     const candidate = new Date(year, schedule.month - 1, monthDay(year, schedule.month - 1, schedule.day), schedule.time.hour, schedule.time.minute, 0, 0);
     if (candidate.getTime() < reference.getTime()) continue;
@@ -395,7 +395,7 @@ function nextYearlyEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "
   throw new Error("Failed to compute next yearly event occurrence");
 }
 
-function nextLunarEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "lunarYearly" }>, reference: Date): string {
+function nextLunarEventOccurrence(schedule: Extract<EventSchedule, { kind: "lunarYearly" }>, reference: Date): string {
   const base = new Date(reference);
   base.setHours(schedule.time.hour, schedule.time.minute, 0, 0);
   return nextLunarYearlyOccurrence(base.toISOString(), new Date(reference.getTime() - 1000), {
@@ -407,7 +407,7 @@ function nextLunarEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "l
   });
 }
 
-function nextIntervalEventOccurrence(schedule: Extract<ScheduleSchedule, { kind: "interval" }>, reference: Date): string {
+function nextIntervalEventOccurrence(schedule: Extract<EventSchedule, { kind: "interval" }>, reference: Date): string {
   let candidate = new Date(schedule.anchorAt);
   if (!Number.isFinite(candidate.getTime())) throw new Error(`Invalid schedule time: ${schedule.anchorAt}`);
   while (candidate.getTime() < reference.getTime()) {
@@ -421,7 +421,7 @@ function nextIntervalEventOccurrence(schedule: Extract<ScheduleSchedule, { kind:
   return candidate.toISOString();
 }
 
-function nextLocalWeeklyOccurrence(schedule: Extract<ScheduleSchedule, { kind: "weekly" }>, reference: Date, timezone: string): string {
+function nextLocalWeeklyOccurrence(schedule: Extract<EventSchedule, { kind: "weekly" }>, reference: Date, timezone: string): string {
   const start = getZonedParts(reference, timezone);
   const startDate = localDateOnly(start);
   const anchor = schedule.anchorDate
@@ -456,7 +456,7 @@ function nthWeekdayOfMonthLocal(year: number, month: number, weekOfMonth: number
   return { year, month, day };
 }
 
-function nextLocalMonthlyOccurrence(schedule: Extract<ScheduleSchedule, { kind: "monthly" }>, reference: Date, timezone: string): string {
+function nextLocalMonthlyOccurrence(schedule: Extract<EventSchedule, { kind: "monthly" }>, reference: Date, timezone: string): string {
   const start = getZonedParts(reference, timezone);
   const startMonth = { year: start.year, month: start.month, day: 1 };
   const anchor = schedule.anchorDate
@@ -480,7 +480,7 @@ function nextLocalMonthlyOccurrence(schedule: Extract<ScheduleSchedule, { kind: 
   throw new Error("Failed to compute next local monthly event occurrence");
 }
 
-function nextLocalYearlyOccurrence(schedule: Extract<ScheduleSchedule, { kind: "yearly" }>, reference: Date, timezone: string): string {
+function nextLocalYearlyOccurrence(schedule: Extract<EventSchedule, { kind: "yearly" }>, reference: Date, timezone: string): string {
   const start = getZonedParts(reference, timezone);
   for (let year = start.year; year <= start.year + schedule.every * 100; year += 1) {
     const candidateDate = { year, month: schedule.month, day: monthDay(year, schedule.month - 1, schedule.day) };
@@ -491,7 +491,7 @@ function nextLocalYearlyOccurrence(schedule: Extract<ScheduleSchedule, { kind: "
   throw new Error("Failed to compute next local yearly event occurrence");
 }
 
-function nextLocalLunarOccurrence(schedule: Extract<ScheduleSchedule, { kind: "lunarYearly" }>, reference: Date, timezone: string): string {
+function nextLocalLunarOccurrence(schedule: Extract<EventSchedule, { kind: "lunarYearly" }>, reference: Date, timezone: string): string {
   const referenceLocal = getZonedParts(reference, timezone);
   const nowLunar = solarLunar.solar2lunar(referenceLocal.year, referenceLocal.month, referenceLocal.day);
   if (nowLunar === -1) throw new Error(`Failed to convert current date to lunar date: ${reference.toISOString()}`);
@@ -521,7 +521,7 @@ function nextLocalLunarOccurrence(schedule: Extract<ScheduleSchedule, { kind: "l
   throw new Error("Failed to compute next local lunar event occurrence");
 }
 
-function nextLocalIntervalOccurrence(schedule: Extract<ScheduleSchedule, { kind: "interval" }>, reference: Date, timezone: string): string {
+function nextLocalIntervalOccurrence(schedule: Extract<EventSchedule, { kind: "interval" }>, reference: Date, timezone: string): string {
   if (schedule.unit === "minute" || schedule.unit === "hour") {
     return nextIntervalEventOccurrence(schedule, reference);
   }
@@ -540,7 +540,7 @@ function nextLocalIntervalOccurrence(schedule: Extract<ScheduleSchedule, { kind:
   return candidateUtc.toISOString();
 }
 
-function nextScheduleOccurrence(schedule: ScheduleSchedule, reference = new Date()): string | null {
+function nextEventOccurrence(schedule: EventSchedule, reference = new Date()): string | null {
   if (schedule.kind === "once") {
     return schedule.scheduledAt;
   }
@@ -551,7 +551,7 @@ function nextScheduleOccurrence(schedule: ScheduleSchedule, reference = new Date
   return nextLunarEventOccurrence(schedule, reference);
 }
 
-function nextLocalScheduleOccurrence(event: ScheduleEvent, reference = new Date(), timezoneOverride?: string): string | null {
+function nextLocalEventOccurrence(event: EventRecord, reference = new Date(), timezoneOverride?: string): string | null {
   const timezone = timezoneOverride || getUserTimezone(event.createdByUserId) || "Asia/Tokyo";
   if (event.schedule.kind === "once") return event.schedule.scheduledAt;
   if (event.schedule.kind === "interval") return nextLocalIntervalOccurrence(event.schedule, reference, timezone);
@@ -561,7 +561,7 @@ function nextLocalScheduleOccurrence(event: ScheduleEvent, reference = new Date(
   return nextLocalLunarOccurrence(event.schedule, reference, timezone);
 }
 
-export function resolveScheduleDisplayTimezone(config: AppConfig, event: Pick<ScheduleEvent, "createdByUserId" | "timeSemantics">): string {
+export function resolveScheduleDisplayTimezone(config: AppConfig, event: Pick<EventRecord, "createdByUserId" | "timeSemantics">): string {
   if (event.timeSemantics === "local") {
     const timezone = getUserTimezone(event.createdByUserId);
     if (timezone) return timezone;
@@ -569,41 +569,51 @@ export function resolveScheduleDisplayTimezone(config: AppConfig, event: Pick<Sc
   return config.bot.defaultTimezone;
 }
 
-export function getCurrentOccurrence(event: ScheduleEvent, now = new Date(), timezoneOverride?: string): ScheduleOccurrence | null {
+export function getCurrentOccurrence(event: EventRecord, now = new Date(), timezoneOverride?: string): EventOccurrence | null {
   const existing = event.deliveryState?.currentOccurrence?.scheduledAt;
   if (existing) return { scheduledAt: existing };
   const scheduledAt = event.timeSemantics === "local"
-    ? nextLocalScheduleOccurrence(event, now, timezoneOverride)
-    : nextScheduleOccurrence(event.schedule, now);
+    ? nextLocalEventOccurrence(event, now, timezoneOverride)
+    : nextEventOccurrence(event.schedule, now);
   return scheduledAt ? { scheduledAt } : null;
 }
 
-export function listNotificationInstances(event: ScheduleEvent, occurrence: ScheduleOccurrence): ScheduleNotificationInstance[] {
-  return event.notifications
-    .filter((item) => item.enabled)
-    .map((notification) => ({
-      notificationId: notification.id,
-      offsetMinutes: notification.offsetMinutes,
-      notifyAt: new Date(new Date(occurrence.scheduledAt).getTime() + notification.offsetMinutes * MS_PER_MINUTE).toISOString(),
-      label: notification.label,
+export function listReminderInstances(event: EventRecord, occurrence: EventOccurrence): ReminderInstance[] {
+  const enabled = event.reminders.filter((item) => item.enabled);
+  if (enabled.length === 0 && event.category === "automation") {
+    return [{
+      reminderId: "automation-run",
+      offsetMinutes: 0,
+      notifyAt: occurrence.scheduledAt,
+    }];
+  }
+  return enabled
+    .map((reminder) => ({
+      reminderId: reminder.id,
+      offsetMinutes: reminder.offsetMinutes,
+      notifyAt: new Date(new Date(occurrence.scheduledAt).getTime() + reminder.offsetMinutes * MS_PER_MINUTE).toISOString(),
+      label: reminder.label,
     }))
     .sort((a, b) => a.notifyAt.localeCompare(b.notifyAt));
 }
 
-export function allNotificationsSent(event: ScheduleEvent): boolean {
+export function allRemindersSent(event: EventRecord): boolean {
   const current = event.deliveryState?.currentOccurrence;
   if (!current) return false;
-  const enabledIds = event.notifications.filter((item) => item.enabled).map((item) => item.id).sort();
-  const sentIds = Array.from(new Set(current.sentNotificationIds)).sort();
-  return enabledIds.length > 0 && enabledIds.every((id, index) => sentIds[index] === id);
+  const enabledIds = event.reminders.filter((item) => item.enabled).map((item) => item.id).sort();
+  const effectiveIds = enabledIds.length === 0 && event.category === "automation"
+    ? ["automation-run"]
+    : enabledIds;
+  const sentIds = Array.from(new Set(current.sentReminderIds)).sort();
+  return effectiveIds.length > 0 && effectiveIds.every((id, index) => sentIds[index] === id);
 }
 
-function scheduleTimeLabel(schedule: ScheduleSchedule, timezone?: string): string {
+function scheduleTimeLabel(schedule: EventSchedule, timezone?: string): string {
   const time = eventTime(schedule, timezone);
   return `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`;
 }
 
-export function scheduleEventScheduleSummary(config: AppConfig, event: ScheduleEvent, locale?: Locale): string {
+export function scheduleEventScheduleSummary(config: AppConfig, event: EventRecord, locale?: Locale): string {
   const translate = (key: string, values: Record<string, string | number> = {}) => locale ? tForLocale(locale, key, values) : t(config, key, values);
   const schedule = event.schedule;
   const displayTimezone = resolveScheduleDisplayTimezone(config, event);
@@ -652,25 +662,25 @@ export function scheduleEventScheduleSummary(config: AppConfig, event: ScheduleE
   }).trim();
 }
 
-function notificationLabel(config: AppConfig, instance: ScheduleNotificationInstance, locale?: Locale): string {
+function reminderLabel(config: AppConfig, instance: ReminderInstance, locale?: Locale): string {
   const translate = (key: string, values: Record<string, string | number> = {}) => locale ? tForLocale(locale, key, values) : t(config, key, values);
   if (instance.label) return instance.label;
-  if (instance.offsetMinutes === 0) return translate("schedule_notification_now");
+  if (instance.offsetMinutes === 0) return translate("schedule_reminder_now");
   const abs = Math.abs(instance.offsetMinutes);
   if (abs % 1440 === 0) return translate("schedule_offset_days_before", { days: abs / 1440 });
   if (abs % 60 === 0) return `${abs / 60}${translate("schedule_unit_hour")}`;
   return `${abs}${translate("schedule_unit_minute")}`;
 }
 
-export function formatScheduleEvent(config: AppConfig, event: ScheduleEvent, locale?: Locale): string {
+export function formatEventRecord(config: AppConfig, event: EventRecord, locale?: Locale): string {
   const displayTimezone = resolveScheduleDisplayTimezone(config, event);
   const occurrence = getCurrentOccurrence(event, new Date(), displayTimezone);
   const when = occurrence
     ? formatDisplayDateTime(config, occurrence.scheduledAt, displayTimezone).slice(0, 16)
     : scheduleEventScheduleSummary(config, event, locale);
-  const notifications = occurrence
-    ? listNotificationInstances(event, occurrence).map((item) => notificationLabel(config, item, locale)).join("、")
-    : event.notifications.map((item) => item.label || String(item.offsetMinutes)).join("、");
-  return `${when} ${event.title}${notifications ? ` [${notifications}]` : ""}`;
+  const reminders = occurrence
+    ? listReminderInstances(event, occurrence).map((item) => reminderLabel(config, item, locale)).join("、")
+    : event.reminders.map((item) => item.label || String(item.offsetMinutes)).join("、");
+  return `${when} ${event.title}${reminders ? ` [${reminders}]` : ""}`;
 }
 

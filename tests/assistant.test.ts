@@ -216,6 +216,24 @@ describe("assistant orchestration", () => {
     expect((stateDoc.waitingMessageCandidates || []).every((item) => item.used === false)).toBe(true);
   });
 
+  test("waiting message candidate generation passes configured bot language", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-ack-lang-test-"));
+    tempDirs.push(repoRoot);
+    const config = createTestConfig(repoRoot);
+    config.bot.language = "en";
+    let capturedLanguage: string | undefined;
+
+    const texts = await warmWaitingMessageCandidates({
+      generateWaitingMessageCandidates: async (_count: number, input?: { preferredLanguage?: string }) => {
+        capturedLanguage = input?.preferredLanguage;
+        return ["still processing..."];
+      },
+    } as any, config);
+
+    expect(capturedLanguage).toBe("en");
+    expect(texts.map((item) => item.text)).toEqual(["still processing..."]);
+  });
+
   test("single assistant agent returns a message and runtime publishes it", async () => {
     const config = await createTempConfig();
     const calls: string[] = [];
@@ -310,7 +328,7 @@ describe("assistant orchestration", () => {
         await delay(30);
         calls.push("aux-reply:先处理");
         calls.push("aux-reply:最终完成");
-        return { message: "最终完成", answerMode: "needs-execution", usedNativeExecution: true, completedActions: ["schedules:create"] };
+        return { message: "最终完成", answerMode: "needs-execution", usedNativeExecution: true, completedActions: ["events:create"] };
       },
     } as any;
 

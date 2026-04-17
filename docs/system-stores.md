@@ -2,6 +2,8 @@
 
 This document explains the role boundaries for JSON files under `system/`.
 
+All files under `system/` are canonical runtime stores. Inspect them freely, but do not mutate them via generic write/edit/patch flows. Mutations should go through explicit repository CLI commands or the deterministic code paths that implement those CLI surfaces.
+
 ## Canonical stores
 
 ### `system/users.json`
@@ -21,14 +23,14 @@ Stores:
 - chat participants
 - chat-scoped last seen / updated timestamps
 
-### `system/schedules.json`
-Canonical schedule and scheduled-task store.
+### `system/events.json`
+Canonical event and automation store.
 
 Stores:
-- reminders
-- recurring schedules
-- scheduled-task definitions
-- delivery state for schedule occurrences
+- events
+- embedded reminders for event notifications
+- automation definitions
+- delivery state for event occurrences
 
 ### `system/tasks.json`
 Canonical durable task queue.
@@ -62,4 +64,5 @@ This file is for runtime state that affects behavior and must survive process re
 - `system/state.json` is the active runtime state file.
 - Legacy `system/runtime-state.json` may still be read as a migration fallback.
 - Waiting-message candidates now live in canonical runtime state; do not reintroduce a separate `system/cache.json` for this pool.
+- Do not normalize direct hand-edits to `system/` files as a maintenance workflow; if a mutation path is needed, expose it as an explicit CLI command first.
 - Prefer adding a new store only when the data has a distinct ownership boundary.

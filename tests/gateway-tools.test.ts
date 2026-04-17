@@ -69,7 +69,7 @@ describe("gateway execution history", () => {
     expect(String(capturedBody?.system || "")).toContain("text-only reply writer");
   });
 
-  test("scheduled-task content generation uses the assistant build lane instead of writer mode", async () => {
+  test("automation content generation uses the assistant build lane instead of writer mode", async () => {
     const service = new AiService(createTestConfig()) as any;
     let capturedBody: any = null;
     service.client = {
@@ -179,7 +179,7 @@ describe("gateway execution history", () => {
               info: { role: "assistant", parentID: "msg_user_1" },
               parts: [
                 { type: "tool", tool: "telegram:send-message", state: { status: "completed" } },
-                { type: "tool", tool: "schedules:create", state: { status: "completed" } },
+                { type: "tool", tool: "events:create", state: { status: "completed" } },
               ],
             },
             {
@@ -201,7 +201,7 @@ describe("gateway execution history", () => {
 
     const result = await service.promptSessionForAssistant("ses_test", "创建提醒：明天下午3点开会", []);
     expect(result.usedNativeExecution).toBe(true);
-    expect(result.completedActions).toEqual(["telegram:send-message", "schedules:create"]);
+    expect(result.completedActions).toEqual(["telegram:send-message", "events:create"]);
   });
 
 });

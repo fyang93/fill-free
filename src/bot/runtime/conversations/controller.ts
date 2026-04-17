@@ -12,7 +12,7 @@ import {
 } from "bot/app/state";
 import { t } from "bot/app/i18n";
 import { accessLevelForUserId, canUseFiles } from "bot/operations/access/control";
-import { normalizeScheduledAt } from "bot/operations/schedules";
+import { normalizeScheduledAt } from "bot/operations/events";
 import type { AiService } from "bot/ai";
 import { runAssistantTask, type ActiveConversationTask } from "bot/runtime";
 import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";

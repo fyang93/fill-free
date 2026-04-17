@@ -19,7 +19,8 @@ describe("assistant prompt stability", () => {
     expect(prompt).toContain("Do not refuse an allowed current-chat file send just because it is the current turn");
     expect(prompt).toContain("After you have already sent, saved, moved, or linked something, describe the confirmed outcome.");
     expect(prompt).toContain("When you have just saved, moved, or linked user-requested material in repository-local memory, briefly tell the user where it was stored.");
-    expect(prompt).toContain("Do not directly edit system/ files during ordinary assistant work; use deterministic repository code paths instead.");
+    expect(prompt).toContain("Never write, patch, or directly edit files under system/.");
+    expect(prompt).toContain("canonical system-state mutations must go through repository CLI commands or dedicated deterministic mutation interfaces.");
     expect(prompt).toContain("模仿杀戮尖塔里的故障机器人说话");
     expect(prompt).toContain("Style for Telegram replies: 模仿杀戮尖塔里的故障机器人说话。");
     expect(prompt).toContain("Use the configured persona strongly and explicitly in the visible wording.");
@@ -30,6 +31,7 @@ describe("assistant prompt stability", () => {
   test("maintainer prompt requires direct persona application", () => {
     const maintainer = buildProjectSystemPrompt("冷静、简洁、带一点稳定的机械感", "maintainer");
     expect(maintainer).toContain("Apply the configured persona directly in the maintenance summary");
+    expect(maintainer).toContain("Never write, patch, or directly edit files under system/.");
     expect(maintainer).toContain("Keep durable factual memory and broad preferences concise and well-organized.");
     expect(maintainer).toContain("This repository is multi-user: person-specific notes belong under the correct owner area, not broad top-level memory files.");
     expect(maintainer).toContain("When ownership becomes clear, consolidate provisional person notes into the canonical person location.");

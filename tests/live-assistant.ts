@@ -17,7 +17,7 @@ import type { AppConfig } from "../src/bot/app/types";
 import { loadPersistentState, state } from "../src/bot/app/state";
 import { AiService } from "../src/bot/ai";
 import { buildAssistantContextBlock, lookupRequesterTimezone } from "../src/bot/operations/context/assistant";
-import { buildScheduleEvent, createScheduleEvent, readScheduleEvents } from "../src/bot/operations/schedules/store";
+import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { dequeueRunnableTask, markTaskState, removeTask } from "../src/bot/tasks/runtime/store";
 import { runTaskWithHandlers } from "../src/bot/tasks/runtime/handlers";
@@ -215,19 +215,19 @@ async function main() {
   // 1. Simple greeting — no tools
   await run("简单问候", "你好");
 
-  // 2. List schedules — schedules:list
+  // 2. List schedules — events:list
   await run("查看提醒列表", "查看当前提醒列表");
 
-  // 3. Create schedule — schedules:create
+  // 3. Create schedule — events:create
   await run("创建提醒", "创建提醒：明天下午3点开会", { drainTasks: true });
 
-  // 4. Pause schedule — schedules:pause
+  // 4. Pause schedule — events:pause
   await run("暂停提醒", "暂停开会提醒", { drainTasks: true });
 
-  // 5. Resume schedule — schedules:resume
+  // 5. Resume schedule — events:resume
   await run("恢复提醒", "恢复开会提醒", { drainTasks: true });
 
-  // 6. Delete schedule — schedules:delete
+  // 6. Delete schedule — events:delete
   await run("删除提醒", "删除开会提醒", { drainTasks: true });
 
   // 7. List users — users:list

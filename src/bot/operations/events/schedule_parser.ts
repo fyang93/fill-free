@@ -1,4 +1,4 @@
-import type { ScheduleSchedule } from "./types";
+import type { EventSchedule } from "./types";
 import { normalizeRecurrence, normalizeScheduledAt } from "./schedule";
 
 function parseScheduleTime(raw: unknown): { hour: number; minute: number } {
@@ -21,6 +21,37 @@ function cleanString(value: unknown): string | undefined {
 
 function parseAnchorDate(raw: unknown): string | undefined {
   return cleanString(raw);
+}
+
+function zonedDateParts(timezone: string, reference = new Date()): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(reference);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(byType.year),
+    month: Number(byType.month),
+    day: Number(byType.day),
+  };
+}
+
+function nextDailyAnchorAt(raw: Record<string, unknown>, timezone: string): string {
+  const parsedTime = parseScheduleTime(raw.time);
+  if (!Number.isInteger(parsedTime.hour) || !Number.isInteger(parsedTime.minute)) {
+    throw new Error("Invalid daily schedule time");
+  }
+
+  const localToday = zonedDateParts(timezone);
+  const localDateTime = `${String(localToday.year).padStart(4, "0")}-${String(localToday.month).padStart(2, "0")}-${String(localToday.day).padStart(2, "0")}T${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}:00`;
+  const todayAnchor = normalizeScheduledAt(localDateTime, timezone);
+  if (Date.parse(todayAnchor) >= Date.now()) return todayAnchor;
+
+  const tomorrowUtc = new Date(Date.parse(todayAnchor) + 24 * 60 * 60 * 1000);
+  const localTomorrow = zonedDateParts(timezone, tomorrowUtc);
+  return normalizeScheduledAt(`${String(localTomorrow.year).padStart(4, "0")}-${String(localTomorrow.month).padStart(2, "0")}-${String(localTomorrow.day).padStart(2, "0")}T${String(parsedTime.hour).padStart(2, "0")}:${String(parsedTime.minute).padStart(2, "0")}:00`, timezone);
 }
 
 function buildExternalDateTimeString(raw: Record<string, unknown>): string {
@@ -57,7 +88,7 @@ function hasConcreteOnceDateTime(raw: Record<string, unknown>): boolean {
   return Number.isInteger(year) && year > 0 && Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(day) && day >= 1 && day <= 31;
 }
 
-export function buildScheduleScheduleFromExternal(raw: Record<string, unknown>, timezone?: string): ScheduleSchedule {
+export function buildEventScheduleFromExternal(raw: Record<string, unknown>, timezone?: string): EventSchedule {
   const rawKind = typeof raw.kind === "string" && raw.kind.trim()
     ? raw.kind.trim()
     : typeof raw.type === "string" && raw.type.trim()
@@ -76,11 +107,17 @@ export function buildScheduleScheduleFromExternal(raw: Record<string, unknown>, 
   if (kind === "interval" || kind === "daily") {
     const recurrence = normalizeRecurrence(raw);
     if (recurrence.kind !== "interval") throw new Error("Invalid interval schedule schedule");
+    const explicitAnchor = cleanString(raw.anchor || raw.anchorAt || raw.at || raw.scheduledAt);
+    const anchorAt = explicitAnchor
+      ? normalizeScheduledAt(explicitAnchor, timezone)
+      : kind === "daily"
+        ? nextDailyAnchorAt(raw, timezone || "Asia/Tokyo")
+        : normalizeScheduledAt("", timezone);
     return {
       kind: "interval",
       unit: recurrence.unit,
       every: recurrence.every,
-      anchorAt: normalizeScheduledAt(String(raw.anchor || raw.anchorAt || raw.at || raw.scheduledAt || ""), timezone),
+      anchorAt,
     };
   }
 
@@ -118,23 +155,23 @@ export function buildScheduleScheduleFromExternal(raw: Record<string, unknown>, 
   throw new Error(`Unsupported schedule schedule kind: ${kind}`);
 }
 
-export function normalizeStoredScheduleSchedule(raw: unknown): ScheduleSchedule | null {
+export function normalizeStoredEventSchedule(raw: unknown): EventSchedule | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const kind = typeof record.kind === "string" ? record.kind : "";
 
   try {
     if (kind === "once") {
-      return buildScheduleScheduleFromExternal({ kind, scheduledAt: record.scheduledAt });
+      return buildEventScheduleFromExternal({ kind, scheduledAt: record.scheduledAt });
     }
     if (kind === "interval") {
-      return buildScheduleScheduleFromExternal({ kind, every: record.every, unit: record.unit, anchorAt: record.anchorAt });
+      return buildEventScheduleFromExternal({ kind, every: record.every, unit: record.unit, anchorAt: record.anchorAt });
     }
     if (kind === "weekly") {
-      return buildScheduleScheduleFromExternal({ kind, every: record.every, daysOfWeek: record.daysOfWeek, time: record.time, anchorDate: record.anchorDate });
+      return buildEventScheduleFromExternal({ kind, every: record.every, daysOfWeek: record.daysOfWeek, time: record.time, anchorDate: record.anchorDate });
     }
     if (kind === "monthly") {
-      return buildScheduleScheduleFromExternal({
+      return buildEventScheduleFromExternal({
         kind,
         every: record.every,
         mode: record.mode,
@@ -146,10 +183,10 @@ export function normalizeStoredScheduleSchedule(raw: unknown): ScheduleSchedule 
       });
     }
     if (kind === "yearly") {
-      return buildScheduleScheduleFromExternal({ kind, every: record.every, month: record.month, day: record.day, time: record.time });
+      return buildEventScheduleFromExternal({ kind, every: record.every, month: record.month, day: record.day, time: record.time });
     }
     if (kind === "lunarYearly") {
-      return buildScheduleScheduleFromExternal({
+      return buildEventScheduleFromExternal({
         kind,
         month: record.month,
         day: record.day,

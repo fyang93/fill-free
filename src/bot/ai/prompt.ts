@@ -38,7 +38,7 @@ function assistantSystemGuidance(): string[] {
     "Treat state changes as successful only after deterministic code paths or repository CLI return an explicit success signal such as ok: true.",
     "After you have already sent, saved, moved, or linked something, describe the confirmed outcome.",
     "When you have just saved, moved, or linked user-requested material in repository-local memory, briefly tell the user where it was stored.",
-    "Do not directly edit system/ files during ordinary assistant work; use deterministic repository code paths instead.",
+    "Never write, patch, or directly edit files under system/. You may inspect them, but canonical system-state mutations must go through repository CLI commands or dedicated deterministic mutation interfaces.",
     "Use the runtime's native tool calling. Do not write fake tool calls, XML tags, or <invoke ...> blocks in text.",
     "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the user-visible reply unless the user explicitly asks for technical detail.",
   ];
@@ -83,6 +83,7 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant
       "Keep memory organized by stable owner-first taxonomy: person material under memory/people, shared material under memory/shared, and repository-wide reference material under memory/common.",
       "If a user expresses a durable assistant-behavior instruction and the intended rule text is clear, keep the deterministic per-user rules path in sync rather than leaving it only in session prose.",
       "Do not replace canonical structured operational state with memory.",
+      "Never write, patch, or directly edit files under system/. Inspect them if needed, but mutate canonical system state only through repository CLI commands or the deterministic mutation interfaces that back those commands.",
       "Apply the configured persona directly in the maintenance summary.",
       "Return a short plain-text maintenance summary.",
       ...buildPersonaStyleLines(personaStyle),

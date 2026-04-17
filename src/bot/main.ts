@@ -6,7 +6,7 @@ import { AiService } from "bot/ai";
 import { currentModel, loadPersistentState, persistState, state } from "bot/app/state";
 import { pruneExpiredPendingAuthorizationsFromState } from "bot/operations/access/authorizations";
 import { ensureAdminUserAccessLevel } from "bot/operations/access/roles";
-import { handleScheduleCallback, pruneInactiveScheduleEvents, readScheduleEvents, startScheduleLoop } from "bot/operations/schedules";
+import { handleScheduleCallback, pruneInactiveEventRecords, readEventRecords, startScheduleLoop } from "bot/operations/events";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
@@ -21,7 +21,7 @@ import { ConversationController } from "bot/runtime/conversations/controller";
 import { createMaintainerRunner } from "bot/runtime";
 import { warmWaitingMessageCandidates } from "bot/runtime/assistant";
 import { enqueueSchedulePreparationTask, startTaskWorker } from "bot/tasks";
-import { shouldGenerateScheduledTaskOnDelivery, scheduledTaskPromptForEvent } from "bot/operations/schedules";
+import { shouldGenerateScheduledTaskOnDelivery, scheduledTaskPromptForEvent } from "bot/operations/events";
 
 const configPath = DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -92,7 +92,7 @@ async function sendStartupGreeting(): Promise<void> {
 }
 
 async function enqueueActiveSchedulePreparationTasks(): Promise<void> {
-  const events = await readScheduleEvents(config);
+  const events = await readEventRecords(config);
   for (const event of events) {
     if (event.status !== "active") continue;
     if (shouldGenerateScheduledTaskOnDelivery(event)) continue;
@@ -261,7 +261,7 @@ await bot.start({
     await logger.info(`bot started as @${botInfo.username}`);
     await ensureUsableStartupModel();
     void warmWaitingMessageCandidates(agentService, config);
-    const inactiveScheduleCleanup = await pruneInactiveScheduleEvents(config);
+    const inactiveScheduleCleanup = await pruneInactiveEventRecords(config);
     if (inactiveScheduleCleanup.removed > 0) {
       await logger.info(`startup pruned ${inactiveScheduleCleanup.removed} inactive schedules: ${inactiveScheduleCleanup.removedIds.join(", ")}`);
     }

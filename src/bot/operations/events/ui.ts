@@ -3,19 +3,19 @@ import type { AppConfig } from "bot/app/types";
 import { tForLocale, userLocale, type Locale } from "bot/app/i18n";
 import { resolveChatDisplayName, resolveUserDisplayName } from "bot/operations/context/store";
 import { editMessageTextFormatted } from "bot/telegram/format";
-import type { ScheduleEvent, ScheduleNotificationInstance, ScheduleView } from "./types";
-import { formatScheduleEvent, getCurrentOccurrence, listNotificationInstances, scheduleEventScheduleSummary } from "./schedule";
-import { deleteScheduleEvent, getScheduleEvent, readScheduleEvents } from "./store";
+import type { EventRecord, ReminderInstance, EventView } from "./types";
+import { formatEventRecord, getCurrentOccurrence, listReminderInstances, scheduleEventScheduleSummary } from "./schedule";
+import { deleteEventRecord, getEventRecord, readEventRecords } from "./store";
 
 const SCHEDULE_CALLBACK_PREFIX = "schedule:";
 const UPCOMING_WINDOW_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function activeEvents(events: ScheduleEvent[]): ScheduleEvent[] {
+function activeEvents(events: EventRecord[]): EventRecord[] {
   return events.filter((item) => item.status === "active");
 }
 
-function filterEvents(events: ScheduleEvent[], view: ScheduleView): ScheduleEvent[] {
+function filterEvents(events: EventRecord[], view: EventView): EventRecord[] {
   const schedules = activeEvents(events);
   if (view === "all") return schedules;
   if (view === "upcoming") {
@@ -41,7 +41,7 @@ function menuLabel(locale: Locale, key: string, count: number): string {
   return `${tForLocale(locale, key)} ×${count}`;
 }
 
-function buildMenuKeyboard(_config: AppConfig, locale: Locale, events: ScheduleEvent[]): InlineKeyboard {
+function buildMenuKeyboard(_config: AppConfig, locale: Locale, events: EventRecord[]): InlineKeyboard {
   return new InlineKeyboard()
     .text(menuLabel(locale, "schedule_menu_upcoming", filterEvents(events, "upcoming").length), `${SCHEDULE_CALLBACK_PREFIX}menu:upcoming`).row()
     .text(menuLabel(locale, "schedule_menu_routine", filterEvents(events, "routine").length), `${SCHEDULE_CALLBACK_PREFIX}menu:routine`).row()
@@ -49,7 +49,7 @@ function buildMenuKeyboard(_config: AppConfig, locale: Locale, events: ScheduleE
     .text(menuLabel(locale, "schedule_menu_all", filterEvents(events, "all").length), `${SCHEDULE_CALLBACK_PREFIX}menu:all`);
 }
 
-function buildSpecialMenuKeyboard(locale: Locale, events: ScheduleEvent[]): InlineKeyboard {
+function buildSpecialMenuKeyboard(locale: Locale, events: EventRecord[]): InlineKeyboard {
   return new InlineKeyboard()
     .text(menuLabel(locale, "schedule_menu_special_birthday", filterEvents(events, "special:birthday").length), `${SCHEDULE_CALLBACK_PREFIX}menu:special:birthday`).row()
     .text(menuLabel(locale, "schedule_menu_special_festival", filterEvents(events, "special:festival").length), `${SCHEDULE_CALLBACK_PREFIX}menu:special:festival`).row()
@@ -58,13 +58,13 @@ function buildSpecialMenuKeyboard(locale: Locale, events: ScheduleEvent[]): Inli
     .text(tForLocale(locale, "schedule_back"), `${SCHEDULE_CALLBACK_PREFIX}menu:root`);
 }
 
-function buildListKeyboard(config: AppConfig, locale: Locale, events: ScheduleEvent[], page: number, view: ScheduleView): InlineKeyboard {
+function buildListKeyboard(config: AppConfig, locale: Locale, events: EventRecord[], page: number, view: EventView): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const pageSize = Math.max(1, config.telegram.menuPageSize);
   const totalPages = Math.max(1, Math.ceil(events.length / pageSize));
   const start = page * pageSize;
   const pageItems = events.slice(start, start + pageSize);
-  pageItems.forEach((item) => keyboard.text(formatScheduleEvent(config, item, locale).slice(0, 60), `${SCHEDULE_CALLBACK_PREFIX}view:${view}:${item.id}`).row());
+  pageItems.forEach((item) => keyboard.text(formatEventRecord(config, item, locale).slice(0, 60), `${SCHEDULE_CALLBACK_PREFIX}view:${view}:${item.id}`).row());
   if (totalPages > 1) {
     if (page > 0) keyboard.text(tForLocale(locale, "schedule_prev"), `${SCHEDULE_CALLBACK_PREFIX}page:${view}:${page - 1}`);
     if (page < totalPages - 1) keyboard.text(tForLocale(locale, "schedule_next"), `${SCHEDULE_CALLBACK_PREFIX}page:${view}:${page + 1}`);
@@ -74,40 +74,40 @@ function buildListKeyboard(config: AppConfig, locale: Locale, events: ScheduleEv
   return keyboard;
 }
 
-function buildDetailKeyboard(locale: Locale, eventId: string, view: ScheduleView): InlineKeyboard {
+function buildDetailKeyboard(locale: Locale, eventId: string, view: EventView): InlineKeyboard {
   return new InlineKeyboard().text(tForLocale(locale, "schedule_delete"), `${SCHEDULE_CALLBACK_PREFIX}delete:${view}:${eventId}`).row().text(tForLocale(locale, "schedule_back"), `${SCHEDULE_CALLBACK_PREFIX}page:${view}:0`);
 }
 
-function buildDeleteConfirmKeyboard(locale: Locale, eventId: string, view: ScheduleView): InlineKeyboard {
+function buildDeleteConfirmKeyboard(locale: Locale, eventId: string, view: EventView): InlineKeyboard {
   return new InlineKeyboard().text(tForLocale(locale, "schedule_confirm_delete"), `${SCHEDULE_CALLBACK_PREFIX}confirm-delete:${view}:${eventId}`).text(tForLocale(locale, "schedule_cancel"), `${SCHEDULE_CALLBACK_PREFIX}view:${view}:${eventId}`);
 }
 
-function notificationLabel(instance: ScheduleNotificationInstance): string {
+function reminderLabel(instance: ReminderInstance): string {
   return instance.label || `${instance.offsetMinutes}m`;
 }
 
-function timeSemanticsLabel(locale: Locale, event: ScheduleEvent): string {
+function timeSemanticsLabel(locale: Locale, event: EventRecord): string {
   return tForLocale(locale, event.timeSemantics === "absolute" ? "schedule_time_semantics_absolute" : "schedule_time_semantics_local");
 }
 
-function eventRecipientsLabel(config: AppConfig, locale: Locale, event: ScheduleEvent): string {
+function eventRecipientsLabel(config: AppConfig, locale: Locale, event: EventRecord): string {
   if (event.targets.length === 0) return tForLocale(locale, "schedule_recipients_unspecified");
   return event.targets.map((item) => item.targetKind === "chat"
     ? resolveChatDisplayName(config.paths.repoRoot, item.targetId) || String(item.targetId)
     : resolveUserDisplayName(config.paths.repoRoot, item.targetId) || String(item.targetId)).join("、");
 }
 
-function eventDetailText(config: AppConfig, locale: Locale, event: ScheduleEvent): string {
-  const notifications = getCurrentOccurrence(event)
-    ? listNotificationInstances(event, getCurrentOccurrence(event)!).map((item) => `- ${notificationLabel(item)}`).join("\n")
-    : event.notifications.map((item) => `- ${item.label || item.offsetMinutes}`).join("\n");
+function eventDetailText(config: AppConfig, locale: Locale, event: EventRecord): string {
+  const reminders = getCurrentOccurrence(event)
+    ? listReminderInstances(event, getCurrentOccurrence(event)!).map((item) => `- ${reminderLabel(item)}`).join("\n")
+    : event.reminders.map((item) => `- ${item.label || item.offsetMinutes}`).join("\n");
   return [
     `⏰ ${event.title}`,
     tForLocale(locale, "schedule_detail_time", { value: scheduleEventScheduleSummary(config, event, locale) }),
     tForLocale(locale, "schedule_detail_recipients", { value: eventRecipientsLabel(config, locale, event) }),
     tForLocale(locale, "schedule_detail_time_semantics", { value: timeSemanticsLabel(locale, event) }),
-    tForLocale(locale, "schedule_detail_notifications"),
-    notifications || tForLocale(locale, "schedule_detail_none"),
+    tForLocale(locale, "schedule_detail_reminders"),
+    reminders || tForLocale(locale, "schedule_detail_none"),
   ].join("\n");
 }
 
@@ -119,7 +119,7 @@ export async function handleScheduleCallback(config: AppConfig, ctx: Context): P
   if (!ctx.chat || !callback?.message?.message_id) return true;
   const locale = userLocale(config, ctx.from?.id);
   const messageId = callback.message.message_id;
-  const events = await readScheduleEvents(config);
+  const events = await readEventRecords(config);
 
   if (rest === "menu:root") {
     await editMessageTextFormatted(ctx, ctx.chat.id, messageId, tForLocale(locale, "schedule_menu_title"), { reply_markup: buildMenuKeyboard(config, locale, events) });
@@ -142,7 +142,7 @@ export async function handleScheduleCallback(config: AppConfig, ctx: Context): P
   }
 
   if (rest.startsWith("menu:")) {
-    const view = rest.slice(5) as ScheduleView;
+    const view = rest.slice(5) as EventView;
     const filtered = filterEvents(events, view);
     if (filtered.length === 0) {
       await editMessageTextFormatted(ctx, ctx.chat.id, messageId, tForLocale(locale, "schedule_none"), { reply_markup: view.startsWith("special") ? buildSpecialMenuKeyboard(locale, events) : buildMenuKeyboard(config, locale, events) });
@@ -161,7 +161,7 @@ export async function handleScheduleCallback(config: AppConfig, ctx: Context): P
 
   if (rest.startsWith("page:")) {
     const [, viewRaw, pageRaw] = rest.split(":", 3);
-    const view = (viewRaw || "all") as ScheduleView;
+    const view = (viewRaw || "all") as EventView;
     const filtered = filterEvents(events, view);
     const title = view === "upcoming"
       ? [
@@ -176,8 +176,8 @@ export async function handleScheduleCallback(config: AppConfig, ctx: Context): P
 
   if (rest.startsWith("view:")) {
     const [, viewRaw, eventId] = rest.split(":", 3);
-    const view = (viewRaw || "all") as ScheduleView;
-    const event = await getScheduleEvent(config, eventId);
+    const view = (viewRaw || "all") as EventView;
+    const event = await getEventRecord(config, eventId);
     if (!event || event.status === "deleted") {
       await ctx.answerCallbackQuery({ text: tForLocale(locale, "schedule_missing"), show_alert: true });
       return true;
@@ -189,8 +189,8 @@ export async function handleScheduleCallback(config: AppConfig, ctx: Context): P
 
   if (rest.startsWith("delete:")) {
     const [, viewRaw, eventId] = rest.split(":", 3);
-    const view = (viewRaw || "all") as ScheduleView;
-    const event = await getScheduleEvent(config, eventId);
+    const view = (viewRaw || "all") as EventView;
+    const event = await getEventRecord(config, eventId);
     if (!event || event.status === "deleted") {
       await ctx.answerCallbackQuery({ text: tForLocale(locale, "schedule_missing"), show_alert: true });
       return true;
@@ -202,9 +202,9 @@ export async function handleScheduleCallback(config: AppConfig, ctx: Context): P
 
   if (rest.startsWith("confirm-delete:")) {
     const [, viewRaw, eventId] = rest.split(":", 3);
-    const view = (viewRaw || "all") as ScheduleView;
-    await deleteScheduleEvent(config, eventId);
-    const refreshed = await readScheduleEvents(config);
+    const view = (viewRaw || "all") as EventView;
+    await deleteEventRecord(config, eventId);
+    const refreshed = await readEventRecords(config);
     const next = filterEvents(refreshed, view);
     if (next.length === 0) {
       await editMessageTextFormatted(ctx, ctx.chat.id, messageId, tForLocale(locale, "schedule_none"), { reply_markup: view.startsWith("special") ? buildSpecialMenuKeyboard(locale, refreshed) : buildMenuKeyboard(config, locale, refreshed) });

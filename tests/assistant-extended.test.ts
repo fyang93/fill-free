@@ -212,7 +212,7 @@ describe("schedules: list", () => {
         message: "你有2个提醒：...",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:你有2个提醒：组会 / 喝水"],
     });
@@ -235,7 +235,7 @@ describe("schedules: create with explicit time", () => {
         message: "已设置提醒",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置明天开会前1小时提醒你准备会议材料"],
     });
@@ -277,7 +277,7 @@ describe("schedules: delete duplicate", () => {
         message: "已删除重复提醒",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:已删除重复的组会提醒"],
     });
@@ -495,7 +495,7 @@ describe("delivery: trusted user sends message to known user", () => {
 });
 
 describe("delivery: 5-minute delayed message", () => {
-  test("scheduling a message in 5 minutes records telegram:schedule-message or schedules:create", async () => {
+  test("scheduling a message in 5 minutes records telegram:schedule-message or events:create", async () => {
     const config = await createTempConfig();
     const { capturedInput, calls } = await runScenario({
       config,
@@ -505,7 +505,7 @@ describe("delivery: 5-minute delayed message", () => {
         message: "已安排",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，5分钟后发送提醒消息"],
     });
@@ -516,7 +516,7 @@ describe("delivery: 5-minute delayed message", () => {
 });
 
 describe("delivery: recurring daily morning news", () => {
-  test("daily 8am news records schedules:create with note field (scheduled-task)", async () => {
+  test("daily 8am news records events:create with note field (automation)", async () => {
     const config = await createTempConfig();
     const { capturedInput, calls } = await runScenario({
       config,
@@ -526,7 +526,7 @@ describe("delivery: recurring daily morning news", () => {
         message: "已创建每日新闻定时任务",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:好的，已设置每天8点发送今日新闻摘要"],
     });
@@ -552,7 +552,7 @@ describe("language: user sends Japanese message", () => {
         message: "明日の会議のリマインダーを設定しました。",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:明日の会議のリマインダーを設定しました。"],
     });
@@ -573,7 +573,7 @@ describe("language: user sends French message", () => {
         message: "Je vais définir un rappel pour demain matin à 9h.",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:Je vais définir un rappel pour demain matin à 9h."],
     });
@@ -638,7 +638,7 @@ describe("runtime-owned reply publication", () => {
         message: "",
         answerMode: "needs-execution",
         usedNativeExecution: true,
-        completedActions: ["schedules:create"],
+        completedActions: ["events:create"],
       },
       auxiliaryReplyCalls: ["aux-reply:提醒已创建"],
     });

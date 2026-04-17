@@ -3,32 +3,32 @@ import path from "node:path";
 import type { AppConfig } from "bot/app/types";
 import { getAccurateNow } from "bot/app/time";
 import { getUserTimezone } from "bot/app/state";
-import { buildScheduledTaskPrompt } from "./scheduled-task";
+import { buildScheduledTaskPrompt } from "./automation";
 import { getCurrentOccurrence, scheduleEventScheduleSummary } from "./schedule";
-import { normalizeStoredScheduleSchedule } from "./schedule_parser";
-import type { ScheduleEvent, ScheduleNotification, ScheduleSchedule, ScheduleSpecialKind, ScheduleStore, ScheduleTarget, ScheduleTimeSemantics } from "./types";
+import { normalizeStoredEventSchedule } from "./schedule_parser";
+import type { EventRecord, Reminder, EventSchedule, ScheduleSpecialKind, EventStore, EventTarget, EventTimeSemantics } from "./types";
 
-export type ScheduleEventDraft = {
+export type EventRecordDraft = {
   title: string;
   note?: string;
-  schedule: ScheduleSchedule;
-  category?: "routine" | "special" | "scheduled-task";
+  schedule: EventSchedule;
+  category?: "routine" | "special" | "automation";
   specialKind?: ScheduleSpecialKind;
-  timeSemantics?: ScheduleTimeSemantics;
+  timeSemantics?: EventTimeSemantics;
   createdByUserId?: number;
-  notifications?: ScheduleNotification[];
-  status?: ScheduleEvent["status"];
+  reminders?: Reminder[];
+  status?: EventRecord["status"];
   createdAt?: string;
   updatedAt?: string;
-  targets?: ScheduleTarget[];
+  targets?: EventTarget[];
   deliveryText?: string;
   deliveryTextGeneratedAt?: string;
-  deliveryPreparedNotificationId?: string;
+  deliveryPreparedReminderId?: string;
   deliveryPreparedNotifyAt?: string;
-  deliveryState?: ScheduleEvent["deliveryState"];
+  deliveryState?: EventRecord["deliveryState"];
 };
 
-let scheduleStoreWriteQueue: Promise<void> = Promise.resolve();
+let eventStoreWriteQueue: Promise<void> = Promise.resolve();
 
 function defaultScheduleTimezone(config: AppConfig): string {
   return config.bot.defaultTimezone;
@@ -49,7 +49,7 @@ export function resolveScheduleTimezone(
     explicitTimezone?: string;
     subjectTimezone?: string;
     messageTime?: string;
-    timeSemantics?: ScheduleTimeSemantics;
+    timeSemantics?: EventTimeSemantics;
     recipientUserId?: number;
     userId?: number;
   },
@@ -81,12 +81,15 @@ export function resolveScheduleTimezone(
   return defaultScheduleTimezone(_config);
 }
 
-export function defaultScheduleTimeSemantics(schedule: ScheduleSchedule): ScheduleTimeSemantics {
+export function defaultEventTimeSemantics(schedule: EventSchedule): EventTimeSemantics {
   if (schedule.kind === "once") return "absolute";
   return "local";
 }
 
-export function buildDefaultScheduleNotifications(_config: AppConfig, input: { specialKind?: ScheduleSpecialKind }): ScheduleNotification[] {
+export function buildDefaultReminders(_config: AppConfig, input: { category?: "routine" | "special" | "automation"; specialKind?: ScheduleSpecialKind }): Reminder[] {
+  if (input.category === "automation") {
+    return [];
+  }
   if (input.specialKind === "birthday" || input.specialKind === "anniversary" || input.specialKind === "festival" || input.specialKind === "memorial") {
     return [
       { id: "default-2w", offsetMinutes: -14 * 24 * 60, enabled: true, label: "提前2周" },
@@ -98,11 +101,15 @@ export function buildDefaultScheduleNotifications(_config: AppConfig, input: { s
   return [{ id: "default-now", offsetMinutes: 0, enabled: true, label: "准时" }];
 }
 
-function schedulesPath(config: AppConfig): string {
+function eventsPath(config: AppConfig): string {
+  return path.join(config.paths.repoRoot, "system", "events.json");
+}
+
+function legacySchedulesPath(config: AppConfig): string {
   return path.join(config.paths.repoRoot, "system", "schedules.json");
 }
 
-function normalizeTarget(raw: unknown): ScheduleTarget | null {
+function normalizeTarget(raw: unknown): EventTarget | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const targetKind = record.targetKind === "chat" ? "chat" : record.targetKind === "user" ? "user" : null;
@@ -111,7 +118,7 @@ function normalizeTarget(raw: unknown): ScheduleTarget | null {
   return { targetKind, targetId };
 }
 
-function normalizeNotification(raw: unknown): ScheduleNotification | null {
+function normalizeReminder(raw: unknown): Reminder | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -122,11 +129,11 @@ function normalizeNotification(raw: unknown): ScheduleNotification | null {
   return { id, offsetMinutes, enabled, label };
 }
 
-function normalizeEventSchedule(raw: unknown): ScheduleSchedule | null {
-  return normalizeStoredScheduleSchedule(raw);
+function normalizeEventSchedule(raw: unknown): EventSchedule | null {
+  return normalizeStoredEventSchedule(raw);
 }
 
-function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): ScheduleEvent | null {
+function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRecord | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -142,36 +149,61 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): Schedul
     : Array.isArray(record.targets)
       ? record.targets
           .map(normalizeTarget)
-          .filter((item): item is ScheduleTarget => Boolean(item))
+          .filter((item): item is EventTarget => Boolean(item))
           .find((item) => item.targetKind === "user")
           ?.targetId
       : undefined;
-  const notifications = Array.isArray(record.notifications) ? record.notifications.map(normalizeNotification).filter((item): item is ScheduleNotification => Boolean(item)) : [];
+  const rawReminders = Array.isArray(record.reminders) ? record.reminders : Array.isArray(record.notifications) ? record.notifications : [];
+  const reminders = rawReminders.map(normalizeReminder).filter((item): item is Reminder => Boolean(item));
   const status = record.status === "active" || record.status === "paused" || record.status === "deleted" ? record.status : "active";
   const createdAt = typeof record.createdAt === "string" && record.createdAt.trim() ? record.createdAt.trim() : "";
   const updatedAt = typeof record.updatedAt === "string" && record.updatedAt.trim() ? record.updatedAt.trim() : undefined;
   const specialKind = record.specialKind === "birthday" || record.specialKind === "festival" || record.specialKind === "anniversary" || record.specialKind === "memorial"
     ? record.specialKind
     : legacySpecialKind;
-  const category = record.category === "scheduled-task" ? "scheduled-task" : record.category === "special" || specialKind ? "special" : "routine";
-  const note = category === "scheduled-task" ? buildScheduledTaskPrompt(title, rawNote) : rawNote;
+  const category = record.category === "automation" || record.category === "scheduled-task" ? "automation" : record.category === "special" || specialKind ? "special" : "routine";
+  const note = category === "automation" ? buildScheduledTaskPrompt(title, rawNote) : rawNote;
   const targets = Array.isArray(record.targets)
-    ? record.targets.map(normalizeTarget).filter((item): item is ScheduleTarget => Boolean(item))
+    ? record.targets.map(normalizeTarget).filter((item): item is EventTarget => Boolean(item))
     : [];
   const deliveryText = typeof record.deliveryText === "string" && record.deliveryText.trim() ? record.deliveryText.trim() : undefined;
   const deliveryTextGeneratedAt = typeof record.deliveryTextGeneratedAt === "string" && record.deliveryTextGeneratedAt.trim() ? record.deliveryTextGeneratedAt.trim() : undefined;
-  const deliveryPreparedNotificationId = typeof record.deliveryPreparedNotificationId === "string" && record.deliveryPreparedNotificationId.trim() ? record.deliveryPreparedNotificationId.trim() : undefined;
+  const deliveryPreparedReminderId = typeof record.deliveryPreparedReminderId === "string" && record.deliveryPreparedReminderId.trim()
+    ? record.deliveryPreparedReminderId.trim()
+    : typeof record.deliveryPreparedNotificationId === "string" && record.deliveryPreparedNotificationId.trim()
+      ? record.deliveryPreparedNotificationId.trim()
+      : undefined;
   const deliveryPreparedNotifyAt = typeof record.deliveryPreparedNotifyAt === "string" && record.deliveryPreparedNotifyAt.trim() ? record.deliveryPreparedNotifyAt.trim() : undefined;
-  const deliveryState = record.deliveryState && typeof record.deliveryState === "object" ? record.deliveryState as ScheduleEvent["deliveryState"] : undefined;
-  if (!id || !title || !schedule || !createdAt || notifications.length === 0 || targets.length === 0) return null;
+  const deliveryState = record.deliveryState && typeof record.deliveryState === "object"
+    ? (() => {
+        const state = record.deliveryState as Record<string, unknown>;
+        const current = state.currentOccurrence && typeof state.currentOccurrence === "object"
+          ? state.currentOccurrence as Record<string, unknown>
+          : undefined;
+        return current
+          ? {
+              currentOccurrence: {
+                scheduledAt: typeof current.scheduledAt === "string" ? current.scheduledAt : "",
+                sentReminderIds: Array.isArray(current.sentReminderIds)
+                  ? current.sentReminderIds.filter((item): item is string => typeof item === "string")
+                  : Array.isArray(current.sentNotificationIds)
+                    ? current.sentNotificationIds.filter((item): item is string => typeof item === "string")
+                    : [],
+              },
+            }
+          : undefined;
+      })()
+    : undefined;
+  if (!id || !title || !schedule || !createdAt || targets.length === 0) return null;
+  if (category !== "automation" && reminders.length === 0) return null;
   return {
     id,
     title,
     note,
-    timeSemantics: timeSemantics || defaultScheduleTimeSemantics(schedule),
+    timeSemantics: timeSemantics || defaultEventTimeSemantics(schedule),
     createdByUserId,
     schedule,
-    notifications,
+    reminders,
     category,
     specialKind,
     status,
@@ -180,59 +212,66 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): Schedul
     targets,
     deliveryText,
     deliveryTextGeneratedAt,
-    deliveryPreparedNotificationId,
+    deliveryPreparedReminderId,
     deliveryPreparedNotifyAt,
     deliveryState,
   };
 }
 
-function parseScheduleStore(raw: unknown, fallbackTimezone = "Asia/Tokyo"): ScheduleStore {
+function parseEventStore(raw: unknown, fallbackTimezone = "Asia/Tokyo"): EventStore {
   if (!Array.isArray(raw)) return [];
-  return raw.map((item) => normalizeEvent(item, fallbackTimezone)).filter((item): item is ScheduleEvent => Boolean(item));
+  return raw.map((item) => normalizeEvent(item, fallbackTimezone)).filter((item): item is EventRecord => Boolean(item));
 }
 
-async function loadScheduleStore(config: AppConfig): Promise<ScheduleStore> {
-  const filePath = schedulesPath(config);
+async function loadEventStore(config: AppConfig): Promise<EventStore> {
+  const candidatePaths = [eventsPath(config), legacySchedulesPath(config)];
   try {
-    const rawText = await readFile(filePath, "utf8");
+    let rawText = "";
+    for (const filePath of candidatePaths) {
+      try {
+        rawText = await readFile(filePath, "utf8");
+        break;
+      } catch {}
+    }
+    if (!rawText) return [];
     const parsed = JSON.parse(rawText) as unknown;
-    return parseScheduleStore(parsed, defaultScheduleTimezone(config));
+    return parseEventStore(parsed, defaultScheduleTimezone(config));
   } catch {
     return [];
   }
 }
 
-async function writeScheduleStore(config: AppConfig, store: ScheduleStore): Promise<void> {
-  const filePath = schedulesPath(config);
+async function writeEventStore(config: AppConfig, store: EventStore): Promise<void> {
+  const filePath = eventsPath(config);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
 }
 
-function queueScheduleStoreWrite<T>(operation: () => Promise<T>): Promise<T> {
-  const next = scheduleStoreWriteQueue.then(operation, operation);
-  scheduleStoreWriteQueue = next.then(() => undefined, () => undefined);
+function queueEventStoreWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const next = eventStoreWriteQueue.then(operation, operation);
+  eventStoreWriteQueue = next.then(() => undefined, () => undefined);
   return next;
 }
 
-export async function readScheduleEvents(config: AppConfig): Promise<ScheduleEvent[]> {
-  return loadScheduleStore(config);
+export async function readEventRecords(config: AppConfig): Promise<EventRecord[]> {
+  return loadEventStore(config);
 }
 
-export async function writeScheduleEvents(config: AppConfig, events: ScheduleEvent[]): Promise<void> {
-  await queueScheduleStoreWrite(() => writeScheduleStore(config, events));
+export async function writeEventRecords(config: AppConfig, events: EventRecord[]): Promise<void> {
+  await queueEventStoreWrite(() => writeEventStore(config, events));
 }
 
-export function buildScheduleEvent(config: AppConfig, draft: ScheduleEventDraft): ScheduleEvent {
-  const category = draft.category === "scheduled-task" ? "scheduled-task" : draft.category === "special" || draft.specialKind ? "special" : draft.category === "routine" ? "routine" : undefined;
-  const note = category === "scheduled-task" ? buildScheduledTaskPrompt(draft.title, draft.note) : draft.note;
+export function buildEventRecord(config: AppConfig, draft: EventRecordDraft): EventRecord {
+  const category = draft.category === "automation" ? "automation" : draft.category === "special" || draft.specialKind ? "special" : draft.category === "routine" ? "routine" : undefined;
+  const note = category === "automation" ? buildScheduledTaskPrompt(draft.title, draft.note) : draft.note;
   return {
     id: `rmd_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     title: draft.title,
     note,
-    timeSemantics: draft.timeSemantics || defaultScheduleTimeSemantics(draft.schedule),
+    timeSemantics: draft.timeSemantics || defaultEventTimeSemantics(draft.schedule),
     createdByUserId: draft.createdByUserId,
     schedule: draft.schedule,
-    notifications: draft.notifications && draft.notifications.length > 0 ? draft.notifications : buildDefaultScheduleNotifications(config, { specialKind: draft.specialKind }),
+    reminders: draft.reminders ? draft.reminders : buildDefaultReminders(config, { category, specialKind: draft.specialKind }),
     category,
     specialKind: draft.specialKind,
     status: draft.status || "active",
@@ -241,53 +280,53 @@ export function buildScheduleEvent(config: AppConfig, draft: ScheduleEventDraft)
     targets: draft.targets && draft.targets.length > 0 ? draft.targets : [],
     deliveryText: draft.deliveryText,
     deliveryTextGeneratedAt: draft.deliveryTextGeneratedAt,
-    deliveryPreparedNotificationId: draft.deliveryPreparedNotificationId,
+    deliveryPreparedReminderId: draft.deliveryPreparedReminderId,
     deliveryPreparedNotifyAt: draft.deliveryPreparedNotifyAt,
     deliveryState: draft.deliveryState,
   };
 }
 
-export async function createScheduleEvent(event: ScheduleEvent, config: AppConfig): Promise<ScheduleEvent> {
-  await queueScheduleStoreWrite(async () => {
-    const events = await loadScheduleStore(config);
+export async function createEventRecord(event: EventRecord, config: AppConfig): Promise<EventRecord> {
+  await queueEventStoreWrite(async () => {
+    const events = await loadEventStore(config);
     events.push(event);
-    await writeScheduleStore(config, events);
+    await writeEventStore(config, events);
   });
   return event;
 }
 
-export async function createScheduleEventWithDefaults(config: AppConfig, draft: ScheduleEventDraft): Promise<ScheduleEvent> {
-  const event = buildScheduleEvent(config, draft);
+export async function createEventRecordWithDefaults(config: AppConfig, draft: EventRecordDraft): Promise<EventRecord> {
+  const event = buildEventRecord(config, draft);
   if (!event.deliveryState && event.status === "active") {
     const occurrence = getCurrentOccurrence(event, new Date());
     if (occurrence) {
       event.deliveryState = {
         currentOccurrence: {
           scheduledAt: occurrence.scheduledAt,
-          sentNotificationIds: [],
+          sentReminderIds: [],
         },
       };
     }
   }
-  return createScheduleEvent(event, config);
+  return createEventRecord(event, config);
 }
 
-export async function getScheduleEvent(config: AppConfig, id: string): Promise<ScheduleEvent | null> {
-  const events = await readScheduleEvents(config);
+export async function getEventRecord(config: AppConfig, id: string): Promise<EventRecord | null> {
+  const events = await readEventRecords(config);
   return events.find((item) => item.id === id) || null;
 }
 
-export async function updateScheduleEvent(config: AppConfig, event: ScheduleEvent): Promise<void> {
-  await queueScheduleStoreWrite(async () => {
-    const events = await loadScheduleStore(config);
+export async function updateEventRecord(config: AppConfig, event: EventRecord): Promise<void> {
+  await queueEventStoreWrite(async () => {
+    const events = await loadEventStore(config);
     const next = events.map((item) => (item.id === event.id ? event : item));
-    await writeScheduleStore(config, next);
+    await writeEventStore(config, next);
   });
 }
 
-export async function deleteScheduleEvent(config: AppConfig, id: string): Promise<boolean> {
-  return queueScheduleStoreWrite(async () => {
-    const events = await loadScheduleStore(config);
+export async function deleteEventRecord(config: AppConfig, id: string): Promise<boolean> {
+  return queueEventStoreWrite(async () => {
+    const events = await loadEventStore(config);
     let changed = false;
     const next = events.map((item) => {
       if (item.id === id && item.status !== "deleted") {
@@ -296,14 +335,14 @@ export async function deleteScheduleEvent(config: AppConfig, id: string): Promis
       }
       return item;
     });
-    if (changed) await writeScheduleStore(config, next);
+    if (changed) await writeEventStore(config, next);
     return changed;
   });
 }
 
-export async function pruneInactiveScheduleEvents(config: AppConfig): Promise<{ removed: number; removedIds: string[]; removedSummaries: string[] }> {
-  return queueScheduleStoreWrite(async () => {
-    const events = await loadScheduleStore(config);
+export async function pruneInactiveEventRecords(config: AppConfig): Promise<{ removed: number; removedIds: string[]; removedSummaries: string[] }> {
+  return queueEventStoreWrite(async () => {
+    const events = await loadEventStore(config);
     const now = await getAccurateNow();
     const removedIds: string[] = [];
     const removedSummaries: string[] = [];
@@ -323,7 +362,7 @@ export async function pruneInactiveScheduleEvents(config: AppConfig): Promise<{ 
       }
       return true;
     });
-    if (removedIds.length > 0) await writeScheduleStore(config, next);
+    if (removedIds.length > 0) await writeEventStore(config, next);
     return { removed: removedIds.length, removedIds, removedSummaries };
   });
 }
