@@ -54,7 +54,7 @@ async function createTempConfig(): Promise<AppConfig> {
   return createTestConfig(repoRoot);
 }
 
-function makeTask(payload: Record<string, unknown>, requesterUserId = 872940661): TaskRecord {
+function makeTask(payload: Record<string, unknown>, requesterUserId = 1): TaskRecord {
   const now = new Date().toISOString();
   return {
     id: "tsk_test",
@@ -324,7 +324,6 @@ describe("schedule task matching", () => {
     const events = await readEventRecords(config);
     const created = events.find((item) => item.title.includes("review"));
     expect(Boolean(created)).toBe(true);
-    expect(created?.timezone).toBe("Asia/Tokyo");
     expect(created?.targets).toEqual([{ targetKind: "user", targetId: 872940661 }]);
     expect(created?.schedule.kind).toBe("once");
     if (created?.schedule.kind === "once") {

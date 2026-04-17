@@ -135,6 +135,16 @@ function makeTask(overrides?: Partial<ActiveConversationTask>): ActiveConversati
   };
 }
 
+function parseAssistantContextJson(contextText: string): any {
+  const marker = "Assistant context JSON:\n```json\n";
+  const start = contextText.indexOf(marker);
+  if (start < 0) throw new Error(`missing assistant context marker in: ${contextText}`);
+  const jsonStart = start + marker.length;
+  const jsonEnd = contextText.lastIndexOf("\n```");
+  if (jsonEnd < jsonStart) throw new Error(`missing assistant context closing fence in: ${contextText}`);
+  return JSON.parse(contextText.slice(jsonStart, jsonEnd));
+}
+
 async function runScenario(opts: {
   config: AppConfig;
   userId?: number;
@@ -543,10 +553,10 @@ describe("scenario 9b: non-admin cannot modify permissions", () => {
 });
 
 // ===========================================================================
-// Scenario 10a: Memory query (admin) — context contains linkedMemoryFiles
+// Scenario 10a: Memory query (admin) — context exposes personPath metadata
 // ===========================================================================
 describe("scenario 10a: memory query (admin)", () => {
-  test("admin context block contains own memory file in linkedMemoryFiles", async () => {
+  test("admin context block contains requester personPath metadata", async () => {
     const config = await createTempConfig({ withMemory: true });
     const contextText = await buildAssistantContextBlock(config, {
       requesterUserId: 1,
@@ -554,12 +564,9 @@ describe("scenario 10a: memory query (admin)", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    expect(contextJson.linkedMemoryFiles).toBeDefined();
-    expect(Array.isArray(contextJson.linkedMemoryFiles)).toBe(true);
-    // Admin's own memory should be included
-    const memoryPaths = contextJson.linkedMemoryFiles.map((f: any) => f.path);
-    expect(memoryPaths).toContain("memory/user-1.md");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextText).toContain("Requester person path: memory/user-1.md");
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-1.md");
   });
 });
 
@@ -575,12 +582,10 @@ describe("scenario 10b: memory privacy (allowed user)", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const memoryPaths = (contextJson.linkedMemoryFiles || []).map((f: any) => f.path);
-    // Allowed user should see their own memory
-    expect(memoryPaths).toContain("memory/user-2.md");
-    // Should NOT see admin's private memory (not in same chat, not a participant)
-    expect(memoryPaths).not.toContain("memory/user-1.md");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextText).toContain("Requester person path: memory/user-2.md");
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-2.md");
+    expect(contextText).not.toContain("admin-secret-data");
   });
 
   test("allowed user in group chat can see active participants' memory but context is scoped", async () => {
@@ -591,13 +596,10 @@ describe("scenario 10b: memory privacy (allowed user)", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const memoryPaths = (contextJson.linkedMemoryFiles || []).map((f: any) => f.path);
-    // In a group chat, both participants' memories and chat memory are loaded
-    expect(memoryPaths).toContain("memory/user-2.md");
-    expect(memoryPaths).toContain("memory/chat-100.md");
-    // Admin is also a participant in the group, so their memory IS visible
-    expect(memoryPaths).toContain("memory/user-1.md");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-2.md");
+    expect(contextJson.currentChat?.id).toBe("100");
+    expect(contextJson.currentChat?.activeUserIds).toEqual(["2", "1"]);
   });
 });
 
@@ -772,10 +774,10 @@ describe("TTFR measurement", () => {
 });
 
 // ===========================================================================
-// Scenario 12a: User preferences in memory appear in context linkedMemoryFiles
+// Scenario 12a: User preferences stay in memory files; context only carries personPath
 // ===========================================================================
 describe("scenario 12a: user preferences in memory appear in context", () => {
-  test("user memory with preferences is loaded into linkedMemoryFiles", async () => {
+  test("user context keeps personPath metadata without inlining memory contents", async () => {
     const config = await createTempConfig({ withMemory: true });
     // Write preferences into user-2's memory
     await writeFile(
@@ -790,13 +792,10 @@ describe("scenario 12a: user preferences in memory appear in context", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const memoryPaths = contextJson.linkedMemoryFiles.map((f: any) => f.path);
-    expect(memoryPaths).toContain("memory/user-2.md");
-    // Verify the preference content is actually loaded
-    const userFile = contextJson.linkedMemoryFiles.find((f: any) => f.path === "memory/user-2.md");
-    expect(userFile.content).toContain("生日提醒提前一周");
-    expect(userFile.content).toContain("发到项目群");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-2.md");
+    expect(contextText).not.toContain("生日提醒提前一周");
+    expect(contextText).not.toContain("发到项目群");
   });
 });
 
@@ -825,8 +824,8 @@ describe("scenario 12b: agent context carries user preferences", () => {
       },
     });
 
-    // The agent should see the preference in its context
-    expect(capturedInput.sharedConversationContextText).toContain("生日提醒提前一周");
+    expect(capturedInput.sharedConversationContextText).toContain("Requester person path: memory/user-1.md");
+    expect(capturedInput.sharedConversationContextText).not.toContain("生日提醒提前一周");
   });
 });
 
@@ -854,7 +853,8 @@ describe("scenario 12c: user preference isolation", () => {
       chatId: 2,
       messageTime: "2026-04-08T00:00:00.000Z",
     });
-    expect(context2).toContain("提前一周");
+    expect(context2).toContain("Requester person path: memory/user-2.md");
+    expect(context2).not.toContain("提前一周");
     expect(context2).not.toContain("提前一天");
 
     // Build context for user 1
@@ -863,7 +863,8 @@ describe("scenario 12c: user preference isolation", () => {
       chatId: 1,
       messageTime: "2026-04-08T00:00:00.000Z",
     });
-    expect(context1).toContain("提前一天");
+    expect(context1).toContain("Requester person path: memory/user-1.md");
+    expect(context1).not.toContain("提前一天");
     expect(context1).not.toContain("提前一周");
   });
 });
@@ -1003,7 +1004,7 @@ describe("scenario 14: trusted user outbound messaging", () => {
 // Scenario 15: Memory privacy control
 // ===========================================================================
 describe("scenario 15: memory privacy control", () => {
-  test("15a: admin context includes all relevant memory files", async () => {
+  test("15a: admin context includes requester personPath metadata", async () => {
     const config = await createTempConfig({ withMemory: true });
     const contextText = await buildAssistantContextBlock(config, {
       requesterUserId: 1,
@@ -1011,12 +1012,9 @@ describe("scenario 15: memory privacy control", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const memoryPaths = contextJson.linkedMemoryFiles.map((f: any) => f.path);
-    expect(memoryPaths).toContain("memory/user-1.md");
-    // Admin sees own memory content
-    const adminFile = contextJson.linkedMemoryFiles.find((f: any) => f.path === "memory/user-1.md");
-    expect(adminFile.content).toContain("admin-secret-data");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-1.md");
+    expect(contextText).not.toContain("admin-secret-data");
   });
 
   test("15b: allowed user context includes own memory, accessRole constrains agent behavior", async () => {
@@ -1035,9 +1033,8 @@ describe("scenario 15: memory privacy control", () => {
     });
 
     expect(capturedInput.accessRole).toBe("allowed");
-    // The context should contain the allowed user's own memory
-    expect(capturedInput.sharedConversationContextText).toContain("user2-public-data");
-    // Should NOT contain admin's private memory
+    expect(capturedInput.sharedConversationContextText).toContain("Requester person path: memory/user-2.md");
+    expect(capturedInput.sharedConversationContextText).not.toContain("user2-public-data");
     expect(capturedInput.sharedConversationContextText).not.toContain("admin-secret-data");
   });
 
@@ -1049,15 +1046,13 @@ describe("scenario 15: memory privacy control", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const memoryPaths = (contextJson.linkedMemoryFiles || []).map((f: any) => f.path);
-    expect(memoryPaths).toContain("memory/user-2.md");
-    // Admin and trusted user memory should NOT be included (not participants in this private chat)
-    expect(memoryPaths).not.toContain("memory/user-1.md");
-    expect(memoryPaths).not.toContain("memory/user-3.md");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-2.md");
+    expect(contextText).not.toContain("memory/user-1.md");
+    expect(contextText).not.toContain("memory/user-3.md");
   });
 
-  test("15d: trusted user has full memory access like admin", async () => {
+  test("15d: trusted user context also carries requester personPath metadata", async () => {
     const config = await createTempConfig({ withMemory: true });
     const contextText = await buildAssistantContextBlock(config, {
       requesterUserId: 3,
@@ -1065,12 +1060,9 @@ describe("scenario 15: memory privacy control", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const memoryPaths = contextJson.linkedMemoryFiles.map((f: any) => f.path);
-    // Trusted user sees own memory
-    expect(memoryPaths).toContain("memory/user-3.md");
-    const trustedFile = contextJson.linkedMemoryFiles.find((f: any) => f.path === "memory/user-3.md");
-    expect(trustedFile.content).toContain("trusted-user-data");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-3.md");
+    expect(contextText).not.toContain("trusted-user-data");
   });
 });
 
@@ -1078,7 +1070,7 @@ describe("scenario 15: memory privacy control", () => {
 // Scenario 16: Preferences stored in memory — CRUD and subsequent use
 // ===========================================================================
 describe("scenario 16: preferences in memory CRUD and application", () => {
-  test("16a: memory file with preferences is loaded into context linkedMemoryFiles", async () => {
+  test("16a: memory file preferences stay external; context keeps personPath metadata", async () => {
     const config = await createTempConfig({ withMemory: true });
     await writeFile(
       path.join(config.paths.repoRoot, "memory", "user-2.md"),
@@ -1092,10 +1084,9 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
       messageTime: "2026-04-08T00:00:00.000Z",
     });
 
-    const contextJson = JSON.parse(contextText.replace(/^Assistant context JSON:\n```json\n/, "").replace(/\n```$/, ""));
-    const userFile = contextJson.linkedMemoryFiles.find((f: any) => f.path === "memory/user-2.md");
-    expect(userFile).toBeDefined();
-    expect(userFile.content).toContain("所有需要提醒的事件都提前一天提醒");
+    const contextJson = parseAssistantContextJson(contextText);
+    expect(contextJson.requesterUser?.personPath).toBe("memory/user-2.md");
+    expect(contextText).not.toContain("所有需要提醒的事件都提前一天提醒");
   });
 
   test("16b: subsequent agent call receives preferences in sharedConversationContextText", async () => {
@@ -1119,7 +1110,8 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
       auxiliaryReplyCalls: ["aux-reply:好的，已设置会议提醒（根据你的偏好，已同时设置提前一天的预提醒）"],
     });
 
-    expect(capturedInput.sharedConversationContextText).toContain("所有需要提醒的事件都提前一天提醒");
+    expect(capturedInput.sharedConversationContextText).toContain("Requester person path: memory/user-1.md");
+    expect(capturedInput.sharedConversationContextText).not.toContain("所有需要提醒的事件都提前一天提醒");
   });
 
   test("16c: updated preferences are reflected in subsequent context", async () => {
@@ -1136,7 +1128,8 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
       chatId: 2,
       messageTime: "2026-04-08T00:00:00.000Z",
     });
-    expect(context1).toContain("所有提醒提前一天");
+    expect(context1).toContain("Requester person path: memory/user-2.md");
+    expect(context1).not.toContain("所有提醒提前一天");
 
     // Simulate agent writing new preference (overwriting memory file)
     await writeFile(
@@ -1150,8 +1143,9 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
       chatId: 2,
       messageTime: "2026-04-08T00:01:00.000Z",
     });
-    expect(context2).toContain("所有提醒提前一天");
-    expect(context2).toContain("发给 Alice 和 Bob 的消息优先发送到项目群");
+    expect(context2).toContain("Requester person path: memory/user-2.md");
+    expect(context2).not.toContain("所有提醒提前一天");
+    expect(context2).not.toContain("发给 Alice 和 Bob 的消息优先发送到项目群");
   });
 
   test("16d: removed preferences no longer appear in context", async () => {
@@ -1167,7 +1161,8 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
       chatId: 2,
       messageTime: "2026-04-08T00:00:00.000Z",
     });
-    expect(context1).toContain("临时偏好内容");
+    expect(context1).toContain("Requester person path: memory/user-2.md");
+    expect(context1).not.toContain("临时偏好内容");
 
     // Simulate agent clearing the preference
     await writeFile(
@@ -1181,8 +1176,9 @@ describe("scenario 16: preferences in memory CRUD and application", () => {
       chatId: 2,
       messageTime: "2026-04-08T00:01:00.000Z",
     });
+    expect(context2).toContain("Requester person path: memory/user-2.md");
     expect(context2).not.toContain("临时偏好内容");
-    expect(context2).toContain("一般记录");
+    expect(context2).not.toContain("一般记录");
   });
 });
 

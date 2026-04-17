@@ -89,7 +89,7 @@ async function runLoggedScenario<T>(config: AppConfig, input: string, category: 
   }
 }
 
-function makeScheduleTask(operation: "update" | "delete", payload: Record<string, unknown>, requesterUserId = 872940661): TaskRecord {
+function makeScheduleTask(operation: "update" | "delete", payload: Record<string, unknown>, requesterUserId = 1): TaskRecord {
   const now = new Date().toISOString();
   return {
     id: `tsk_${operation}_test`,
