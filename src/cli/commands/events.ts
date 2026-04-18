@@ -12,8 +12,8 @@ import type { RepoCliContext } from "cli/runtime";
 
 function requesterTimezoneForCli(context: RepoCliContext): string | undefined {
   const requesterUserId = context.asInt(context.args.requesterUserId);
-  if (!requesterUserId) return undefined;
-  return resolveUser(context.config.paths.repoRoot, requesterUserId)?.timezone?.trim() || undefined;
+  if (!requesterUserId) return context.config.bot.defaultTimezone;
+  return resolveUser(context.config.paths.repoRoot, requesterUserId, { defaultTimezone: context.config.bot.defaultTimezone })?.timezone?.trim() || context.config.bot.defaultTimezone;
 }
 
 function effectiveRequesterTimezoneForCli(context: RepoCliContext): string {

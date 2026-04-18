@@ -48,6 +48,24 @@ async function createTempConfig(): Promise<{ config: AppConfig; repoRoot: string
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{}}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "tasks.json"), '{"tasks":[]}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "state.json"), '{}\n', "utf8");
+  await writeFile(path.join(repoRoot, "config.toml"), [
+    "[telegram]",
+    'bot_token = "test"',
+    "admin_user_id = 1",
+    "",
+    "[bot]",
+    'language = "zh-CN"',
+    'persona_style = ""',
+    'default_timezone = "Asia/Tokyo"',
+    "",
+    "[maintenance]",
+    "enabled = false",
+    'idle_after_minutes = 15',
+    "",
+    "[opencode]",
+    'base_url = "http://127.0.0.1:4096"',
+    "",
+  ].join("\n"), "utf8");
   const originalCwd = process.cwd();
   process.chdir(repoRoot);
   return { config: createTestConfig(repoRoot), repoRoot, originalCwd };
@@ -61,6 +79,7 @@ describe("access execution", () => {
       expect(changed).toBe(true);
       const usersDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "users.json"), "utf8")) as { users?: Record<string, Record<string, unknown>> };
       expect(usersDoc.users?.["1"]?.accessLevel).toBe("admin");
+      expect(usersDoc.users?.["1"]?.timezone).toBe("Asia/Tokyo");
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });
@@ -131,9 +150,23 @@ describe("access execution", () => {
 
       const usersDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "users.json"), "utf8")) as { users?: Record<string, Record<string, unknown>> };
       expect(usersDoc.users?.["8631425224"]?.accessLevel).toBe("trusted");
+      expect(usersDoc.users?.["8631425224"]?.timezone).toBe("Asia/Tokyo");
 
       const tasksDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "tasks.json"), "utf8")) as { tasks?: unknown[] };
       expect(tasksDoc.tasks).toEqual([]);
+    } finally {
+      process.chdir(originalCwd);
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("rememberTelegramUser writes default timezone when recording a new user", async () => {
+    const { repoRoot, originalCwd } = await createTempConfig();
+    try {
+      rememberTelegramUser({ id: 9182637451, username: "test_rain_new", first_name: "测试", last_name: "雨" });
+      const usersDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "users.json"), "utf8")) as { users?: Record<string, Record<string, unknown>> };
+      expect(usersDoc.users?.["9182637451"]?.username).toBe("test_rain_new");
+      expect(usersDoc.users?.["9182637451"]?.timezone).toBe("Asia/Tokyo");
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });

@@ -129,7 +129,7 @@ function normalizeEventSchedule(raw: unknown): EventSchedule | null {
   return normalizeStoredEventSchedule(raw);
 }
 
-function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRecord | null {
+function normalizeEvent(raw: unknown, _fallbackTimezone?: string): EventRecord | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -207,7 +207,7 @@ function normalizeEvent(raw: unknown, _fallbackTimezone = "Asia/Tokyo"): EventRe
   };
 }
 
-function parseEventStore(raw: unknown, fallbackTimezone = "Asia/Tokyo"): EventStore {
+function parseEventStore(raw: unknown, fallbackTimezone?: string): EventStore {
   if (!Array.isArray(raw)) return [];
   return raw.map((item) => normalizeEvent(item, fallbackTimezone)).filter((item): item is EventRecord => Boolean(item));
 }

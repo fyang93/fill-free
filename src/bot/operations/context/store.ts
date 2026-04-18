@@ -69,9 +69,10 @@ function readJsonCached<T>(filePath: string, fallback: T): T {
   }
 }
 
-export function loadUsers(repoRoot: string): Record<string, UserRecord> {
+export function loadUsers(repoRoot: string, options?: { defaultTimezone?: string }): Record<string, UserRecord> {
   const raw = readJsonCached<{ users?: unknown }>(path.join(repoRoot, "system", "users.json"), {});
   const source = cleanObject(raw.users) || {};
+  const defaultTimezone = cleanText(options?.defaultTimezone);
   return Object.fromEntries(
     Object.entries(source).map(([userId, value]) => {
       const record = cleanObject(value) || {};
@@ -84,7 +85,7 @@ export function loadUsers(repoRoot: string): Record<string, UserRecord> {
           : record.role === "allowed" || record.role === "trusted"
             ? record.role
             : undefined,
-        timezone: cleanText(record.timezone),
+        timezone: cleanText(record.timezone) || defaultTimezone,
         rules: cleanRules(record.rules),
         lastSeenAt: cleanText(record.lastSeenAt),
         updatedAt: cleanText(record.updatedAt),
@@ -127,9 +128,9 @@ function resolveUniqueUserMatch(repoRoot: string, predicate: (user: UserRecord) 
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-export function resolveUser(repoRoot: string, userId: number | string | undefined): UserRecord | undefined {
+export function resolveUser(repoRoot: string, userId: number | string | undefined, options?: { defaultTimezone?: string }): UserRecord | undefined {
   if (userId == null) return undefined;
-  return loadUsers(repoRoot)[String(userId)];
+  return loadUsers(repoRoot, options)[String(userId)];
 }
 
 export function resolveUserByUsername(repoRoot: string, username: string | undefined): [string, UserRecord] | undefined {
@@ -175,7 +176,7 @@ export function resolveChatDisplayName(repoRoot: string, chatId: number | string
   return undefined;
 }
 
-export function buildStructuredContextLines(repoRoot: string, input: { requesterUserId?: number; requesterUsername?: string; replyTargetUserId?: number; replyTargetUsername?: string; chatId?: number; taskId?: string; }): string[] {
+export function buildStructuredContextLines(repoRoot: string, input: { requesterUserId?: number; requesterUsername?: string; replyTargetUserId?: number; replyTargetUsername?: string; chatId?: number; taskId?: string; defaultTimezone?: string; }): string[] {
   const lines: string[] = [];
   const requesterUserId = input.requesterUserId != null
     ? String(input.requesterUserId)
@@ -183,18 +184,20 @@ export function buildStructuredContextLines(repoRoot: string, input: { requester
   const replyUserId = input.replyTargetUserId != null
     ? String(input.replyTargetUserId)
     : resolveUserByUsername(repoRoot, input.replyTargetUsername)?.[0];
-  const requesterUser = requesterUserId ? resolveUser(repoRoot, requesterUserId) : undefined;
-  const replyUser = replyUserId ? resolveUser(repoRoot, replyUserId) : undefined;
+  const requesterUser = requesterUserId ? resolveUser(repoRoot, requesterUserId, { defaultTimezone: input.defaultTimezone }) : undefined;
+  const replyUser = replyUserId ? resolveUser(repoRoot, replyUserId, { defaultTimezone: input.defaultTimezone }) : undefined;
   const chat = resolveChat(repoRoot, input.chatId);
 
   if (requesterUserId && requesterUser) {
     lines.push(`Requester user: ${requesterUserId}${requesterUser.displayName ? ` (${requesterUser.displayName})` : ""}.`);
     if (requesterUser.personPath) lines.push(`Requester person file: ${requesterUser.personPath}.`);
+    if (requesterUser.timezone) lines.push(`Requester timezone: ${requesterUser.timezone}.`);
   }
 
   if (replyUserId && replyUser) {
     lines.push(`Reply target user: ${replyUserId}${replyUser.displayName ? ` (${replyUser.displayName})` : ""}.`);
     if (replyUser.personPath) lines.push(`Reply target person file: ${replyUser.personPath}.`);
+    if (replyUser.timezone) lines.push(`Reply target timezone: ${replyUser.timezone}.`);
   }
 
   if (chat) {

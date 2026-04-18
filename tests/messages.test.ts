@@ -518,6 +518,11 @@ describe("message delivery flow", () => {
   test("users:list and users:get return ok true on success", async () => {
     const { repoRoot, originalCwd } = await createTempConfig();
     try {
+      const usersPath = path.join(repoRoot, "system", "users.json");
+      const users = JSON.parse(await readFile(usersPath, "utf8"));
+      users.users["1"] = { displayName: "Admin Test" };
+      await writeFile(usersPath, JSON.stringify(users, null, 2) + "\n", "utf8");
+
       const listProc = Bun.spawn(["bun", cliPath, "users:list", JSON.stringify({ requesterUserId: 1 })], {
         cwd: repoRoot,
         stdout: "pipe",
@@ -528,6 +533,7 @@ describe("message delivery flow", () => {
       const listed = JSON.parse(listStdout);
       expect(listed.ok).toBe(true);
       expect(typeof listed.users).toBe("object");
+      expect(listed.users["1"].timezone).toBe("Asia/Tokyo");
 
       const getProc = Bun.spawn(["bun", cliPath, "users:get", JSON.stringify({ requesterUserId: 1, userId: 1 })], {
         cwd: repoRoot,
@@ -539,6 +545,7 @@ describe("message delivery flow", () => {
       const got = JSON.parse(getStdout);
       expect(got.ok).toBe(true);
       expect(got.userId).toBe(1);
+      expect(got.user.timezone).toBe("Asia/Tokyo");
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });

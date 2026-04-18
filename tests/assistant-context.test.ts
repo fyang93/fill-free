@@ -96,4 +96,22 @@ describe("assistant clarification context", () => {
     expect(context).toContain('"turnTime"');
     expect(context).toContain('Requester person path: memory/people/admin-test/README.md');
   });
+
+  test("missing user timezone falls back to bot.defaultTimezone in injected context", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-assistant-context-missing-tz-"));
+    tempDirs.push(repoRoot);
+    await mkdir(path.join(repoRoot, "system"), { recursive: true });
+    await writeFile(path.join(repoRoot, "system", "users.json"), '{"users":{"1":{"displayName":"Admin Test","personPath":"memory/people/admin-test/README.md"}}}\n', "utf8");
+    await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{"1":{"type":"private","title":"Admin Chat"}}}\n', "utf8");
+    const config = createTestConfig(repoRoot);
+
+    const context = await buildAssistantContextBlock(config, {
+      requesterUserId: 1,
+      chatId: 1,
+      messageTime: "2026-04-05T16:51:25.000Z",
+    });
+
+    expect(context).toContain('"timezone": "Asia/Tokyo"');
+    expect(context).toContain('"localDateTime": "2026-04-06 01:51:25"');
+  });
 });

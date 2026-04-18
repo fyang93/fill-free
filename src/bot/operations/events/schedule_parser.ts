@@ -111,7 +111,10 @@ export function buildEventScheduleFromExternal(raw: Record<string, unknown>, tim
     const anchorAt = explicitAnchor
       ? normalizeScheduledAt(explicitAnchor, timezone)
       : kind === "daily"
-        ? nextDailyAnchorAt(raw, timezone || "Asia/Tokyo")
+        ? (() => {
+            if (!timezone?.trim()) throw new Error("Missing timezone for daily schedule");
+            return nextDailyAnchorAt(raw, timezone);
+          })()
         : normalizeScheduledAt("", timezone);
     return {
       kind: "interval",

@@ -46,7 +46,7 @@ describe("telegram current-turn output", () => {
     expect(extractCandidateFilePaths("照片在这里：[锅巴照片](../memory/shared/households/yang-fan-family/guoba.jpg)")).toEqual(["memory/shared/households/yang-fan-family/guoba.jpg"]);
   });
 
-  test("deliverAiOutputs sends current-chat image through shared telegram delivery path", async () => {
+  test("deliverAiOutputs does not auto-send files merely because the reply text mentions a markdown path", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-output-test-"));
     try {
       await mkdir(path.join(repoRoot, "memory", "shared", "households", "yang-fan-family"), { recursive: true });
@@ -85,7 +85,7 @@ describe("telegram current-turn output", () => {
       } as any;
 
       await deliverAiOutputs(ctx, config, {
-        message: "这是锅巴的照片：[锅巴照片](../memory/shared/households/yang-fan-family/guoba.jpg)",
+        message: "我已经更新好了，内容存放在 [memory/shared/households/yang-fan-family/guoba.jpg](../memory/shared/households/yang-fan-family/guoba.jpg)。",
         answerMode: "needs-execution",
         files: [],
         attachments: [],
@@ -96,8 +96,48 @@ describe("telegram current-turn output", () => {
         tasks: [],
       });
 
-      expect(calls).toContain("sendPhoto:42");
+      expect(calls).not.toContain("sendPhoto:42");
       expect(calls.some((entry) => entry.startsWith("reply:"))).toBe(false);
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("deliverAiOutputs sends files only when answer.files explicitly requests publication", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-output-test-explicit-"));
+    try {
+      await mkdir(path.join(repoRoot, "memory", "shared", "households", "yang-fan-family"), { recursive: true });
+      await writeFile(path.join(repoRoot, "memory", "shared", "households", "yang-fan-family", "guoba.jpg"), "fake-jpg", "utf8");
+      const config = createTestConfig(repoRoot);
+      const calls: string[] = [];
+      const ctx = {
+        chat: { id: 42, type: "private" },
+        from: { id: 1 },
+        api: {
+          sendPhoto: async (chatId: number) => {
+            calls.push(`sendPhoto:${chatId}`);
+            return { message_id: 99 };
+          },
+          sendVoice: async () => ({ message_id: 1 }),
+          sendVideo: async () => ({ message_id: 1 }),
+          sendAudio: async () => ({ message_id: 1 }),
+          sendDocument: async () => ({ message_id: 1 }),
+        },
+      } as any;
+
+      await deliverAiOutputs(ctx, config, {
+        message: "这是你要的文件。",
+        answerMode: "needs-execution",
+        files: ["memory/shared/households/yang-fan-family/guoba.jpg"],
+        attachments: [],
+        fileWrites: [],
+        schedules: [],
+        deliveries: [],
+        pendingAuthorizations: [],
+        tasks: [],
+      });
+
+      expect(calls).toContain("sendPhoto:42");
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
     }

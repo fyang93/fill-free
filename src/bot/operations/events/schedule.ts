@@ -552,7 +552,8 @@ function nextEventOccurrence(schedule: EventSchedule, reference = new Date()): s
 }
 
 function nextLocalEventOccurrence(event: EventRecord, reference = new Date(), timezoneOverride?: string): string | null {
-  const timezone = timezoneOverride || getUserTimezone(event.createdByUserId) || "Asia/Tokyo";
+  const timezone = timezoneOverride || getUserTimezone(event.createdByUserId);
+  if (!timezone) throw new Error(`Missing timezone for local event ${event.id}`);
   if (event.schedule.kind === "once") return event.schedule.scheduledAt;
   if (event.schedule.kind === "interval") return nextLocalIntervalOccurrence(event.schedule, reference, timezone);
   if (event.schedule.kind === "weekly") return nextLocalWeeklyOccurrence(event.schedule, reference, timezone);

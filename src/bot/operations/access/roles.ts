@@ -59,6 +59,7 @@ export async function ensureAdminUserAccessLevel(config: AppConfig): Promise<boo
   const { role: _legacyRole, roleUpdatedBy: _roleUpdatedBy, accessLevel: _currentAccessLevel, ...rest } = current;
   const next: Record<string, unknown> = {
     ...rest,
+    ...(typeof rest.timezone === "string" && rest.timezone.trim() ? {} : { timezone: config.bot.defaultTimezone }),
     ...(username ? { username } : {}),
     ...(displayName ? { displayName } : {}),
     accessLevel: "admin",
@@ -113,6 +114,7 @@ export async function setStoredUserAccessLevel(
   const { role: _legacyRole, roleUpdatedBy: _roleUpdatedBy, accessLevel: _currentAccessLevel, ...rest } = current;
   const next: Record<string, unknown> = {
     ...rest,
+    ...(typeof rest.timezone === "string" && rest.timezone.trim() ? {} : { timezone: config.bot.defaultTimezone }),
     ...(username ? { username } : {}),
     ...(displayName ? { displayName } : {}),
     ...(patch.lastSeenAt ? { lastSeenAt: patch.lastSeenAt } : {}),
@@ -148,6 +150,7 @@ export async function clearStoredUserAccessLevel(
   const { role: _legacyRole, accessLevel: _currentAccessLevel, roleUpdatedBy: _roleUpdatedBy, ...rest } = current;
   const next: Record<string, unknown> = {
     ...rest,
+    ...(typeof rest.timezone === "string" && rest.timezone.trim() ? {} : { timezone: config.bot.defaultTimezone }),
     ...(username ? { username } : {}),
     ...(displayName ? { displayName } : {}),
     ...(patch.lastSeenAt ? { lastSeenAt: patch.lastSeenAt } : {}),

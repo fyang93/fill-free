@@ -37,7 +37,7 @@ export async function storePendingAuthorizations(
       expiresAt: normalizedExpiresAt,
     });
     changed = true;
-    created.push(`已记录临时授权：@${username}，截止 ${normalizedExpiresAt}；对方需在此之前私聊 bot 才能获得 allowed 权限。`);
+    created.push(`已记录临时授权：@${username}，截止 ${normalizedExpiresAt}；对方需在此之前私聊 bot、在群里 @bot，或在群里回复 bot 的消息，系统才会自动授予 allowed 权限。`);
   }
   if (changed) await persistState(config.paths.stateFile);
   return { created, clarifications };

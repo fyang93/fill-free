@@ -89,6 +89,7 @@ function buildTelegramContextLines(config: AppConfig, ctx: Context): string[] {
     replyTargetUserId: repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id) ? repliedMessage.from.id : undefined,
     replyTargetUsername: repliedMessage?.from?.id && authorizedUserIds.includes(repliedMessage.from.id) ? repliedMessage.from.username : undefined,
     chatId: ctx.chat?.id,
+    defaultTimezone: config.bot.defaultTimezone,
   }));
 }
 

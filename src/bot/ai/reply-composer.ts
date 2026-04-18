@@ -139,6 +139,7 @@ export class ReplyComposer {
       ...lines,
       options?.preferredLanguage ? `Use this language for the reply: ${options.preferredLanguage}.` : "",
       "Requester metadata is about the user, not the assistant.",
+      "Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.",
       "Return plain user-visible text only.",
       "Do not output tool calls, tags, hidden markup, or system-control text.",
       ...(includePersonaStyle ? buildPersonaStyleLines(this.config.bot.personaStyle, { label: "Reply style" }) : []),
@@ -149,7 +150,7 @@ export class ReplyComposer {
     const requesterUserId = input?.requesterUserId;
     if (typeof requesterUserId !== "number") return [];
 
-    const known = resolveUser(this.config.paths.repoRoot, requesterUserId);
+    const known = resolveUser(this.config.paths.repoRoot, requesterUserId, { defaultTimezone: this.config.bot.defaultTimezone });
     const runtime = state.telegramUserCache[String(requesterUserId)];
     const profile = known ? {
       id: String(requesterUserId),
@@ -164,7 +165,7 @@ export class ReplyComposer {
       id: String(requesterUserId),
       username: runtime.username || null,
       displayName: runtime.displayName || null,
-      timezone: getUserTimezone(requesterUserId)?.trim() || null,
+      timezone: getUserTimezone(requesterUserId)?.trim() || this.config.bot.defaultTimezone || null,
       accessLevel: null,
       lastSeenAt: runtime.lastSeenAt || null,
       updatedAt: null,
@@ -186,7 +187,7 @@ export class ReplyComposer {
     const requesterUserId = input?.requesterUserId;
     if (typeof requesterUserId !== "number") return [];
 
-    const known = resolveUser(this.config.paths.repoRoot, requesterUserId);
+    const known = resolveUser(this.config.paths.repoRoot, requesterUserId, { defaultTimezone: this.config.bot.defaultTimezone });
     const runtime = state.telegramUserCache[String(requesterUserId)];
     const lines: string[] = [];
     if (known) {
@@ -199,7 +200,7 @@ export class ReplyComposer {
       lines.push(`Current requester user id: ${requesterUserId}.`);
     }
 
-    const timezone = known?.timezone?.trim() || getUserTimezone(requesterUserId)?.trim();
+    const timezone = known?.timezone?.trim() || getUserTimezone(requesterUserId)?.trim() || this.config.bot.defaultTimezone;
     if (timezone) lines.push(`Requester timezone: ${timezone}.`);
     return lines;
   }
@@ -211,12 +212,13 @@ export class ReplyComposer {
     const known = resolveChat(this.config.paths.repoRoot, chatId);
     const runtime = state.telegramChatCache[String(chatId)];
     const requesterUser = typeof input?.requesterUserId === "number"
-      ? resolveUser(this.config.paths.repoRoot, input.requesterUserId)
+      ? resolveUser(this.config.paths.repoRoot, input.requesterUserId, { defaultTimezone: this.config.bot.defaultTimezone })
       : undefined;
     const structured = buildStructuredContextLines(this.config.paths.repoRoot, {
       requesterUserId: input?.requesterUserId,
       requesterUsername: requesterUser?.username || (typeof input?.requesterUserId === "number" ? state.telegramUserCache[String(input.requesterUserId)]?.username : undefined),
       chatId,
+      defaultTimezone: this.config.bot.defaultTimezone,
     });
     if (known) {
       const lines = [`Conversation: ${known.type || "chat"}${known.title ? `, ${known.title}` : ""}.`];

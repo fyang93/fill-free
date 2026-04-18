@@ -3,7 +3,7 @@ import type { AiTurnResult } from "bot/ai";
 import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import { tForUser } from "bot/app/i18n";
-import { extractCandidateFilePaths, sendLocalFiles, sendAiAttachments } from "bot/telegram/transport";
+import { sendLocalFiles, sendAiAttachments } from "bot/telegram/transport";
 import { replyFormatted } from "bot/telegram/format";
 
 export async function deliverAiOutputs(ctx: Context, config: AppConfig, answer: AiTurnResult): Promise<void> {
@@ -14,7 +14,7 @@ export async function deliverAiOutputs(ctx: Context, config: AppConfig, answer: 
     await logger.info(`sent ${sentAttachments} direct attachments back to the current chat`);
   }
 
-  const fileCandidates = answer.files.length > 0 ? answer.files : extractCandidateFilePaths(answer.message);
+  const fileCandidates = answer.files.map((item) => item.trim()).filter(Boolean);
   const sentFiles = fileCandidates.length > 0
     ? await sendLocalFiles(ctx, config, fileCandidates)
     : [];

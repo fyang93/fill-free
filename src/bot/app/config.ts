@@ -15,6 +15,13 @@ function stringOr(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function requiredString(value: unknown, fieldPath: string, configPath: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`Missing ${fieldPath} in ${configPath}`);
+  }
+  return value.trim();
+}
+
 function optionalNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -70,7 +77,7 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
 
   const adminUserIdValue = optionalNumber(telegram.admin_user_id);
   const adminUserId = typeof adminUserIdValue === "number" && adminUserIdValue > 0 ? adminUserIdValue : null;
-  const defaultTimezone = stringOr(bot.default_timezone, "Asia/Tokyo").trim() || "Asia/Tokyo";
+  const defaultTimezone = requiredString(bot.default_timezone, "bot.default_timezone", configPath);
   const maintenanceIdleAfterMinutes = numberOr(maintenance.idle_after_minutes, 15);
   const tmpRetentionDays = Math.max(1, numberOr(maintenance.tmp_retention_days, 7));
 

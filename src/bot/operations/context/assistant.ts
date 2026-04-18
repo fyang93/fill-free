@@ -10,8 +10,8 @@ type AssistantContextInput = {
 };
 
 export function lookupRequesterTimezone(config: AppConfig, requesterUserId: number | undefined): string | null {
-  if (requesterUserId == null) return null;
-  return resolveUser(config.paths.repoRoot, requesterUserId)?.timezone || null;
+  if (requesterUserId == null) return config.bot.defaultTimezone || null;
+  return resolveUser(config.paths.repoRoot, requesterUserId, { defaultTimezone: config.bot.defaultTimezone })?.timezone || config.bot.defaultTimezone || null;
 }
 
 function clarificationScopeKey(chatType: string | undefined, requesterUserId: number | undefined, chatId: number | undefined): string | undefined {
@@ -33,9 +33,12 @@ function deterministicTurnTimeContext(messageTime: string | undefined, timezone:
 }
 
 export async function buildAssistantContextBlock(config: AppConfig, input: AssistantContextInput): Promise<string> {
-  const requesterUser = input.requesterUserId != null ? resolveUser(config.paths.repoRoot, input.requesterUserId) : undefined;
+  const requesterUser = input.requesterUserId != null
+    ? resolveUser(config.paths.repoRoot, input.requesterUserId, { defaultTimezone: config.bot.defaultTimezone })
+    : undefined;
   const chat = input.chatId != null ? resolveChat(config.paths.repoRoot, input.chatId) : undefined;
-  const turnTime = deterministicTurnTimeContext(input.messageTime, requesterUser?.timezone || config.bot.defaultTimezone);
+  const effectiveTimezone = requesterUser?.timezone || config.bot.defaultTimezone;
+  const turnTime = deterministicTurnTimeContext(input.messageTime, effectiveTimezone);
   const activeUsers = Object.entries(chat?.participants || {})
     .sort((a, b) => b[1].lastInteractedAt.localeCompare(a[1].lastInteractedAt))
     .slice(0, 3);
@@ -48,7 +51,7 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
       username: requesterUser.username || null,
       displayName: requesterUser.displayName || null,
       personPath: requesterUser.personPath || null,
-      timezone: requesterUser.timezone || null,
+      timezone: requesterUser.timezone || effectiveTimezone || null,
       rules: requesterUser.rules && requesterUser.rules.length > 0 ? requesterUser.rules : undefined,
     } : null,
     currentChat: chat && input.chatId != null ? {

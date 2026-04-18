@@ -6,6 +6,10 @@ import { logger } from "bot/app/logger";
 import { touchActivity } from "bot/app/state";
 import { accessLevelForUser, type AccessLevel } from "bot/operations/access/roles";
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+}
+
 export const ACCESS_LEVEL_RANK: Record<AccessLevel, number> = {
   none: 0,
   allowed: 1,
@@ -71,7 +75,7 @@ export async function unauthorizedGuard(config: AppConfig, ctx: Context, next: (
 
   const userId = ctx.from?.id;
   let accessLevel = accessLevelForUserId(config, userId);
-  if (accessLevel === "none" && userId) {
+  if (accessLevel === "none" && userId && isPendingAuthorizationClaimInteraction(ctx)) {
     try {
       const granted = await grantPendingAllowedAccessIfMatched(config, ctx.from);
       if (granted.granted) {
@@ -106,10 +110,20 @@ function entityMentionsBot(text: string | undefined, entities: TelegramEntity[] 
   });
 }
 
-function isReplyingToBot(message: Context["message"], botUserId: number | null): boolean {
-  if (!message || botUserId == null) return false;
+function isReplyingToBot(message: Context["message"], botUsername: string | null, botUserId: number | null): boolean {
+  if (!message) return false;
+  const normalizedBotUsername = botUsername?.toLowerCase() || null;
   const repliedMessage = "reply_to_message" in message ? message.reply_to_message : undefined;
-  return repliedMessage?.from?.id === botUserId;
+  if (botUserId != null && repliedMessage?.from?.id === botUserId) return true;
+  if (normalizedBotUsername && typeof repliedMessage?.from?.username === "string" && repliedMessage.from.username.toLowerCase() === normalizedBotUsername) return true;
+
+  const messageRecord = asRecord(message);
+  const externalReply = asRecord(messageRecord?.external_reply);
+  const origin = asRecord(externalReply?.origin);
+  const senderUser = asRecord(origin?.sender_user);
+  if (botUserId != null && senderUser?.id === botUserId) return true;
+  if (normalizedBotUsername && typeof senderUser?.username === "string" && senderUser.username.toLowerCase() === normalizedBotUsername) return true;
+  return false;
 }
 
 export function isAddressedToBot(ctx: Context, botUsername: string | null, botUserId: number | null): boolean {
@@ -117,7 +131,7 @@ export function isAddressedToBot(ctx: Context, botUsername: string | null, botUs
   const message = ctx.message;
   if (!message) return false;
 
-  if (isReplyingToBot(message, botUserId)) return true;
+  if (isReplyingToBot(message, botUsername, botUserId)) return true;
 
   const text = "text" in message ? message.text : undefined;
   const textEntities = "entities" in message ? (message.entities as TelegramEntity[] | undefined) : undefined;
@@ -126,4 +140,11 @@ export function isAddressedToBot(ctx: Context, botUsername: string | null, botUs
   const caption = "caption" in message ? message.caption : undefined;
   const captionEntities = "caption_entities" in message ? (message.caption_entities as TelegramEntity[] | undefined) : undefined;
   return entityMentionsBot(caption, captionEntities, botUsername);
+}
+
+export function isPendingAuthorizationClaimInteraction(ctx: Context): boolean {
+  if (!requiresDirectMention(ctx)) return true;
+  const botUsername = ctx.me?.username || null;
+  const botUserId = typeof ctx.me?.id === "number" ? ctx.me.id : null;
+  return isAddressedToBot(ctx, botUsername, botUserId);
 }

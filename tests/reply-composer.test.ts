@@ -51,6 +51,7 @@ describe("reply composer sanitization", () => {
     expect(captured).toContain("Style for Telegram replies: 冷静、简洁、稳定");
     expect(captured).toContain("Answer the user directly.");
     expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
+    expect(captured).toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
     expect(captured).toContain("Write a short, clear schedule message.");
   });
 
@@ -79,6 +80,7 @@ describe("reply composer sanitization", () => {
     expect(captured).toContain("The assistant has started working on the current request.");
     expect(captured).toContain("Write one very short current-turn acknowledgment for the requester.");
     expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
+    expect(captured).toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
     expect(captured).toContain("Use this language for the reply: zh-CN.");
   });
 

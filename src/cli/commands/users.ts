@@ -37,25 +37,27 @@ function updateUserField(context: RepoCliContext, field: "timezone" | "personPat
 }
 
 function updateUserDoc(context: RepoCliContext, effectiveUserId: number, mutate: (previous: Record<string, unknown>) => Record<string, unknown>): Record<string, unknown> {
-  const { usersDoc, writeJson } = context;
+  const { usersDoc, writeJson, config } = context;
   const doc = usersDoc();
   const key = String(effectiveUserId);
   const previous = doc.users[key] || {};
   const next = mutate(previous);
-  doc.users[key] = next;
+  doc.users[key] = typeof next.timezone === "string" && next.timezone.trim()
+    ? next
+    : { ...next, timezone: config.bot.defaultTimezone };
   writeJson("system/users.json", doc);
-  return next;
+  return doc.users[key];
 }
 
 export async function handleUsersList(context: RepoCliContext): Promise<void> {
   context.requireAdminRequester();
-  context.output({ ok: true, users: loadUsers(context.config.paths.repoRoot) });
+  context.output({ ok: true, users: loadUsers(context.config.paths.repoRoot, { defaultTimezone: context.config.bot.defaultTimezone }) });
 }
 
 export async function handleUsersGet(context: RepoCliContext): Promise<void> {
   context.requireAdminRequester();
   const { resolvedUserId } = context.resolveUserLookup();
-  context.output({ ok: true, userId: resolvedUserId, user: resolvedUserId ? resolveUser(context.config.paths.repoRoot, resolvedUserId) || null : null });
+  context.output({ ok: true, userId: resolvedUserId, user: resolvedUserId ? resolveUser(context.config.paths.repoRoot, resolvedUserId, { defaultTimezone: context.config.bot.defaultTimezone }) || null : null });
 }
 
 export async function handleUsersSetAccess(context: RepoCliContext): Promise<void> {

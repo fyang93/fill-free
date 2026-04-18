@@ -11,6 +11,7 @@ describe("assistant prompt stability", () => {
     expect(prompt).toContain("Return one final user-visible reply for this turn after completing the needed work.");
     expect(prompt).toContain("Apply the configured persona directly in every user-visible reply for this turn");
     expect(prompt).toContain("Requester metadata is about the user, not you.");
+    expect(prompt).toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
     expect(prompt).toContain("Do not mention internal commands, shell usage, interface names, tool names, or implementation steps");
     expect(prompt).toContain("When looking for stored user files or document images, first search relevant markdown notes with keyword search and follow linked paths instead of guessing file locations from directory names alone.");
     expect(prompt).toContain("Respect the access constraints injected for this turn. Do not invent broader privacy prohibitions than those constraints.");
@@ -52,6 +53,7 @@ describe("assistant prompt stability", () => {
     );
     expect(prompt).not.toContain("Requester access level: admin.");
     expect(prompt).toContain("Requester metadata is about the user, not the assistant.");
+    expect(prompt).toContain("Whenever you mention a concrete time, date-time, or local clock time in the user-visible reply, include the timezone explicitly.");
     expect(prompt).toContain("Visible style: 冷静、简洁、带一点稳定的机械感");
     expect(prompt).toContain("Style for Telegram replies: 冷静、简洁、带一点稳定的机械感");
     expect(prompt).toContain("Answer the user directly.");

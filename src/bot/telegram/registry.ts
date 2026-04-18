@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { state } from "bot/app/state";
+import { loadConfig } from "bot/app/config";
 import { invalidateContextStoreCache, loadChats, loadUsers, resolveChat, resolveUser } from "bot/operations/context/store";
 import { enqueueSync } from "bot/operations/maintenance/sync";
 
@@ -56,6 +57,10 @@ function repoRoot(): string {
   return process.cwd();
 }
 
+function defaultTimezone(): string {
+  return loadConfig().bot.defaultTimezone;
+}
+
 function upsertUserFile(userId: string, patch: Record<string, unknown>): void {
   const filePath = path.join(repoRoot(), "system", "users.json");
   try {
@@ -64,7 +69,12 @@ function upsertUserFile(userId: string, patch: Record<string, unknown>): void {
       : { users: {} };
     const users = parsed.users && typeof parsed.users === "object" ? parsed.users : {};
     const previous = users[userId] && typeof users[userId] === "object" ? users[userId] as Record<string, unknown> : {};
-    users[userId] = { ...previous, ...patch, updatedAt: new Date().toISOString() };
+    users[userId] = {
+      ...previous,
+      ...(typeof previous.timezone === "string" && previous.timezone.trim() ? {} : { timezone: state.userTimezoneCache[userId]?.timezone || defaultTimezone() }),
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, JSON.stringify({ users }, null, 2) + "\n", "utf8");
     invalidateContextStoreCache(filePath);
