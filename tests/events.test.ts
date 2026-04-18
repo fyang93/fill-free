@@ -18,8 +18,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       botToken: "test",
       adminUserId: 1,
       waitingMessage: "",
-      runtimeAckDelaySeconds: 5,
-      runtimeProgressDelaySeconds: 15,
       inputMergeWindowSeconds: 3,
       menuPageSize: 10,
     },
@@ -377,7 +375,7 @@ describe("schedule delivery text pipeline", () => {
   function makeAgentService(reply = "记得喝水！时间：今天21:00") {
     const calls: Array<{ scheduleText: string; scheduledAt: string; recurrenceDescription: string }> = [];
     const agentService = {
-      generateScheduleMessage: async (scheduleText: string, scheduledAt: string, recurrenceDescription: string) => {
+      generateReminderText: async (scheduleText: string, scheduledAt: string, recurrenceDescription: string) => {
         calls.push({ scheduleText, scheduledAt, recurrenceDescription });
         return reply;
       },

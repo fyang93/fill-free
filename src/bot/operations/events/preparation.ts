@@ -2,7 +2,7 @@ import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import type { AiService } from "bot/ai";
 import type { EventRecord, ReminderInstance } from "./types";
-import { getCurrentOccurrence, listReminderInstances, scheduleEventScheduleSummary } from "./schedule";
+import { getCurrentOccurrence, listReminderInstances, resolveScheduleDisplayTimezone, scheduleEventScheduleSummary } from "./schedule";
 import { scheduledTaskPromptForEvent, buildScheduledTaskPrompt } from "./automation";
 import { readEventRecords, writeEventRecords } from "./store";
 
@@ -76,10 +76,11 @@ export async function prepareScheduleDeliveryText(config: AppConfig, agentServic
   if (isPreparedScheduleDeliveryTextUsable(event, nextInstance)) {
     return false;
   }
-  const message = await agentService.generateScheduleMessage(
+  const message = await agentService.generateReminderText(
     event.title,
     nextInstance.notifyAt,
     scheduleEventScheduleSummary(config, event),
+    resolveScheduleDisplayTimezone(config, event),
   );
   const trimmed = message.trim();
   if (!trimmed) return false;

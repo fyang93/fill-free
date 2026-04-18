@@ -19,8 +19,6 @@ function diffConfigKeys(before: AppConfig, after: AppConfig): string[] {
   if (before.telegram.waitingMessage !== after.telegram.waitingMessage) changed.push("telegram.waiting_message");
   if ((before.telegram.waitingMessageCandidateCount ?? 20) !== (after.telegram.waitingMessageCandidateCount ?? 20)) changed.push("telegram.waiting_message_candidate_count");
   if ((before.telegram.waitingMessageRotationSeconds ?? 5) !== (after.telegram.waitingMessageRotationSeconds ?? 5)) changed.push("telegram.waiting_message_rotation_seconds");
-  if (before.telegram.runtimeAckDelaySeconds !== after.telegram.runtimeAckDelaySeconds) changed.push("telegram.runtime_ack_delay_seconds");
-  if (before.telegram.runtimeProgressDelaySeconds !== after.telegram.runtimeProgressDelaySeconds) changed.push("telegram.runtime_progress_delay_seconds");
   if (before.telegram.menuPageSize !== after.telegram.menuPageSize) changed.push("telegram.menu_page_size");
   if (before.bot.personaStyle !== after.bot.personaStyle) changed.push("bot.persona_style");
   if (before.bot.language !== after.bot.language) changed.push("bot.language");

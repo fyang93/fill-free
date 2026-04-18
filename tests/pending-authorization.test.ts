@@ -15,8 +15,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       botToken: "test",
       adminUserId: 1,
       waitingMessage: "",
-      runtimeAckDelaySeconds: 5,
-      runtimeProgressDelaySeconds: 15,
       inputMergeWindowSeconds: 3,
       menuPageSize: 10,
     },

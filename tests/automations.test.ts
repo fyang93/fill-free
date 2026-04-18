@@ -19,8 +19,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       botToken: "test",
       adminUserId: 1,
       waitingMessage: "",
-      runtimeAckDelaySeconds: 5,
-      runtimeProgressDelaySeconds: 15,
       inputMergeWindowSeconds: 3,
       menuPageSize: 10,
     },
@@ -159,7 +157,7 @@ describe("automation category", () => {
         scheduledTaskPromptReceived = prompt;
         return "今日科技新闻：AI 芯片取得突破...";
       },
-      generateScheduleMessage: async (_title: string, _scheduledAt: string, _recurrence: string) => {
+      generateReminderText: async (_title: string, _scheduledAt: string, _recurrence: string) => {
         scheduleMessageCalled = true;
         return "提醒消息";
       },
@@ -250,7 +248,7 @@ describe("automation category", () => {
     const result = await eventPreparationTaskHandler.run({
       config,
       agentService: {
-        generateScheduleMessage: async () => {
+        generateReminderText: async () => {
           if (!updated) {
             updated = true;
             const latest = await getEventRecord(config, event.id);
@@ -298,7 +296,7 @@ describe("automation category", () => {
         scheduledTaskCalled = true;
         return "task content";
       },
-      generateScheduleMessage: async (title: string, _scheduledAt: string, _recurrence: string) => {
+      generateReminderText: async (title: string, _scheduledAt: string, _recurrence: string) => {
         scheduleTitleReceived = title;
         return "组会马上开始了";
       },

@@ -11,8 +11,6 @@ function createTestConfig(): AppConfig {
       botToken: "test",
       adminUserId: 1,
       waitingMessage: "",
-      runtimeAckDelaySeconds: 5,
-      runtimeProgressDelaySeconds: 15,
       inputMergeWindowSeconds: 3,
       menuPageSize: 10,
     },
@@ -40,7 +38,7 @@ function createTestConfig(): AppConfig {
 }
 
 describe("gateway execution history", () => {
-  test("generateScheduleMessage uses text-only writer mode without tool execution", async () => {
+  test("generateReminderText uses text-only writer mode without tool execution", async () => {
     const service = new AiService(createTestConfig()) as any;
     let capturedBody: any = null;
     service.client = {
@@ -63,10 +61,12 @@ describe("gateway execution history", () => {
       },
     };
 
-    const result = await service.generateScheduleMessage("带钱包", "2026-04-12T08:00:00", "一次性提醒");
+    const result = await service.generateReminderText("带钱包", "2026-04-12T08:00:00.000Z", "一次性提醒", "Asia/Tokyo");
     expect(result).toBe("明早 8 点提醒你带钱包。");
     expect(capturedBody?.agent).toBeUndefined();
     expect(String(capturedBody?.system || "")).toContain("text-only reply writer");
+    expect(String(capturedBody?.parts?.[0]?.text || "")).toContain("Write a short, clear reminder message.");
+    expect(String(capturedBody?.parts?.[0]?.text || "")).toContain("Reminder local time: 2026-04-12 17:00:00 (Asia/Tokyo).");
   });
 
   test("automation content generation uses the assistant build lane instead of writer mode", async () => {
@@ -123,13 +123,12 @@ describe("gateway execution history", () => {
     };
 
     await service.generateStartupGreeting({ requesterUserId: 1 });
-    await service.generateRuntimeAckMessage("initial", { preferredLanguage: "zh-CN" });
     await service.generateWaitingMessageCandidate({ preferredLanguage: "zh-CN" });
     await service.generateWaitingMessageCandidates(2, { preferredLanguage: "zh-CN" });
     await service.composeUserReply("草稿", ["事实1"], { requesterUserId: 1, chatId: 1, chatType: "private" });
     await service.composeDeliveryMessage("发给对方的草稿", "@user");
 
-    expect(capturedBodies.length).toBe(6);
+    expect(capturedBodies.length).toBe(5);
     for (const body of capturedBodies) {
       expect(body?.agent).toBeUndefined();
       expect(String(body?.system || "")).toContain("text-only reply writer");

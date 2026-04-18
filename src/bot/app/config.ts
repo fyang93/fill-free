@@ -88,8 +88,6 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       waitingMessage: (optionalString(telegram.waiting_message) || "").trim(),
       waitingMessageCandidateCount: Math.max(1, numberOr(telegram.waiting_message_candidate_count, 20)),
       waitingMessageRotationSeconds: Math.max(1, numberOr(telegram.waiting_message_rotation_seconds, 5)),
-      runtimeAckDelaySeconds: Math.max(0, numberOr(telegram.runtime_ack_delay_seconds, 5)),
-      runtimeProgressDelaySeconds: Math.max(0, numberOr(telegram.runtime_progress_delay_seconds, 15)),
       inputMergeWindowSeconds: Math.max(0, numberOr(telegram.input_merge_window_seconds, 3)),
       menuPageSize: numberOr(telegram.menu_page_size, 8),
     },

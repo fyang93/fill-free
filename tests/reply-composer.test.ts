@@ -11,8 +11,6 @@ function createTestConfig(): AppConfig {
       botToken: "test",
       adminUserId: 1,
       waitingMessage: "",
-      runtimeAckDelaySeconds: 5,
-      runtimeProgressDelaySeconds: 15,
       inputMergeWindowSeconds: 3,
       menuPageSize: 10,
     },
@@ -40,19 +38,20 @@ function createTestConfig(): AppConfig {
 }
 
 describe("reply composer sanitization", () => {
-  test("generateScheduleMessage requests persona-aware schedule wording", async () => {
+  test("generateReminderText requests persona-aware reminder wording with explicit local time", async () => {
     let captured = "";
     const composer = new ReplyComposer(createTestConfig(), async (prompt) => {
       captured = prompt;
       return "18:00，记得 review 论文。";
     });
-    await composer.generateScheduleMessage("review论文", "2026-04-05T18:00:00", "一次性提醒");
+    await composer.generateReminderText("review论文", "2026-04-05T18:00:00.000Z", "一次性提醒", "Asia/Tokyo");
     expect(captured).toContain("Reply style: 冷静、简洁、稳定");
     expect(captured).toContain("Style for Telegram replies: 冷静、简洁、稳定");
     expect(captured).toContain("Answer the user directly.");
     expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
-    expect(captured).toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
-    expect(captured).toContain("Write a short, clear schedule message.");
+    expect(captured).not.toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
+    expect(captured).toContain("Write a short, clear reminder message.");
+    expect(captured).toContain("Reminder local time: 2026-04-06 03:00:00 (Asia/Tokyo).");
   });
 
   test("startup greeting request keeps persona enabled", async () => {
@@ -64,29 +63,15 @@ describe("reply composer sanitization", () => {
     await composer.generateStartupGreeting({ requesterUserId: 1, chatId: 1, chatType: "private" });
     expect(captured).toContain("Write one short proactive startup greeting for the administrator.");
     expect(captured).toContain("Return only the greeting text. Do not send it and do not take any action.");
+    expect(captured).toContain("Do not mention the current time or date unless the user explicitly asked for it.");
     expect(captured).toContain("Reply style: 冷静、简洁、稳定");
     expect(captured).toContain("Style for Telegram replies: 冷静、简洁、稳定");
     expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
   });
 
-  test("generateRuntimeAckMessage requests persona-aware current-turn wording", async () => {
-    let captured = "";
-    const composer = new ReplyComposer(createTestConfig(), async (prompt) => {
-      captured = prompt;
-      return "收到...处理中。";
-    });
-    await composer.generateRuntimeAckMessage("initial", { preferredLanguage: "zh-CN" });
-    expect(captured).toContain("Reply style: 冷静、简洁、稳定");
-    expect(captured).toContain("The assistant has started working on the current request.");
-    expect(captured).toContain("Write one very short current-turn acknowledgment for the requester.");
-    expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
-    expect(captured).toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
-    expect(captured).toContain("Use this language for the reply: zh-CN.");
-  });
-
-  test("generateScheduleMessage rejects tool-call markup and returns empty string", async () => {
+  test("generateReminderText rejects tool-call markup and returns empty string", async () => {
     const composer = new ReplyComposer(createTestConfig(), async () => '<invoke name="memory"><parameter name="query">x</parameter></invoke></minimax:tool_call>');
-    const message = await composer.generateScheduleMessage("review论文", "2026-04-05T18:00:00", "一次性提醒");
+    const message = await composer.generateReminderText("review论文", "2026-04-05T18:00:00.000Z", "一次性提醒", "Asia/Tokyo");
     expect(message).toBe("");
   });
 
@@ -100,6 +85,18 @@ describe("reply composer sanitization", () => {
     const composer = new ReplyComposer(createTestConfig(), async () => "", async () => '<invoke name="memory"><parameter name="query">x</parameter></invoke></minimax:tool_call>');
     const message = await composer.generateStartupGreeting({ requesterUserId: 1 });
     expect(message).toBeNull();
+  });
+
+  test("startup greeting request does not inject unnecessary current time context", async () => {
+    let captured = "";
+    const composer = new ReplyComposer(createTestConfig(), async () => "", async (prompt) => {
+      captured = prompt;
+      return "欢迎回来。";
+    });
+    await composer.generateStartupGreeting({ requesterUserId: 1 });
+    expect(captured).not.toContain("Deterministic startup local time:");
+    expect(captured).not.toContain("If you mention the current time, use that exact local time and timezone.");
+    expect(captured).toContain("Do not mention the current time or date unless the user explicitly asked for it.");
   });
 
   test("startup greeting rejects hidden-like tags before visible text", async () => {

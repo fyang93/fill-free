@@ -188,8 +188,8 @@ export class AiService {
     return this.replyComposer.generateStartupGreeting(input);
   }
 
-  async generateScheduleMessage(scheduleText: string, scheduledAt: string, recurrenceDescription: string): Promise<string> {
-    return this.replyComposer.generateScheduleMessage(scheduleText, scheduledAt, recurrenceDescription);
+  async generateReminderText(reminderText: string, notifyAt: string, recurrenceDescription: string, timezone: string): Promise<string> {
+    return this.replyComposer.generateReminderText(reminderText, notifyAt, recurrenceDescription, timezone);
   }
 
   async generateScheduledTaskContent(prompt: string): Promise<string> {
@@ -201,10 +201,6 @@ export class AiService {
       `Task prompt: ${taskPrompt}`,
     ].join("\n");
     return this.promptInDisposableAgentTextSession(request, "assistant");
-  }
-
-  async generateRuntimeAckMessage(kind: "initial" | "progress", input?: ReplyComposerInputContext): Promise<string> {
-    return this.replyComposer.generateRuntimeAckMessage(kind, input);
   }
 
   async generateWaitingMessageCandidate(input?: ReplyComposerInputContext): Promise<string> {

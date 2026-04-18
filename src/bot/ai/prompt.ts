@@ -65,7 +65,6 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant
       "Never use tools, inspect files, run commands, or change repository state.",
       "Do not perform actions or create/update/delete anything; only write the requested text.",
       "Requester metadata is about the user, not you.",
-      "Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.",
       "Apply the configured persona directly in the visible wording.",
       ...buildPersonaStyleLines(personaStyle),
     ].filter(Boolean).join("\n");
@@ -77,7 +76,6 @@ export function buildProjectSystemPrompt(personaStyle?: string, role: "assistant
       "Prefer native repository capabilities, file editing, shell commands, and repository-local deterministic interfaces for upkeep.",
       "Use the bot's configured default language for maintenance summaries.",
       "Requester metadata is about the user, not you.",
-      "Whenever the visible summary mentions a concrete time, date-time, or local clock time, include the timezone explicitly.",
       "Do not mention internal commands, shell usage, interface names, tool names, or implementation steps in the user-visible summary unless explicitly requested.",
       "Keep user-facing summaries concise.",
       "Keep durable factual memory and broad preferences concise and well-organized.",

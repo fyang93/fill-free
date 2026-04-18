@@ -1,5 +1,6 @@
 import type { AppConfig } from "bot/app/types";
 import { getUserTimezone, state } from "bot/app/state";
+import { formatIsoInTimezoneParts } from "bot/app/time";
 import { buildStructuredContextLines, resolveChat, resolveUser } from "bot/operations/context/store";
 import { isDisplayableUserText } from "./response";
 import { buildPersonaStyleLines } from "./prompt";
@@ -28,11 +29,12 @@ export class ReplyComposer {
     return message || null;
   }
 
-  async generateScheduleMessage(scheduleText: string, scheduledAt: string, recurrenceDescription: string): Promise<string> {
+  async generateReminderText(reminderText: string, notifyAt: string, recurrenceDescription: string, timezone: string): Promise<string> {
+    const localReminderTime = formatIsoInTimezoneParts(notifyAt, timezone?.trim());
     const request = this.buildUserFacingTextRequest([
-      "Write a short, clear schedule message.",
-      `Schedule content: ${scheduleText}`,
-      `Scheduled time: ${scheduledAt}`,
+      "Write a short, clear reminder message.",
+      `Reminder content: ${reminderText}`,
+      localReminderTime ? `Reminder local time: ${localReminderTime.localDateTime} (${localReminderTime.timezone}).` : `Reminder time: ${notifyAt}`,
       `Repeat rule: ${recurrenceDescription}`,
     ], { preferredLanguage: this.config.bot.language });
 
@@ -48,24 +50,6 @@ export class ReplyComposer {
 
     const result = this.extractDirectTextReply(await this.promptForText(request)).trim();
     return result;
-  }
-
-  async generateRuntimeAckMessage(kind: "initial" | "progress", input?: ReplyComposerInputContext): Promise<string> {
-    const request = this.buildUserFacingTextRequest([
-      kind === "initial"
-        ? "The assistant has started working on the current request."
-        : "The assistant is still working on the current request.",
-      kind === "initial"
-        ? "Write one very short current-turn acknowledgment for the requester."
-        : "Write one very short current-turn progress update for the requester.",
-      "Keep it brief and user-facing.",
-      "Do not mention tools, commands, internal steps, or implementation details.",
-      kind === "initial"
-        ? "Do not promise a completion time."
-        : "Do not promise a completion time; just say work is still in progress.",
-    ], { preferredLanguage: input?.preferredLanguage });
-
-    return this.extractDirectTextReply(await this.promptForText(request)).trim();
   }
 
   async generateWaitingMessageCandidate(input?: ReplyComposerInputContext): Promise<string> {
@@ -139,7 +123,6 @@ export class ReplyComposer {
       ...lines,
       options?.preferredLanguage ? `Use this language for the reply: ${options.preferredLanguage}.` : "",
       "Requester metadata is about the user, not the assistant.",
-      "Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.",
       "Return plain user-visible text only.",
       "Do not output tool calls, tags, hidden markup, or system-control text.",
       ...(includePersonaStyle ? buildPersonaStyleLines(this.config.bot.personaStyle, { label: "Reply style" }) : []),
@@ -148,7 +131,9 @@ export class ReplyComposer {
 
   private async buildStartupGreetingContextLines(input?: ReplyComposerInputContext): Promise<string[]> {
     const requesterUserId = input?.requesterUserId;
-    if (typeof requesterUserId !== "number") return [];
+    if (typeof requesterUserId !== "number") return [
+      "Do not mention the current time or date unless the user explicitly asked for it.",
+    ];
 
     const known = resolveUser(this.config.paths.repoRoot, requesterUserId, { defaultTimezone: this.config.bot.defaultTimezone });
     const runtime = state.telegramUserCache[String(requesterUserId)];
@@ -174,6 +159,7 @@ export class ReplyComposer {
     };
 
     const lines = [
+      "Do not mention the current time or date unless the user explicitly asked for it.",
       "Current requester profile JSON:",
       "```json",
       JSON.stringify(profile, null, 2),

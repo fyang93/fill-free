@@ -32,6 +32,7 @@ describe("assistant prompt stability", () => {
   test("maintainer prompt requires direct persona application", () => {
     const maintainer = buildProjectSystemPrompt("冷静、简洁、带一点稳定的机械感", "maintainer");
     expect(maintainer).toContain("Apply the configured persona directly in the maintenance summary");
+    expect(maintainer).not.toContain("Whenever the visible summary mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
     expect(maintainer).toContain("Never write, patch, or directly edit files under system/.");
     expect(maintainer).toContain("Keep durable factual memory and broad preferences concise and well-organized.");
     expect(maintainer).toContain("This repository is multi-user: person-specific notes belong under the correct owner area, not broad top-level memory files.");

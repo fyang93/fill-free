@@ -1,5 +1,6 @@
 import solarLunar from "solarlunar";
 import { getUserTimezone } from "bot/app/state";
+import { loadConfig } from "bot/app/config";
 import type { AppConfig } from "bot/app/types";
 import { t, tForLocale, uiLocaleTag, type Locale } from "bot/app/i18n";
 import type {
@@ -551,9 +552,12 @@ function nextEventOccurrence(schedule: EventSchedule, reference = new Date()): s
   return nextLunarEventOccurrence(schedule, reference);
 }
 
+function configuredDefaultTimezone(): string {
+  return loadConfig().bot.defaultTimezone;
+}
+
 function nextLocalEventOccurrence(event: EventRecord, reference = new Date(), timezoneOverride?: string): string | null {
-  const timezone = timezoneOverride || getUserTimezone(event.createdByUserId);
-  if (!timezone) throw new Error(`Missing timezone for local event ${event.id}`);
+  const timezone = timezoneOverride || getUserTimezone(event.createdByUserId) || configuredDefaultTimezone();
   if (event.schedule.kind === "once") return event.schedule.scheduledAt;
   if (event.schedule.kind === "interval") return nextLocalIntervalOccurrence(event.schedule, reference, timezone);
   if (event.schedule.kind === "weekly") return nextLocalWeeklyOccurrence(event.schedule, reference, timezone);

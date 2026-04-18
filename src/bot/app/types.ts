@@ -5,8 +5,6 @@ export type AppConfig = {
     waitingMessage: string;
     waitingMessageCandidateCount?: number;
     waitingMessageRotationSeconds?: number;
-    runtimeAckDelaySeconds: number;
-    runtimeProgressDelaySeconds: number;
     inputMergeWindowSeconds: number;
     menuPageSize: number;
   };
