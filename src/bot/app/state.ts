@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PendingAuthorization, SessionState, UploadedFile, WaitingMessageCandidate } from "./types";
+import type { PendingAuthorization, SessionState, UploadedFile } from "./types";
 import { enqueueSync } from "bot/operations/maintenance/sync";
 
 const RECENT_UPLOADS_TTL_MS = 30 * 60 * 1000;
@@ -11,7 +11,6 @@ export const state: SessionState = {
   model: null,
   lastActivityAt: null,
   lastMaintainedAt: null,
-  waitingMessageCandidates: [],
   recentUploadsByScope: {},
   recentClarificationsByScope: {},
   userTimezoneCache: {},
@@ -40,14 +39,6 @@ function normalizePendingAuthorization(value: unknown): PendingAuthorization | n
   return { kind, username, createdBy, createdAt, expiresAt };
 }
 
-function normalizeWaitingMessageCandidate(value: unknown): WaitingMessageCandidate | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const text = cleanOptionalText(record.text);
-  if (!text) return null;
-  return { text, used: record.used === true };
-}
-
 function repoRootFromStateFile(filePath: string): string {
   return path.dirname(path.dirname(filePath));
 }
@@ -68,7 +59,8 @@ function hydrateKnownEntities(repoRoot: string): void {
       const username = cleanOptionalText(record.username);
       const displayName = cleanOptionalText(record.displayName) || (username ? `@${username}` : "Telegram user");
       const lastSeenAt = cleanOptionalText(record.lastSeenAt) || new Date().toISOString();
-      nextUsers[userId] = { username, displayName, lastSeenAt };
+      const languageCode = cleanOptionalText(record.languageCode) || cleanOptionalText(record.language_code);
+      nextUsers[userId] = { username, displayName, lastSeenAt, languageCode };
       const timezone = cleanOptionalText(record.timezone);
       if (timezone) nextTimezones[userId] = { timezone, updatedAt: cleanOptionalText(record.updatedAt) || new Date().toISOString() };
     }
@@ -153,14 +145,10 @@ export async function loadPersistentState(filePath: string): Promise<void> {
     const parsed = loadedRaw ? JSON.parse(loadedRaw) as {
       model?: unknown;
       lastMaintainedAt?: unknown;
-      waitingMessageCandidates?: unknown;
       pendingAuthorizations?: unknown;
     } : {};
     state.model = typeof parsed.model === "string" && parsed.model.trim() ? parsed.model.trim() : null;
     state.lastMaintainedAt = typeof parsed.lastMaintainedAt === "string" && parsed.lastMaintainedAt.trim() ? parsed.lastMaintainedAt.trim() : null;
-    state.waitingMessageCandidates = Array.isArray(parsed.waitingMessageCandidates)
-      ? parsed.waitingMessageCandidates.map(normalizeWaitingMessageCandidate).filter((item): item is WaitingMessageCandidate => Boolean(item))
-      : [];
     state.pendingAuthorizations = Array.isArray(parsed.pendingAuthorizations)
       ? parsed.pendingAuthorizations.map(normalizePendingAuthorization).filter((item): item is PendingAuthorization => Boolean(item))
       : [];
@@ -169,7 +157,6 @@ export async function loadPersistentState(filePath: string): Promise<void> {
   } catch {
     state.model = null;
     state.lastMaintainedAt = null;
-    state.waitingMessageCandidates = [];
     state.pendingAuthorizations = [];
     state.recentUploadsByScope = {};
     state.recentClarificationsByScope = {};
@@ -185,7 +172,6 @@ export async function persistState(filePath: string): Promise<void> {
     JSON.stringify({
       model: state.model,
       lastMaintainedAt: state.lastMaintainedAt,
-      waitingMessageCandidates: state.waitingMessageCandidates,
       pendingAuthorizations: state.pendingAuthorizations,
     }, null, 2) + "\n",
     "utf8",

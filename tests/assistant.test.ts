@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
-import { runAssistantTask, warmWaitingMessageCandidates, type ActiveConversationTask } from "../src/bot/runtime/assistant";
+import { runAssistantTask, type ActiveConversationTask } from "../src/bot/runtime/assistant";
 import { clearRecentClarification, state } from "../src/bot/app/state";
 
 const tempDirs: string[] = [];
@@ -33,9 +33,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       enabled: false,
       idleAfterMs: 0,
       tmpRetentionDays: 1,
-    },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
     },
   };
 }
@@ -197,40 +194,6 @@ describe("assistant TTFR and runtime-owned reply publication", () => {
 });
 
 describe("assistant orchestration", () => {
-  test("waiting message candidates dedupe generated variants within the pool", async () => {
-    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-ack-cache-test-"));
-    tempDirs.push(repoRoot);
-    const config = createTestConfig(repoRoot);
-    config.bot.personaStyle = `ack-cache-test-${Date.now()}`;
-    const texts = await warmWaitingMessageCandidates({
-      generateWaitingMessageCandidate: async () => "收到...处理中。",
-    } as any, config);
-
-    expect(texts).toHaveLength(1);
-    expect(new Set(texts.map((item) => item.text)).size).toBe(1);
-
-    const stateDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "state.json"), "utf8")) as { waitingMessageCandidates?: Array<{ text?: string; used?: boolean }> };
-    expect(stateDoc.waitingMessageCandidates || []).toHaveLength(1);
-    expect((stateDoc.waitingMessageCandidates || []).every((item) => item.used === false)).toBe(true);
-  });
-
-  test("waiting message candidate generation passes configured bot language", async () => {
-    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-ack-lang-test-"));
-    tempDirs.push(repoRoot);
-    const config = createTestConfig(repoRoot);
-    config.bot.language = "en";
-    let capturedLanguage: string | undefined;
-
-    const texts = await warmWaitingMessageCandidates({
-      generateWaitingMessageCandidates: async (_count: number, input?: { preferredLanguage?: string }) => {
-        capturedLanguage = input?.preferredLanguage;
-        return ["still processing..."];
-      },
-    } as any, config);
-
-    expect(capturedLanguage).toBe("en");
-    expect(texts.map((item) => item.text)).toEqual(["still processing..."]);
-  });
 
   test("single assistant agent returns a message and runtime publishes it", async () => {
     const config = await createTempConfig();

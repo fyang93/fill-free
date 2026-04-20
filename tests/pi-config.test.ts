@@ -6,6 +6,7 @@ describe("role prompts stay aligned with current routing design", () => {
     const assistant = buildProjectSystemPrompt("简洁", "assistant");
 
     expect(assistant).toContain("You are the main assistant for a local-first Telegram bot.");
-    expect(assistant).toContain("Return one final user-visible reply for this turn after completing the needed work.");
+    expect(assistant).toContain("Do the work, then return one user-visible reply.");
+    expect(assistant.length).toBeLessThan(1600);
   });
 });

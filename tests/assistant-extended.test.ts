@@ -53,9 +53,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       idleAfterMs: 0,
       tmpRetentionDays: 1,
     },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
-    },
   };
 }
 

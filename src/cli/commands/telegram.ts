@@ -7,7 +7,7 @@ import { findTelegramChats, findTelegramUsers } from "bot/telegram/registry";
 import { accessLevelForUser, listAuthorizedUserIds } from "bot/operations/access/roles";
 import { hasAccessLevel } from "bot/operations/access/control";
 import { logger } from "bot/app/logger";
-import { enqueueTask } from "bot/tasks/runtime/store";
+import { scheduleRepoCliCommand } from "cli/scheduler";
 import type { RepoCliContext } from "cli/runtime";
 
 async function deliverTelegramMessage(context: RepoCliContext, recipientId: number, content: string, recipientLabel?: string): Promise<{ ok: true; delivered: true; recipientId: number; recipientLabel?: string; messageId?: number }> {
@@ -31,20 +31,26 @@ async function deliverTelegramFile(context: RepoCliContext, recipientId: number,
   return { ok: true, delivered: true, recipientId, recipientLabel, messageId, filePath: relPath || path.basename(absPath) };
 }
 
-async function scheduleTelegramMessage(context: RepoCliContext, recipientId: number, content: string, sendAt: string, recipientLabel?: string, requesterUserId?: number): Promise<never> {
+export async function scheduleTelegramMessage(
+  context: RepoCliContext,
+  recipientId: number,
+  content: string,
+  sendAt: string,
+  recipientLabel?: string,
+  requesterUserId?: number,
+  scheduleCommand: typeof scheduleRepoCliCommand = scheduleRepoCliCommand,
+): Promise<never> {
   if (!Number.isFinite(Date.parse(sendAt))) context.output({ ok: false, error: "invalid-sendAt" });
   await logger.info(`telegram tool schedule_message recipient=${recipientLabel || recipientId} sendAt=${sendAt} chars=${content.length} content=${context.logTextContent(content)}`);
-  const task = await enqueueTask(context.config, {
-    domain: "messages",
-    operation: "deliver",
-    subject: { kind: "chat", id: String(recipientId) },
-    payload: { recipientId, recipientLabel, content },
-    availableAt: sendAt,
-    dedupeKey: `messages:deliver:${recipientId}:${sendAt}:${content}`,
-    source: requesterUserId ? { requesterUserId } : undefined,
-  });
-  await logger.info(`telegram tool schedule_message queued recipient=${recipientLabel || recipientId} taskId=${task.id} sendAt=${sendAt} content=${context.logTextContent(content)}`);
-  context.output({ ok: true, scheduled: true, taskId: task.id, recipientId, recipientLabel, sendAt });
+  const scheduled = scheduleCommand(context.config, "telegram:send-message", {
+    requesterUserId,
+    recipientId,
+    recipientLabel,
+    content,
+  }, sendAt);
+  if (!scheduled.ok) context.output(scheduled);
+  await logger.info(`telegram tool schedule_message delegated recipient=${recipientLabel || recipientId} scheduler=${scheduled.scheduler} handle=${scheduled.handle} sendAt=${sendAt}`);
+  context.output({ ok: true, scheduled: true, recipientId, recipientLabel, sendAt, scheduler: scheduled.scheduler, handle: scheduled.handle });
 }
 
 function requireOutboundRequester(context: RepoCliContext): number {

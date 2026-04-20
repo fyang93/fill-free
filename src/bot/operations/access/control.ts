@@ -44,15 +44,15 @@ export function isTrustedUserId(config: AppConfig, userId: number | undefined): 
 }
 
 export function canUseFiles(accessLevel: AccessLevel): boolean {
-  return hasAccessLevel(accessLevel, "trusted");
+  return hasAccessLevel(accessLevel, "allowed");
 }
 
 export function canCreateSchedules(accessLevel: AccessLevel): boolean {
-  return hasAccessLevel(accessLevel, "trusted");
+  return hasAccessLevel(accessLevel, "allowed");
 }
 
 export function canReadSchedules(accessLevel: AccessLevel): boolean {
-  return hasAccessLevel(accessLevel, "trusted");
+  return hasAccessLevel(accessLevel, "allowed");
 }
 
 export function canManageAllSchedules(accessLevel: AccessLevel): boolean {
@@ -60,11 +60,15 @@ export function canManageAllSchedules(accessLevel: AccessLevel): boolean {
 }
 
 export function canManageOwnSchedules(accessLevel: AccessLevel): boolean {
-  return hasAccessLevel(accessLevel, "trusted");
+  return hasAccessLevel(accessLevel, "allowed");
 }
 
-export function canRequesterCreateEventTargets(config: AppConfig, requesterUserId: number | undefined, _targets: EventTarget[]): boolean {
-  return canCreateSchedules(accessLevelForUserId(config, requesterUserId));
+export function canRequesterCreateEventTargets(config: AppConfig, requesterUserId: number | undefined, targets: EventTarget[]): boolean {
+  const accessLevel = accessLevelForUserId(config, requesterUserId);
+  if (!canCreateSchedules(accessLevel)) return false;
+  if (accessLevel !== "allowed") return true;
+  if (!requesterUserId) return false;
+  return targets.every((target) => target.targetKind === "chat" || (target.targetKind === "user" && target.targetId === requesterUserId));
 }
 
 export async function unauthorizedGuard(config: AppConfig, ctx: Context, next: () => Promise<void>): Promise<void> {
@@ -74,23 +78,29 @@ export async function unauthorizedGuard(config: AppConfig, ctx: Context, next: (
   }
 
   const userId = ctx.from?.id;
+  const username = typeof ctx.from?.username === "string" ? ctx.from.username : undefined;
+  const chatType = ctx.chat?.type ?? "unknown";
+  const pendingClaimInteraction = isPendingAuthorizationClaimInteraction(ctx);
   let accessLevel = accessLevelForUserId(config, userId);
-  if (accessLevel === "none" && userId && isPendingAuthorizationClaimInteraction(ctx)) {
+  if (accessLevel === "none" && userId && pendingClaimInteraction) {
     try {
+      await logger.info(`pending authorization claim check user=${userId} username=${username ? `@${username}` : "(none)"} chatType=${chatType}`);
       const granted = await grantPendingAllowedAccessIfMatched(config, ctx.from);
       if (granted.granted) {
         await logger.info(`granted allowed access from pending authorization user=${userId} username=@${granted.username} changed=${granted.changed}`);
         accessLevel = "allowed";
+      } else {
+        await logger.info(`pending authorization claim miss user=${userId} username=${username ? `@${username}` : "(none)"} chatType=${chatType}`);
       }
     } catch (error) {
-      await logger.warn(`failed to grant pending allowed access user=${userId}: ${error instanceof Error ? error.message : String(error)}`);
+      await logger.warn(`failed to grant pending allowed access user=${userId} username=${username ? `@${username}` : "(none)"} chatType=${chatType}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   if (accessLevel === "none") {
-    await logger.warn(`access denied level=none user=${userId ?? "unknown"}`);
+    await logger.warn(`access denied level=none user=${userId ?? "unknown"} username=${username ? `@${username}` : "(none)"} chatType=${chatType} pendingClaimInteraction=${pendingClaimInteraction ? "yes" : "no"}`);
     return;
   }
-  await logger.info(`access granted level=${accessLevel} user=${userId ?? "unknown"}`);
+  await logger.info(`access granted level=${accessLevel} user=${userId ?? "unknown"} username=${username ? `@${username}` : "(none)"} chatType=${chatType}`);
   touchActivity();
   await next();
 }

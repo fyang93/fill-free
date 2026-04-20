@@ -16,7 +16,6 @@ import { normalizeScheduledAt } from "bot/operations/events";
 import type { AiService } from "bot/ai";
 import { runAssistantTask, type ActiveConversationTask } from "bot/runtime";
 import { WAITING_MESSAGE_PLACEHOLDER } from "./constants";
-import { createWaitingMessageController } from "./waiting";
 import { rememberTelegramParticipants } from "bot/telegram/identity";
 import { buildTelegramReplyContextBlock, summarizeIncomingText, telegramReplySummary } from "bot/telegram/reply_context";
 import { saveTelegramFileFromMessage, uploadedFileToAiAttachment } from "bot/telegram/transport";
@@ -78,11 +77,6 @@ function deterministicClockTimeContext(text: string, requesterUserId: number | u
   ].join("\n");
 }
 
-type MediaGroupCacheEntry = {
-  files: Map<number, MediaGroupEntry>;
-  updatedAt: number;
-};
-
 type ConversationTurnInput = {
   waitingTemplate: string;
   promptText: string;
@@ -104,6 +98,11 @@ type ConversationTurnSlot = {
   launchTimer?: ReturnType<typeof setTimeout>;
 };
 
+type MediaGroupCacheEntry = {
+  files: Map<number, MediaGroupEntry>;
+  updatedAt: number;
+};
+
 const MEDIA_GROUP_CACHE_TTL_MS = 60 * 60 * 1000;
 const MEDIA_GROUP_CACHE_MAX_GROUPS = 200;
 const STARTUP_COALESCE_MAX_MS = 500;
@@ -114,6 +113,12 @@ function isExpectedFileIngressError(message: string): boolean {
 
 function isTelegramBotApiFileLimitError(message: string): boolean {
   return /file is too big|bot download limit/i.test(message);
+}
+
+function renderWaitingMessage(template: string, waitingMessage: string): string {
+  return template.includes(WAITING_MESSAGE_PLACEHOLDER)
+    ? template.replaceAll(WAITING_MESSAGE_PLACEHOLDER, waitingMessage)
+    : waitingMessage;
 }
 
 function contactPromptText(ctx: Context): string {
@@ -134,21 +139,15 @@ function contactPromptText(ctx: Context): string {
 
 export class ConversationController {
   private nextTaskId = 1;
-  private readonly waiting;
   private readonly activeTasks;
   private readonly mediaGroups = new Map<string, MediaGroupCacheEntry>();
   private readonly turns = new Map<string, ConversationTurnSlot>();
 
   constructor(private readonly deps: ConversationControllerDeps) {
-    this.waiting = createWaitingMessageController(
-      this.deps.config,
-      this.deps.bot,
-      (scopeKey, taskId) => this.activeTasks.isCurrent(scopeKey, taskId),
-    );
     this.activeTasks = new ActiveConversationTasks(
       this.deps.bot,
       this.deps.agentService,
-      (task) => this.waiting.stop(task),
+      () => {},
       (chatId, messageId, emoji) => this.setReactionByMessageSafe(chatId, messageId, emoji),
     );
   }
@@ -613,7 +612,7 @@ export class ConversationController {
     await this.setReactionSafe(ctx, "🤔");
     const initialWaitingMessage = this.deps.config.telegram.waitingMessage;
     const waiting = initialWaitingMessage
-      ? await ctx.reply(this.waiting.render(slot.input.waitingTemplate, initialWaitingMessage))
+      ? await ctx.reply(renderWaitingMessage(slot.input.waitingTemplate, initialWaitingMessage))
       : null;
 
     const latest = this.turns.get(scopeKey);
@@ -641,8 +640,6 @@ export class ConversationController {
       ctx,
       updatedAt: Date.now(),
     });
-    this.waiting.start(task, latest.input.waitingTemplate, initialWaitingMessage);
-
     try {
       await runAssistantTask({
         config: this.deps.config,
@@ -655,7 +652,7 @@ export class ConversationController {
         agentService: this.deps.agentService,
         isTaskCurrent: (taskScopeKey, currentTaskId) => this.activeTasks.isCurrent(taskScopeKey, currentTaskId),
         onPruneRecentUploads: (taskScopeKey) => pruneRecentUploads(taskScopeKey),
-        onStopWaiting: (runningTask) => this.waiting.stop(runningTask),
+        onStopWaiting: () => {},
         onSetReaction: (reactionCtx, emoji) => this.setReactionSafe(reactionCtx, emoji),
         onReleaseActiveTask: (taskScopeKey, currentTaskId) => {
           this.activeTasks.deleteIfCurrent(taskScopeKey, currentTaskId);

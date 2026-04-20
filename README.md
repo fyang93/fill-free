@@ -4,7 +4,7 @@
 
 A local-first Telegram bot for personal memory, files, events, reminders, and lightweight relay workflows.
 
-It runs through a local OpenCode server, keeps canonical state in the repository, and treats Telegram as a platform adapter rather than the center of the architecture.
+It runs directly through the pi-mono SDK, keeps canonical state in the repository, and treats Telegram as a platform adapter rather than the center of the architecture.
 
 ## What it does
 
@@ -52,12 +52,12 @@ The current conversation path is centered on a single assistant lane:
 
 ### Conversation scoping
 
-Short-term conversational context is kept in OpenCode sessions by scope:
+Short-term conversational context is kept in pi SDK sessions by scope:
 
 - **private chat** -> one session per user
 - **group / supergroup** -> one session per chat
 
-Long-term facts, access roles, events, automations, and structured state do **not** rely on model session history. They live in repository state such as `system/users.json`, `system/chats.json`, `system/tasks.json`, `system/state.json`, and `system/events.json`. These stores are intended to be managed through deterministic code paths and the repository CLI instead of prompt-defined persistence protocols. See `docs/system-stores.md` for role boundaries.
+Long-term facts, access roles, events, automations, and structured state do **not** rely on model session history. They live in repository state such as `system/users.json`, `system/chats.json`, `system/state.json`, and `system/events.json`. These stores are intended to be managed through deterministic code paths and the repository CLI instead of prompt-defined persistence protocols. See `docs/system-stores.md` for role boundaries.
 
 ## Skill map
 
@@ -75,6 +75,7 @@ The repository keeps the skill set intentionally small. Repository-specific work
 cp config.toml.example config.toml
 cp .env.example .env
 just install
+# configure pi credentials/models first
 just serve
 ```
 
@@ -92,8 +93,6 @@ Typical setup:
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 admin_user_id = 333333333
 waiting_message = "Thinking..."
-waiting_message_candidate_count = 20
-waiting_message_rotation_seconds = 5
 input_merge_window_seconds = 3
 menu_page_size = 8
 
@@ -105,9 +104,6 @@ default_timezone = "Asia/Tokyo"
 [maintenance]
 enabled = true
 idle_after_minutes = 15
-
-[opencode]
-base_url = "http://127.0.0.1:4096"
 ```
 
 Useful optional settings:
@@ -115,12 +111,9 @@ Useful optional settings:
 - `telegram.menu_page_size`: Telegram inline menu page size
 - `telegram.input_merge_window_seconds`: short window for merging follow-up text/files into the same in-flight turn
 - `telegram.waiting_message`: initial waiting UI text shown immediately; if empty, no initial waiting message is shown
-- `telegram.waiting_message_candidate_count`: target pool size for persona-aware waiting-message candidates stored in `system/state.json`
-- `telegram.waiting_message_rotation_seconds`: how often runtime randomly rotates the waiting message from the unused candidate pool during longer turns
 - `bot.language`: default UI locale for fixed UI text; choose `zh-CN` or `en`
 - `bot.default_timezone`: fallback timezone used when the user has not explicitly provided one
 - `maintenance.idle_after_minutes`: run maintenance after this many idle minutes
-- `[opencode].base_url`: local OpenCode server address
 
 ## Telegram prerequisites
 

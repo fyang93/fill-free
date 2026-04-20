@@ -4,7 +4,7 @@
 
 一个本地优先的 Telegram bot，用于个人记忆、文件、日程，以及轻量的消息转达流程。
 
-它通过本地 OpenCode server 运行，把规范事实保存在仓库里，并把 Telegram 视为平台适配器，而不是整个系统的中心。
+它直接通过 pi-mono SDK 运行，把规范事实保存在仓库里，并把 Telegram 视为平台适配器，而不是整个系统的中心。
 
 ## 它能做什么
 
@@ -52,7 +52,7 @@
 
 ### 会话作用域
 
-短期对话上下文由 OpenCode 会话按作用域保存：
+短期对话上下文由 pi SDK 会话按作用域保存：
 
 - **私聊** -> 每个用户一个会话
 - **群 / 超级群** -> 每个群一个会话
@@ -61,7 +61,6 @@
 
 - `system/users.json`
 - `system/chats.json`
-- `system/tasks.json`
 - `system/state.json`
 - `system/events.json`
 
@@ -83,6 +82,7 @@
 cp config.toml.example config.toml
 cp .env.example .env
 just install
+# 先配置 pi 的凭证 / 可用模型
 just serve
 ```
 
@@ -100,8 +100,6 @@ just serve
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 admin_user_id = 333333333
 waiting_message = "机宝启动中..."
-waiting_message_candidate_count = 20
-waiting_message_rotation_seconds = 5
 input_merge_window_seconds = 3
 menu_page_size = 8
 
@@ -113,9 +111,6 @@ default_timezone = "Asia/Tokyo"
 [maintenance]
 enabled = true
 idle_after_minutes = 15
-
-[opencode]
-base_url = "http://127.0.0.1:4096"
 ```
 
 一些常用的可选项：
@@ -123,12 +118,9 @@ base_url = "http://127.0.0.1:4096"
 - `telegram.menu_page_size`：Telegram 内联菜单分页大小
 - `telegram.input_merge_window_seconds`：将短时间内追加的文本/文件合并进同一轮进行中的窗口
 - `telegram.waiting_message`：立即显示的初始等待文案；如果为空，就不显示初始等待消息
-- `telegram.waiting_message_candidate_count`：persona 化等待文案候选池目标数量，持久化到 `system/state.json`
-- `telegram.waiting_message_rotation_seconds`：较长回合里，runtime 从未使用候选池中随机轮换 waiting message 的间隔秒数
 - `bot.language`：固定 UI 文本使用的默认界面语言；可选 `zh-CN` 或 `en`
 - `bot.default_timezone`：用户未显式提供时使用的默认时区
 - `maintenance.idle_after_minutes`：空闲多少分钟后触发 maintenance
-- `[opencode].base_url`：本地 OpenCode server 地址
 
 ## Telegram 使用前提
 

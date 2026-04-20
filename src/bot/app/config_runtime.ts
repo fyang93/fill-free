@@ -17,15 +17,12 @@ function diffConfigKeys(before: AppConfig, after: AppConfig): string[] {
   if (before.telegram.botToken !== after.telegram.botToken) changed.push("telegram.bot_token");
   if (before.telegram.adminUserId !== after.telegram.adminUserId) changed.push("telegram.admin_user_id");
   if (before.telegram.waitingMessage !== after.telegram.waitingMessage) changed.push("telegram.waiting_message");
-  if ((before.telegram.waitingMessageCandidateCount ?? 20) !== (after.telegram.waitingMessageCandidateCount ?? 20)) changed.push("telegram.waiting_message_candidate_count");
-  if ((before.telegram.waitingMessageRotationSeconds ?? 5) !== (after.telegram.waitingMessageRotationSeconds ?? 5)) changed.push("telegram.waiting_message_rotation_seconds");
   if (before.telegram.menuPageSize !== after.telegram.menuPageSize) changed.push("telegram.menu_page_size");
   if (before.bot.personaStyle !== after.bot.personaStyle) changed.push("bot.persona_style");
   if (before.bot.language !== after.bot.language) changed.push("bot.language");
   if (before.bot.defaultTimezone !== after.bot.defaultTimezone) changed.push("bot.default_timezone");
   if (before.maintenance.enabled !== after.maintenance.enabled) changed.push("maintenance.enabled");
   if (before.maintenance.idleAfterMs !== after.maintenance.idleAfterMs) changed.push("maintenance.idle_after_minutes");
-  if (before.opencode.baseUrl !== after.opencode.baseUrl) changed.push("opencode.base_url");
   return changed;
 }
 
@@ -43,7 +40,6 @@ export function applyReloadedConfig(target: AppConfig, next: AppConfig): ConfigR
   target.bot = { ...next.bot };
   target.paths = { ...next.paths };
   target.maintenance = { ...next.maintenance };
-  target.opencode = { ...next.opencode };
 
   const reloadedKeys = requestedChanges.filter((key) => !restartRequiredKeys.includes(key));
   return { warnings, reloadedKeys, restartRequiredKeys };

@@ -32,14 +32,6 @@ Stores:
 - automation definitions
 - delivery state for event occurrences
 
-### `system/tasks.json`
-Canonical durable task queue.
-
-Stores:
-- queued/running/blocked tasks
-- async execution payloads
-- task-level execution state
-
 ### `system/files.json`
 Canonical Telegram file registry.
 
@@ -55,7 +47,6 @@ Stores:
 - selected model
 - maintainer bookkeeping
 - pending authorizations
-- waiting-message candidate pool and per-candidate used flags
 
 This file is for runtime state that affects behavior and must survive process restarts.
 
@@ -63,6 +54,5 @@ This file is for runtime state that affects behavior and must survive process re
 
 - `system/state.json` is the active runtime state file.
 - Legacy `system/runtime-state.json` may still be read as a migration fallback.
-- Waiting-message candidates now live in canonical runtime state; do not reintroduce a separate `system/cache.json` for this pool.
 - Do not normalize direct hand-edits to `system/` files as a maintenance workflow; if a mutation path is needed, expose it as an explicit CLI command first.
 - Prefer adding a new store only when the data has a distinct ownership boundary.

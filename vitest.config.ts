@@ -9,6 +9,7 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     exclude: ["**/.direnv/**", "**/node_modules/**"],
+    fileParallelism: false,
     testTimeout: 20000,
     setupFiles: [path.join(rootDir, "tests", "support", "vitest.setup.ts")],
   },

@@ -1,10 +1,5 @@
 import type { AiTurnResult } from "./types";
 
-export function isExactTaggedBlock(tag: string, text: string): boolean {
-  const trimmed = text.trim();
-  return new RegExp(`^\\[${tag}\\]\\s*[\\s\\S]*?\\s*\\[\\/${tag}\\]$`, "i").test(trimmed);
-}
-
 export function looksLikeStructuredOutputIntent(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -14,15 +9,14 @@ export function looksLikeStructuredOutputIntent(text: string): boolean {
     || /"(?:answer_mode|message|deliveries|schedules|pending_authorizations|tasks|file_writes)"\s*:/.test(trimmed);
 }
 
-function looksLikeMalformedStructuredTurnResult(text: string): boolean {
+function looksLikeMalformedAssistantOutput(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  if (/^```(?:json)?/i.test(trimmed)) return true;
-  if (/\[TOOL_CALL\][\s\S]*\[\/TOOL_CALL\]/i.test(trimmed)) return true;
-  if (/"answer_mode"\s*:/.test(trimmed)) return true;
-  if (/(^|\n)\s*answer_mode\s*:/i.test(trimmed)) return true;
-  if (/^\s*\[(?:response|answer)\][\s\S]*\[\/(?:response|answer)\]\s*$/i.test(trimmed)) return true;
-  return false;
+  return /^```(?:json)?/i.test(trimmed)
+    || /\[TOOL_CALL\][\s\S]*\[\/TOOL_CALL\]/i.test(trimmed)
+    || /"answer_mode"\s*:/.test(trimmed)
+    || /(^|\n)\s*answer_mode\s*:/i.test(trimmed)
+    || /^\s*\[(?:response|answer)\][\s\S]*\[\/(?:response|answer)\]\s*$/i.test(trimmed);
 }
 
 export function isDisplayableUserText(text: string): boolean {
@@ -37,24 +31,40 @@ export function isDisplayableUserText(text: string): boolean {
   return true;
 }
 
+export function extractDisplayableText(rawText: string): string {
+  const trimmed = rawText.trim();
+  if (!trimmed) return "";
+  if (looksLikeMalformedAssistantOutput(trimmed) || looksLikeStructuredOutputIntent(trimmed)) return "";
 
-function emptyTurnResult(): AiTurnResult {
-  return { message: "", files: [], fileWrites: [], attachments: [], schedules: [], deliveries: [], pendingAuthorizations: [], tasks: [] };
+  const normalizedQuotes = trimmed
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, '"')
+    .replace(/[，]/g, ',')
+    .replace(/[：]/g, ':');
+
+  try {
+    const parsed = JSON.parse(normalizedQuotes) as Record<string, unknown> | string;
+    if (typeof parsed === "string" && isDisplayableUserText(parsed)) {
+      return parsed.trim();
+    }
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string" && isDisplayableUserText(parsed.message)) {
+      return parsed.message.trim();
+    }
+  } catch {
+    // fall through to plain-text extraction
+  }
+
+  const plain = trimmed.replace(/^"([\s\S]*)"$/, "$1").trim();
+  return isDisplayableUserText(plain) ? plain : "";
+}
+
+export function emptyTurnResult(): AiTurnResult {
+  return { message: "", files: [], attachments: [] };
 }
 
 export function extractDirectTurnResultFromText(rawText: string): AiTurnResult {
-  const plain = rawText.trim();
-  if (!plain) return emptyTurnResult();
-  if (looksLikeMalformedStructuredTurnResult(plain) || looksLikeStructuredOutputIntent(plain)) return emptyTurnResult();
-
-  return {
-    ...emptyTurnResult(),
-    message: plain,
-  };
-}
-
-export function validateStructuredTurnResult(_rawText: string, _parsed: AiTurnResult): string[] {
-  return [];
+  const message = extractDisplayableText(rawText);
+  return message ? { ...emptyTurnResult(), message } : emptyTurnResult();
 }
 
 export function extractAiTurnResultFromText(rawText: string): AiTurnResult {

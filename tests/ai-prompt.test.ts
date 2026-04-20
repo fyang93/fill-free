@@ -1,44 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { buildProjectSystemPrompt, buildPrompt, buildAccessConstraintLines } from "../src/bot/ai/prompt";
-import { extractAiTurnResultFromText, extractDirectTurnResultFromText, isDisplayableUserText, validateStructuredTurnResult } from "../src/bot/ai/response";
+import { extractAiTurnResultFromText, extractDirectTurnResultFromText, isDisplayableUserText } from "../src/bot/ai/response";
 import { StructuredReasoner } from "../src/bot/ai/structured-reasoner";
 
 describe("assistant prompt stability", () => {
-  test("assistant system prompt prefers tools over prompt protocols", () => {
+  test("assistant system prompt stays short and keeps core rules", () => {
     const prompt = buildProjectSystemPrompt("模仿杀戮尖塔里的故障机器人说话。", "assistant");
     expect(prompt).toContain("You are the main assistant for a local-first Telegram bot.");
-    expect(prompt).toContain("Use the runtime's native tool calling. Do not write fake tool calls");
-    expect(prompt).toContain("Return one final user-visible reply for this turn after completing the needed work.");
-    expect(prompt).toContain("Apply the configured persona directly in every user-visible reply for this turn");
-    expect(prompt).toContain("Requester metadata is about the user, not you.");
-    expect(prompt).toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
-    expect(prompt).toContain("Do not mention internal commands, shell usage, interface names, tool names, or implementation steps");
-    expect(prompt).toContain("When looking for stored user files or document images, first search relevant markdown notes with keyword search and follow linked paths instead of guessing file locations from directory names alone.");
-    expect(prompt).toContain("Respect the access constraints injected for this turn. Do not invent broader privacy prohibitions than those constraints.");
-    expect(prompt).toContain("If the injected access constraints for this turn permit the requester to retrieve their own stored material, do not refuse on generic privacy grounds.");
-    expect(prompt).toContain("When the user asks to send repository-local files to the current chat and the access rules allow it, return the relevant local file path references in the final reply so runtime-owned publication can send them.");
-    expect(prompt).toContain("Do not refuse an allowed current-chat file send just because it is the current turn");
-    expect(prompt).toContain("After you have already sent, saved, moved, or linked something, describe the confirmed outcome.");
-    expect(prompt).toContain("When you have just saved, moved, or linked user-requested material in repository-local memory, briefly tell the user where it was stored.");
-    expect(prompt).toContain("Never write, patch, or directly edit files under system/.");
-    expect(prompt).toContain("canonical system-state mutations must go through repository CLI commands or dedicated deterministic mutation interfaces.");
-    expect(prompt).toContain("模仿杀戮尖塔里的故障机器人说话");
-    expect(prompt).toContain("Style for Telegram replies: 模仿杀戮尖塔里的故障机器人说话。");
-    expect(prompt).toContain("Use the configured persona strongly and explicitly in the visible wording.");
-    expect(prompt).toContain("Do not fall back to a generic assistant tone; keep the configured persona present throughout the reply.");
-    expect(prompt).toContain("Even very short confirmations and list introductions must still reflect the configured style.");
+    expect(prompt).toContain("Use repo CLI + skills for deterministic work.");
+    expect(prompt).toContain("Treat deterministic success signals such as ok: true as the source of truth for completed actions.");
+    expect(prompt).toContain("Never write under system/ except approved deterministic interfaces.");
+    expect(prompt).toContain("Do not mention internal tools, commands, or paths unless the user asked.");
+    expect(prompt).toContain("Style: 模仿杀戮尖塔里的故障机器人说话。");
+    expect(prompt).toContain("Reply in that style.");
+    expect(prompt.length).toBeLessThan(1600);
   });
 
-  test("maintainer prompt requires direct persona application", () => {
+  test("maintainer prompt stays short", () => {
     const maintainer = buildProjectSystemPrompt("冷静、简洁、带一点稳定的机械感", "maintainer");
-    expect(maintainer).toContain("Apply the configured persona directly in the maintenance summary");
-    expect(maintainer).not.toContain("Whenever the visible summary mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
-    expect(maintainer).toContain("Never write, patch, or directly edit files under system/.");
-    expect(maintainer).toContain("Keep durable factual memory and broad preferences concise and well-organized.");
-    expect(maintainer).toContain("This repository is multi-user: person-specific notes belong under the correct owner area, not broad top-level memory files.");
-    expect(maintainer).toContain("When ownership becomes clear, consolidate provisional person notes into the canonical person location.");
-    expect(maintainer).toContain("Keep memory organized by stable owner-first taxonomy: person material under memory/people, shared material under memory/shared, and repository-wide reference material under memory/common.");
-    expect(maintainer).toContain("Visible style: 冷静、简洁、带一点稳定的机械感");
+    expect(maintainer).toContain("You maintain a local-first repository.");
+    expect(maintainer).toContain("Prefer native repo tools, CLI, and deterministic interfaces.");
+    expect(maintainer).toContain("Never write under system/ except approved deterministic interfaces.");
+    expect(maintainer).toContain("Summary style: 冷静、简洁、带一点稳定的机械感");
+    expect(maintainer.length).toBeLessThan(700);
   });
 
   test("assistant turn prompt stays compact and user-visible", () => {
@@ -52,30 +36,25 @@ describe("assistant prompt stability", () => {
       undefined,
       "Asia/Tokyo",
     );
-    expect(prompt).not.toContain("Requester access level: admin.");
-    expect(prompt).toContain("Requester metadata is about the user, not the assistant.");
-    expect(prompt).toContain("Whenever you mention a concrete time, date-time, or local clock time in the user-visible reply, include the timezone explicitly.");
-    expect(prompt).toContain("Visible style: 冷静、简洁、带一点稳定的机械感");
-    expect(prompt).toContain("Style for Telegram replies: 冷静、简洁、带一点稳定的机械感");
-    expect(prompt).toContain("Answer the user directly.");
-    expect(prompt).toContain("User request: 帮我查一下提醒");
+    expect(prompt).not.toContain("Access: admin.");
+    expect(prompt).toContain("Style: 冷静、简洁、带一点稳定的机械感");
+    expect(prompt).toContain("Reply in that style.");
+    expect(prompt).toContain("Request: 帮我查一下提醒");
+    expect(prompt.length).toBeLessThan(400);
   });
 
   test("access constraints are injected only when needed", () => {
     expect(buildAccessConstraintLines("admin")).toEqual([]);
 
     const trustedPrompt = buildPrompt("把用户2设为 trusted", [], "Asia/Tokyo", "", undefined, "trusted");
-    expect(trustedPrompt).toContain("Requester access level: trusted.");
-    expect(trustedPrompt).toContain("Do not help this requester change user access levels or add temporary authorizations.");
+    expect(trustedPrompt).toContain("Permission: trusted — no access-level or pending-auth changes.");
 
     const adminPrompt = buildPrompt("发一下我的证件图", [], "Asia/Tokyo", "", undefined, "admin");
-    expect(adminPrompt).not.toContain("Requester access level: admin.");
+    expect(adminPrompt).not.toContain("Access: admin.");
 
     const allowedPrompt = buildPrompt("把用户2设为 trusted", [], "Asia/Tokyo", "", undefined, "allowed");
-    expect(allowedPrompt).toContain("Requester access level: allowed.");
-    expect(allowedPrompt).toContain("Keep the turn within allowed-user scope.");
-    expect(allowedPrompt).toContain("Do not help this requester manage other users");
-    expect(allowedPrompt).toContain("If the request needs a higher privilege, say so briefly instead of pretending it succeeded.");
+    expect(allowedPrompt).toContain("Permission: allowed — temporary file upload/processing is okay in your scoped context, but no user management, auth changes, durable memory writes, outbound delivery, or unrelated private data.");
+    expect(allowedPrompt).toContain("If higher privilege is needed, say so briefly.");
   });
 
   test("assistant turn prompt injects requester-local time instead of raw utc", () => {
@@ -90,9 +69,8 @@ describe("assistant prompt stability", () => {
       "Asia/Tokyo",
     );
 
-    expect(prompt).toContain("Requester-local time: 2026-04-06 01:51:25 (Asia/Tokyo).");
-    expect(prompt).toContain("For schedule interpretation, treat relative dates/times like today, tomorrow, noon, and 3pm in the requester timezone Asia/Tokyo.");
-    expect(prompt).toContain("When preparing schedule drafts, prefer requester-local date/time fields plus timezone. Do not convert to UTC in the model unless the user explicitly gave an absolute UTC/offset timestamp.");
+    expect(prompt).toContain("Local time: 2026-04-06 01:51:25 (Asia/Tokyo).");
+    expect(prompt).toContain("Interpret relative times in Asia/Tokyo.");
     expect(prompt).not.toContain("Message time: 2026-04-05T16:51:25.000Z");
   });
 
@@ -126,8 +104,8 @@ describe("assistant prompt stability", () => {
   test("response parser rejects tagged structured output blocks", () => {
     const parsed = extractAiTurnResultFromText('[answer]\nmessage: ok\ndeliveries:\n  - content: 测试消息\n    recipient:\n      displayName: 锅巴之家\n[/answer]');
     expect(parsed.message).toBe("");
-    expect(parsed.deliveries).toEqual([]);
-    expect(validateStructuredTurnResult("anything", parsed)).toEqual([]);
+    expect(parsed.files).toEqual([]);
+    expect(parsed.attachments).toEqual([]);
   });
 
   test("displayable user text rejects tool-call markup", () => {
@@ -143,11 +121,6 @@ describe("assistant prompt stability", () => {
         message: "好的，等下是几点呢？给我一个具体时间，我帮你设好提醒。",
         files: [],
         attachments: [],
-        fileWrites: [],
-        schedules: [],
-        deliveries: [],
-        pendingAuthorizations: [],
-        tasks: [],
       }),
       () => [],
     );

@@ -24,6 +24,7 @@
             fd
             ripgrep
             just
+            at
             nodejs_22
           ];
         };

@@ -31,9 +31,6 @@ function createTestConfig(): AppConfig {
       idleAfterMs: 0,
       tmpRetentionDays: 1,
     },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
-    },
   };
 }
 
@@ -46,10 +43,8 @@ describe("reply composer sanitization", () => {
     });
     await composer.generateReminderText("review论文", "2026-04-05T18:00:00.000Z", "一次性提醒", "Asia/Tokyo");
     expect(captured).toContain("Reply style: 冷静、简洁、稳定");
-    expect(captured).toContain("Style for Telegram replies: 冷静、简洁、稳定");
-    expect(captured).toContain("Answer the user directly.");
-    expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
-    expect(captured).not.toContain("Whenever the visible reply mentions a concrete time, date-time, or local clock time, include the timezone explicitly.");
+    expect(captured).toContain("Reply in that style.");
+    expect(captured).not.toContain("If you mention a time, include the timezone.");
     expect(captured).toContain("Write a short, clear reminder message.");
     expect(captured).toContain("Reminder local time: 2026-04-06 03:00:00 (Asia/Tokyo).");
   });
@@ -65,8 +60,7 @@ describe("reply composer sanitization", () => {
     expect(captured).toContain("Return only the greeting text. Do not send it and do not take any action.");
     expect(captured).toContain("Do not mention the current time or date unless the user explicitly asked for it.");
     expect(captured).toContain("Reply style: 冷静、简洁、稳定");
-    expect(captured).toContain("Style for Telegram replies: 冷静、简洁、稳定");
-    expect(captured).toContain("Use the configured persona strongly and explicitly in the visible wording.");
+    expect(captured).toContain("Reply in that style.");
   });
 
   test("generateReminderText rejects tool-call markup and returns empty string", async () => {

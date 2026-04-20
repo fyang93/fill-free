@@ -6,21 +6,19 @@ import { AiService } from "bot/ai";
 import { currentModel, loadPersistentState, persistState, state } from "bot/app/state";
 import { pruneExpiredPendingAuthorizationsFromState } from "bot/operations/access/authorizations";
 import { ensureAdminUserAccessLevel } from "bot/operations/access/roles";
-import { handleScheduleCallback, pruneInactiveEventRecords, readEventRecords, startScheduleLoop } from "bot/operations/events";
+import { handleScheduleCallback, prewarmScheduleDeliveryTexts, pruneInactiveEventRecords, startScheduleLoop } from "bot/operations/events";
 import {
   buildProviderKeyboard,
   buildProviderModelKeyboard,
   providersFromModels,
   resolveDisplayedModel,
 } from "bot/telegram/model-selection/menu";
-import { tForLocale, tForUser, type Locale } from "bot/app/i18n";
+import { tForLocale, tForUser, userLocale, type Locale } from "bot/app/i18n";
 import { replyFormatted, sendMessageFormatted } from "bot/telegram/format";
 import { accessLevelForUserId, hasUserAccessLevel, isAddressedToBot, isAdminUserId, unauthorizedGuard } from "bot/operations/access/control";
 import { handleModelCallback } from "bot/telegram/model-selection/callback";
 import { ConversationController } from "bot/runtime/conversations/controller";
 import { createMaintainerRunner } from "bot/runtime";
-import { warmWaitingMessageCandidates } from "bot/runtime/assistant";
-import { enqueueEventPreparationTask, startTaskWorker } from "bot/tasks";
 import { shouldGenerateScheduledTaskOnDelivery, scheduledTaskPromptForEvent } from "bot/operations/events";
 
 const configPath = DEFAULT_CONFIG_PATH;
@@ -62,7 +60,7 @@ async function ensureUsableStartupModel(): Promise<void> {
   try {
     const { models } = await agentService.listModels();
     if (models.includes(state.model)) return;
-    await logger.warn(`configured model ${state.model} is unavailable; falling back to the default OpenCode model`);
+    await logger.warn(`configured model ${state.model} is unavailable; falling back to the default pi model`);
     state.model = null;
     await persistState(config.paths.stateFile);
   } catch (error) {
@@ -78,7 +76,7 @@ async function sendStartupGreeting(): Promise<void> {
       return;
     }
 
-    const greeting = await agentService.generateStartupGreeting({ requesterUserId: adminUserId, preferredLanguage: config.bot.language });
+    const greeting = await agentService.generateStartupGreeting({ requesterUserId: adminUserId, preferredLanguage: userLocale(config, adminUserId) });
     if (!greeting) {
       await logger.warn("startup greeting returned empty output; skipping greet");
       return;
@@ -88,15 +86,6 @@ async function sendStartupGreeting(): Promise<void> {
     await logger.info("Sent startup greeting to admin_user_id only");
   } catch (error) {
     await logger.warn(`failed to send startup greeting: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-async function enqueueActiveSchedulePreparationTasks(): Promise<void> {
-  const events = await readEventRecords(config);
-  for (const event of events) {
-    if (event.status !== "active") continue;
-    if (shouldGenerateScheduledTaskOnDelivery(event)) continue;
-    await enqueueEventPreparationTask(config, event.id);
   }
 }
 
@@ -207,7 +196,11 @@ function buildBotCommands(locale: Locale) {
 }
 
 async function syncBotCommands(): Promise<void> {
-  await bot.api.setMyCommands(buildBotCommands(config.bot.language));
+  await Promise.all([
+    bot.api.setMyCommands(buildBotCommands(config.bot.language)),
+    bot.api.setMyCommands(buildBotCommands("zh-CN"), { language_code: "zh" }),
+    bot.api.setMyCommands(buildBotCommands("en"), { language_code: "en" }),
+  ]);
 }
 
 await logger.info("bot starting");
@@ -221,21 +214,13 @@ let scheduleLoop = await startScheduleLoop(
     const generated = await agentService.generateScheduledTaskContent(prompt);
     return generated.trim() || fallback;
   },
-  async (event) => {
-    if (shouldGenerateScheduledTaskOnDelivery(event)) return;
-    await enqueueEventPreparationTask(config, event.id);
-  },
 );
-let taskWorker = startTaskWorker(config, agentService, bot);
 let maintainerRunner = createMaintainerRunnerWithNotifications();
 const configWatcher = startConfigWatcher(configPath, config, async (_reloadedConfig, result) => {
   configureLogger(config.paths.logFile);
   await ensureAdminUserAccessLevel(config);
   agentService.reloadConfig(config);
-  void warmWaitingMessageCandidates(agentService, config);
   if (maintainerRunner.timer) clearInterval(maintainerRunner.timer);
-  clearInterval(taskWorker);
-  taskWorker = startTaskWorker(config, agentService, bot);
   maintainerRunner = createMaintainerRunnerWithNotifications();
   await syncBotCommands();
   if (config.telegram.adminUserId && (result.reloadedKeys.length > 0 || result.restartRequiredKeys.length > 0)) {
@@ -260,19 +245,17 @@ await bot.start({
     botUserId = botInfo.id;
     await logger.info(`bot started as @${botInfo.username}`);
     await ensureUsableStartupModel();
-    void warmWaitingMessageCandidates(agentService, config);
     const inactiveScheduleCleanup = await pruneInactiveEventRecords(config);
     if (inactiveScheduleCleanup.removed > 0) {
       await logger.info(`startup pruned ${inactiveScheduleCleanup.removed} inactive schedules: ${inactiveScheduleCleanup.removedIds.join(", ")}`);
     }
-    await enqueueActiveSchedulePreparationTasks();
+    await prewarmScheduleDeliveryTexts(config, agentService);
     void sendStartupGreeting();
   },
 });
 
 function shutdown(): void {
   clearInterval(scheduleLoop);
-  clearInterval(taskWorker);
   clearInterval(pendingAuthorizationCleanup);
   configWatcher.close();
   if (maintainerRunner.timer) clearInterval(maintainerRunner.timer);

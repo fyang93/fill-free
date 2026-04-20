@@ -6,9 +6,8 @@ import type { AppConfig } from "../src/bot/app/types";
 import { buildEventRecord, createEventRecord, pruneInactiveEventRecords, readEventRecords } from "../src/bot/operations/events/store";
 import { getCurrentOccurrence, normalizeRecurrence, scheduleEventScheduleSummary } from "../src/bot/operations/events";
 import { buildEventScheduleFromExternal } from "../src/bot/operations/events/schedule_parser";
-import { runEventTask } from "../src/bot/operations/events/task-actions";
+import { runEventTask, type TaskRecord } from "../src/bot/operations/events/task-actions";
 import { prepareScheduleDeliveryText, clearPreparedScheduleDeliveryText, isPreparedScheduleDeliveryTextUsable, nextPendingScheduleInstance } from "../src/bot/operations/events/preparation";
-import type { TaskRecord } from "../src/bot/tasks/runtime/store";
 
 const tempDirs: string[] = [];
 
@@ -37,9 +36,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       enabled: false,
       idleAfterMs: 0,
       tmpRetentionDays: 1,
-    },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
     },
   };
 }
@@ -267,7 +263,7 @@ describe("schedule task matching", () => {
     }
   });
 
-  test("allowed requester cannot create a self schedule at task layer", async () => {
+  test("allowed requester can create a self schedule at task layer", async () => {
     const config = await createTempConfig();
     await writeFile(path.join(config.paths.repoRoot, "system", "users.json"), JSON.stringify({
       users: {
@@ -290,10 +286,11 @@ describe("schedule task matching", () => {
       updatedAt: now,
     });
 
-    expect(result.skipped).toBe(true);
-    expect(result.reason).toBe("schedule-create-not-allowed");
+    expect(result.changed).toBe(true);
     const events = await readEventRecords(config);
-    expect(events.find((item) => item.title === "allowed提醒")).toBeUndefined();
+    const created = events.find((item) => item.title === "allowed提醒");
+    expect(Boolean(created)).toBe(true);
+    expect(created?.targets).toEqual([{ targetKind: "user", targetId: 2 }]);
   });
 
   test("trusted requester can still create a self schedule in requester timezone via upsert", async () => {

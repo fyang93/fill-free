@@ -31,9 +31,6 @@ function createTestConfig(): AppConfig {
       idleAfterMs: 0,
       tmpRetentionDays: 1,
     },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
-    },
   };
 }
 
@@ -123,12 +120,9 @@ describe("gateway execution history", () => {
     };
 
     await service.generateStartupGreeting({ requesterUserId: 1 });
-    await service.generateWaitingMessageCandidate({ preferredLanguage: "zh-CN" });
-    await service.generateWaitingMessageCandidates(2, { preferredLanguage: "zh-CN" });
     await service.composeUserReply("草稿", ["事实1"], { requesterUserId: 1, chatId: 1, chatType: "private" });
-    await service.composeDeliveryMessage("发给对方的草稿", "@user");
 
-    expect(capturedBodies.length).toBe(5);
+    expect(capturedBodies.length).toBe(2);
     for (const body of capturedBodies) {
       expect(body?.agent).toBeUndefined();
       expect(String(body?.system || "")).toContain("text-only reply writer");

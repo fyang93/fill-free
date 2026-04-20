@@ -1,3 +1,5 @@
+import { resolveUser } from "bot/operations/context/store";
+import { state } from "./state";
 import type { AppConfig } from "./types";
 
 export type Locale = "zh-CN" | "en";
@@ -230,8 +232,19 @@ export function tForLocale(locale: Locale, key: string, values: Record<string, s
   return formatTemplate(dict.strings[key] || key, values);
 }
 
-export function userLocale(config: AppConfig, _userId: number | undefined): Locale {
-  return config.bot.language;
+export function localeFromTelegramLanguageCode(languageCode: string | undefined, fallback: Locale): Locale {
+  const normalized = languageCode?.trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (normalized === "zh" || normalized.startsWith("zh-") || normalized.startsWith("zh_")) return "zh-CN";
+  return "en";
+}
+
+export function userLocale(config: AppConfig, userId: number | undefined): Locale {
+  if (!userId) return config.bot.language;
+  const key = String(userId);
+  const canonicalLanguageCode = resolveUser(config.paths.repoRoot, userId)?.languageCode;
+  const runtimeLanguageCode = state.telegramUserCache[key]?.languageCode;
+  return localeFromTelegramLanguageCode(canonicalLanguageCode || runtimeLanguageCode, config.bot.language);
 }
 
 export function tForUser(config: AppConfig, userId: number | undefined, key: string, values: Record<string, string | number> = {}): string {

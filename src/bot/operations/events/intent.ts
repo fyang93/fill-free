@@ -2,8 +2,7 @@ import type { Context } from "grammy";
 import type { ScheduleDraft } from "bot/ai/types";
 import type { AiService } from "bot/ai";
 import { rememberUserTimezone } from "bot/app/state";
-import { buildDefaultReminders, defaultEventTimeSemantics, isValidScheduleTimezone, resolveScheduleTimezone, scheduleEventScheduleSummary, type Reminder } from ".";
-import { enqueueScheduleCreateTask } from "./task-actions";
+import { buildDefaultReminders, createEventRecordWithDefaults, defaultEventTimeSemantics, isValidScheduleTimezone, prepareScheduleDeliveryText, resolveScheduleTimezone, scheduleEventScheduleSummary, type Reminder } from ".";
 import { buildEventScheduleFromExternal } from "./schedule_parser";
 import type { AppConfig } from "bot/app/types";
 import { resolveChatDisplayName, resolveUserDisplayName } from "bot/operations/context/store";
@@ -133,21 +132,18 @@ export async function createStructuredSchedules(
     const specialKind = raw.specialKind === "birthday" || raw.specialKind === "festival" || raw.specialKind === "anniversary" || raw.specialKind === "memorial"
       ? raw.specialKind
       : undefined;
-    await enqueueScheduleCreateTask(config, {
+    const event = await createEventRecordWithDefaults(config, {
       title,
       note: typeof raw.note === "string" ? raw.note.trim() || undefined : undefined,
-      schedule: scheduleRaw as Record<string, unknown>,
+      schedule: buildEventScheduleFromExternal(scheduleRaw as Record<string, unknown>, normalizedTimezone),
       category: raw.category === "special" || specialKind ? "special" : raw.category === "routine" ? "routine" : undefined,
       specialKind,
       timeSemantics,
       createdByUserId: userId,
       targets,
       reminders: buildReminders(raw.reminders),
-    }, {
-      requesterUserId: userId,
-      chatId: ctx.chat?.id,
-      messageId: ctx.message?.message_id,
     });
+    await prepareScheduleDeliveryText(config, _agentService, event).catch(() => false);
     if (explicitTimezone && isValidScheduleTimezone(explicitTimezone)) {
       rememberUserTimezone(userId, explicitTimezone);
       timezoneChanged = true;

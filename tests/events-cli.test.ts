@@ -17,7 +17,6 @@ async function createTempRepo(): Promise<string> {
     },
   }, null, 2) + "\n", "utf8");
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{}}\n', "utf8");
-  await writeFile(path.join(repoRoot, "system", "tasks.json"), '{"tasks":[]}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "state.json"), '{}\n', "utf8");
   await writeFile(path.join(repoRoot, "config.toml"), [
     '[telegram]',
@@ -26,8 +25,6 @@ async function createTempRepo(): Promise<string> {
     '[bot]',
     'language = "zh-CN"',
     'default_timezone = "Asia/Tokyo"',
-    '[opencode]',
-    'base_url = "http://127.0.0.1:4096"',
   ].join("\n") + "\n", "utf8");
   return repoRoot;
 }
@@ -211,13 +208,27 @@ describe("repo events CLI", () => {
     expect((listed.events as Array<any>).some((item) => item.title === "alias事件")).toBe(true);
   });
 
-  test("allowed requester cannot create schedules through CLI", async () => {
+  test("allowed requester can create own schedules through CLI", async () => {
     const repoRoot = await createTempRepo();
 
     const created = await runCli(repoRoot, "events:create", {
       requesterUserId: 2,
       title: "allowed自建提醒",
       targetUserId: 2,
+      timezone: "Asia/Tokyo",
+      schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T06:00:00.000Z" }),
+    });
+    expect(created.ok).toBe(true);
+    expect((created.event as any)?.targets).toEqual([{ targetKind: "user", targetId: 2 }]);
+  });
+
+  test("allowed requester still cannot create schedules for another user through CLI", async () => {
+    const repoRoot = await createTempRepo();
+
+    const created = await runCli(repoRoot, "events:create", {
+      requesterUserId: 2,
+      title: "帮 admin 建提醒",
+      targetUserId: 1,
       timezone: "Asia/Tokyo",
       schedule: JSON.stringify({ kind: "once", scheduledAt: "2026-04-11T06:00:00.000Z" }),
     });

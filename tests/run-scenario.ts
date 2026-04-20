@@ -2,7 +2,7 @@
  * Single-scenario live test runner.
  * Usage: npm exec tsx tests/run-scenario.ts <scenario-number>
  *
- * Runs one scenario at a time against a live OpenCode server,
+ * Runs one scenario at a time against a live pi SDK setup,
  * writes results to logs/test-runs/live-assistant.log.
  */
 
@@ -14,8 +14,6 @@ import { AiService } from "../src/bot/ai";
 import { buildAssistantContextBlock, lookupRequesterTimezone } from "../src/bot/operations/context/assistant";
 import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
-import { dequeueRunnableTask, markTaskState, readTasks, removeTask } from "../src/bot/tasks/runtime/store";
-import { runTaskWithHandlers } from "../src/bot/tasks/runtime/handlers";
 import { loadUsers } from "../src/bot/operations/context/store";
 
 const hostRepoRoot = process.cwd();
@@ -27,7 +25,6 @@ function createTestConfig(): AppConfig {
     bot: { personaStyle: "", language: "zh", defaultTimezone: "Asia/Tokyo" },
     paths: { repoRoot: hostRepoRoot, tmpDir: path.join(hostRepoRoot, "tmp"), uploadSubdir: "uploads", logFile: path.join(hostRepoRoot, "logs", "bot.log"), stateFile: path.join(hostRepoRoot, "system", "runtime-state.json") },
     maintenance: { enabled: false, idleAfterMs: 0, tmpRetentionDays: 1 },
-    opencode: { baseUrl: "http://127.0.0.1:4096" },
   };
 }
 
@@ -41,19 +38,6 @@ async function log(entry: Record<string, unknown>): Promise<void> {
 async function buildContext(config: AppConfig, promptText: string) {
   const assistantContextText = await buildAssistantContextBlock(config, { requesterUserId: 1, chatId: 1, messageTime: new Date().toISOString() });
   return { assistantContextText, requesterTimezone: lookupRequesterTimezone(config, 1) };
-}
-
-async function drainTasks(config: AppConfig, agentService: AiService) {
-  const results: Array<Record<string, unknown>> = [];
-  while (true) {
-    const task = await dequeueRunnableTask(config);
-    if (!task) break;
-    const output = await runTaskWithHandlers({ config, agentService, bot: {} as any }, task);
-    results.push({ taskId: task.id, domain: task.domain, operation: task.operation, result: output.result || {} });
-    await markTaskState(config, task.id, "done", { result: output.result || {} });
-    await removeTask(config, task.id);
-  }
-  return results;
 }
 
 async function runAssistant(config: AppConfig, agentService: AiService, input: string) {
@@ -85,36 +69,32 @@ const scenarios: Array<{ name: string; run: (config: AppConfig, agentService: Ai
     name: "3. 创建提醒 (events:create)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "创建提醒：明天下午3点开会");
-      const taskResults = await drainTasks(config, agentService);
       const schedules = await readEventRecords(config);
-      await log({ scenario: "创建提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleCount: schedules.length, activeSchedules: schedules.filter(r => r.status === "active").map(r => r.title) });
+      await log({ scenario: "创建提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, scheduleCount: schedules.length, activeSchedules: schedules.filter(r => r.status === "active").map(r => r.title) });
     },
   },
   {
     name: "4. 暂停提醒 (events:pause)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "暂停开会提醒");
-      const taskResults = await drainTasks(config, agentService);
       const schedules = await readEventRecords(config);
-      await log({ scenario: "暂停提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
+      await log({ scenario: "暂停提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
     },
   },
   {
     name: "5. 恢复提醒 (events:resume)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "恢复开会提醒");
-      const taskResults = await drainTasks(config, agentService);
       const schedules = await readEventRecords(config);
-      await log({ scenario: "恢复提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
+      await log({ scenario: "恢复提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
     },
   },
   {
     name: "6. 删除提醒 (events:delete)",
     run: async (config, agentService) => {
       const result = await runAssistant(config, agentService, "删除开会提醒");
-      const taskResults = await drainTasks(config, agentService);
       const schedules = await readEventRecords(config);
-      await log({ scenario: "删除提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, taskResults, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
+      await log({ scenario: "删除提醒", result: { message: result.message, answerMode: result.answerMode, usedNativeExecution: result.usedNativeExecution, completedActions: result.completedActions }, scheduleStatuses: schedules.map(r => ({ title: r.title, status: r.status })) });
     },
   },
   {
@@ -196,7 +176,7 @@ async function main() {
   try {
     await agentService.ensureReady();
   } catch {
-    console.error("❌ OpenCode server not reachable. Start it first.");
+    console.error("❌ pi SDK is not ready. Configure pi credentials first.");
     process.exit(1);
   }
 

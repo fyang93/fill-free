@@ -7,9 +7,7 @@ import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import { persistState, state } from "bot/app/state";
 import { loadChats, loadUsers } from "bot/operations/context/store";
-import { pruneFinishedTasks } from "bot/tasks";
 import { pruneMissingTelegramFileRecords } from "bot/operations/files/store";
-import { replenishWaitingMessageCandidates } from "bot/runtime/assistant";
 
 type MemorySnapshot = Map<string, { size: number; mtimeMs: number }>;
 
@@ -330,11 +328,6 @@ async function runMaintainerCycle(
 
   const preChanges: string[] = [];
 
-  const replenishedWaitingMessages = await replenishWaitingMessageCandidates(agentService, config).catch(() => 0);
-  if (replenishedWaitingMessages > 0) {
-    await logger.info(`maintainer loop replenished ${replenishedWaitingMessages} waiting message candidates`);
-  }
-
   const scheduleCleanup = await pruneInactiveEventRecords(config);
   if (scheduleCleanup.removed > 0) {
     await logger.info(`maintainer loop pruned ${scheduleCleanup.removed} inactive schedules`);
@@ -363,16 +356,6 @@ async function runMaintainerCycle(
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "file registry cleanup"), {
       summary: `pruned ${removedFileRecords.removed} missing telegram file records`,
       deleted: removedFileRecords.removedPaths.join(", "),
-    });
-  }
-
-  const prunedTasks = await pruneFinishedTasks(config);
-  if (prunedTasks.removed > 0) {
-    await logger.info(`maintainer loop pruned ${prunedTasks.removed} finished tasks`);
-    preChanges.push(`Pruned ${prunedTasks.removed} finished tasks: ${detailPreview(prunedTasks.removedSummaries)}.`);
-    await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "task cleanup"), {
-      summary: `pruned ${prunedTasks.removed} finished tasks`,
-      deleted: prunedTasks.removedSummaries.join(", "),
     });
   }
 

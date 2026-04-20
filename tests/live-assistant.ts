@@ -1,12 +1,11 @@
 /**
  * Live assistant integration test.
  *
- * Runs against a live OpenCode server. Each scenario calls runAssistantTurn()
+ * Runs against a live pi SDK setup. Each scenario calls runAssistantTurn()
  * directly and logs the result. After all scenarios complete, read the log to
  * verify correctness.
  *
  * Usage:
- *   opencode serve --port 4096 &
  *   npm run test:live
  */
 
@@ -19,8 +18,6 @@ import { AiService } from "../src/bot/ai";
 import { buildAssistantContextBlock, lookupRequesterTimezone } from "../src/bot/operations/context/assistant";
 import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
-import { dequeueRunnableTask, markTaskState, removeTask } from "../src/bot/tasks/runtime/store";
-import { runTaskWithHandlers } from "../src/bot/tasks/runtime/handlers";
 
 const hostRepoRoot = process.cwd();
 const logFile = path.join(hostRepoRoot, "logs", "test-runs", "live-assistant.log");
@@ -53,14 +50,11 @@ function createTestConfig(repoRoot: string): AppConfig {
       idleAfterMs: 0,
       tmpRetentionDays: 1,
     },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
-    },
   };
 }
 
 async function createTempEnv(): Promise<{ config: AppConfig; repoRoot: string }> {
-  // Use the real project root so OpenCode server can find repository CLI aliases.
+  // Use the real project root so pi SDK can find repository CLI aliases.
   // System files are backed up and restored after the test.
   const repoRoot = hostRepoRoot;
   await mkdir(path.join(repoRoot, "system"), { recursive: true });
@@ -69,7 +63,7 @@ async function createTempEnv(): Promise<{ config: AppConfig; repoRoot: string }>
 
   // Backup existing system files
   const backups = new Map<string, string | null>();
-  for (const file of ["system/users.json", "system/chats.json", "system/tasks.json", "system/runtime-state.json"]) {
+  for (const file of ["system/users.json", "system/chats.json", "system/runtime-state.json"]) {
     const filePath = path.join(repoRoot, file);
     try { backups.set(file, await readFile(filePath, "utf8")); } catch { backups.set(file, null); }
   }
@@ -81,7 +75,6 @@ async function createTempEnv(): Promise<{ config: AppConfig; repoRoot: string }>
     },
   }, null, 2) + "\n", "utf8");
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{}}\n', "utf8");
-  await writeFile(path.join(repoRoot, "system", "tasks.json"), '{"tasks":[]}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "runtime-state.json"), '{}\n', "utf8");
 
   const config = createTestConfig(repoRoot);
@@ -114,24 +107,10 @@ async function buildContext(config: AppConfig, promptText: string): Promise<{ as
   return { assistantContextText, requesterTimezone: lookupRequesterTimezone(config, 1) };
 }
 
-async function drainTasks(config: AppConfig, agentService: AiService): Promise<Array<Record<string, unknown>>> {
-  const results: Array<Record<string, unknown>> = [];
-  while (true) {
-    const task = await dequeueRunnableTask(config);
-    if (!task) break;
-    const output = await runTaskWithHandlers({ config, agentService, bot: {} as any }, task);
-    results.push({ taskId: task.id, domain: task.domain, operation: task.operation, result: output.result || {} });
-    await markTaskState(config, task.id, "done", { result: output.result || {} });
-    await removeTask(config, task.id);
-  }
-  return results;
-}
-
 type ScenarioResult = {
   scenario: string;
   input: string;
   result: any;
-  taskResults?: any[];
   error?: string;
 };
 
@@ -140,7 +119,7 @@ async function runScenario(
   config: AppConfig,
   agentService: AiService,
   input: string,
-  opts?: { drainTasks?: boolean },
+  opts?: { setup?: () => Promise<void> },
 ): Promise<ScenarioResult> {
   try {
     const { assistantContextText, requesterTimezone } = await buildContext(config, input);
@@ -155,11 +134,6 @@ async function runScenario(
       sharedConversationContextText: assistantContextText,
     });
 
-    let taskResults: Array<Record<string, unknown>> = [];
-    if (opts?.drainTasks) {
-      taskResults = await drainTasks(config, agentService);
-    }
-
     await log({
       scenario: name,
       status: "ok",
@@ -170,9 +144,8 @@ async function runScenario(
         usedNativeExecution: result.usedNativeExecution,
         completedActions: result.completedActions,
       },
-      taskResults: taskResults.length > 0 ? taskResults : undefined,
     });
-    return { scenario: name, input, result, taskResults };
+    return { scenario: name, input, result };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await log({ scenario: name, status: "error", input, error: message });
@@ -195,7 +168,7 @@ async function main() {
   try {
     await agentService.ensureReady();
   } catch (error) {
-    console.error("❌ OpenCode server not reachable. Start it first: opencode serve --port 4096");
+    console.error("❌ pi SDK is not ready. Configure pi credentials first.");
     process.exit(1);
   }
 
@@ -203,7 +176,7 @@ async function main() {
   let passed = 0;
   let failed = 0;
 
-  async function run(name: string, input: string, opts?: { drainTasks?: boolean; setup?: () => Promise<void> }) {
+  async function run(name: string, input: string, opts?: { setup?: () => Promise<void> }) {
     if (opts?.setup) await opts.setup();
     const r = await runScenario(name, config, agentService, input, opts);
     results.push(r);
@@ -217,16 +190,16 @@ async function main() {
   await run("查看提醒列表", "查看当前提醒列表");
 
   // 3. Create schedule — events:create
-  await run("创建提醒", "创建提醒：明天下午3点开会", { drainTasks: true });
+  await run("创建提醒", "创建提醒：明天下午3点开会");
 
   // 4. Pause schedule — events:pause
-  await run("暂停提醒", "暂停开会提醒", { drainTasks: true });
+  await run("暂停提醒", "暂停开会提醒");
 
   // 5. Resume schedule — events:resume
-  await run("恢复提醒", "恢复开会提醒", { drainTasks: true });
+  await run("恢复提醒", "恢复开会提醒");
 
   // 6. Delete schedule — events:delete
-  await run("删除提醒", "删除开会提醒", { drainTasks: true });
+  await run("删除提醒", "删除开会提醒");
 
   // 7. List users — users:list
   await run("查看用户列表", "查看用户列表");

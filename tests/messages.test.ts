@@ -4,11 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AppConfig } from "../src/bot/app/types";
-import { executeAssistantActions } from "../src/bot/runtime/assistant-actions";
-import { handleTelegramSendMessage } from "../src/cli/commands/telegram";
+import { scheduleTelegramMessage } from "../src/cli/commands/telegram";
 import { CliOutput } from "../src/cli/runtime";
-import { dequeueRunnableTask, enqueueTask, markTaskState, removeTask } from "../src/bot/tasks/runtime/store";
-import { runTaskWithHandlers } from "../src/bot/tasks/runtime/handlers";
 import { rememberTelegramChat, rememberTelegramUser } from "../src/bot/telegram/registry";
 import { resolveTelegramTargetUser } from "../src/bot/telegram/targets";
 
@@ -38,9 +35,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       idleAfterMs: 0,
       tmpRetentionDays: 1,
     },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
-    },
   };
 }
 
@@ -49,7 +43,6 @@ async function createTempConfig(): Promise<{ config: AppConfig; repoRoot: string
   await mkdir(path.join(repoRoot, "system"), { recursive: true });
   await writeFile(path.join(repoRoot, "system", "users.json"), '{"users":{}}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{}}\n', "utf8");
-  await writeFile(path.join(repoRoot, "system", "tasks.json"), '{"tasks":[]}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "state.json"), '{}\n', "utf8");
   await writeFile(path.join(repoRoot, "config.toml"), [
     "[telegram]",
@@ -65,8 +58,6 @@ async function createTempConfig(): Promise<{ config: AppConfig; repoRoot: string
     "enabled = false",
     'idle_after_minutes = 15',
     "",
-    "[opencode]",
-    'base_url = "http://127.0.0.1:4096"',
     "",
   ].join("\n"), "utf8");
   const originalCwd = process.cwd();
@@ -77,76 +68,46 @@ async function createTempConfig(): Promise<{ config: AppConfig; repoRoot: string
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
 describe("message delivery flow", () => {
-  test("assistant queues canonical messages.deliver task with payload.content and handler sends it", async () => {
+  test("telegram:schedule-message delegates to an external scheduler instead of writing tasks.json", async () => {
     const { config, repoRoot, originalCwd } = await createTempConfig();
     try {
-      const sent: Array<{ chatId: number; text: string }> = [];
-      rememberTelegramChat({ id: -1003674455331, type: "supergroup", title: "锅巴之家" }, [872940661]);
-      const agentService = {
-        runAssistantTurn: async () => {
-          await enqueueTask(config, {
-            domain: "messages",
-            operation: "deliver",
-            subject: { kind: "chat", id: String(-1003674455331) },
-            payload: { recipientId: -1003674455331, content: "测试消息" },
-          });
-          return {
-            message: "已发送测试消息到锅巴之家",
-            answerMode: "direct",
-            usedNativeExecution: true,
-            completedActions: ["telegram:send-message"],
-          };
-        },
-        composeDeliveryMessage: async (baseMessage: string) => baseMessage,
-      } as any;
-
-      await executeAssistantActions({
-        config,
-        agentService,
-        answer: {
-          message: "正在发送测试消息到锅巴之家群...",
-          answerMode: "needs-execution",
-          files: [],
-          fileWrites: [],
-          attachments: [],
-          schedules: [],
-          deliveries: [],
-          pendingAuthorizations: [],
-          tasks: [],
-        },
-        ctx: { chat: { id: 872940661, type: "private" }, message: { message_id: 1827, text: "发送测试消息到锅巴之家" } } as any,
-        requesterUserId: 872940661,
-        canDeliverOutbound: true,
-        accessRole: "admin",
-        userRequestText: "发送测试消息到锅巴之家",
-        isTaskCurrent: () => true,
-      });
-
-      const queuedTask = await dequeueRunnableTask(config);
-      expect(queuedTask?.domain).toBe("messages");
-      expect(queuedTask?.operation).toBe("deliver");
-      expect(queuedTask?.payload.content).toBe("测试消息");
-      expect(queuedTask?.payload.recipientId).toBe(-1003674455331);
-
-      const output = await runTaskWithHandlers(
-        {
+      let output: Record<string, unknown> | null = null;
+      try {
+        await scheduleTelegramMessage({
           config,
-          agentService: {
-            ...agentService,
-            composeDeliveryMessage: async () => { throw new Error("should not compose delivery text"); },
+          args: {},
+          output: (value: unknown): never => {
+            throw new CliOutput(value);
           },
-          bot: { api: { sendMessage: async (chatId: number, text: string) => { sent.push({ chatId, text }); return {}; } } } as any,
-        },
-        queuedTask!,
-      );
-      expect(output.result?.delivered).toBe(true);
-      expect(sent).toEqual([{ chatId: -1003674455331, text: "测试消息" }]);
+          nowIso: () => new Date().toISOString(),
+          readJson: () => ({}),
+          writeJson: () => undefined,
+          cleanText: (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined,
+          asInt: (value: unknown) => {
+            const n = Number(value);
+            return Number.isInteger(n) ? n : undefined;
+          },
+          parseObjectArg: () => undefined,
+          requireAdminRequester: () => 1,
+          resolveUserLookup: () => ({}),
+          usersDoc: () => ({ users: {} }),
+          logTextContent: (text: string) => JSON.stringify(text),
+        } as any, -1003674455331, "测试消息", new Date(Date.now() + 60_000).toISOString(), "锅巴之家", 872940661, () => ({ ok: true, scheduler: "at", handle: "job-123" }));
+      } catch (error) {
+        if (error instanceof CliOutput) output = error.value as Record<string, unknown>;
+        else throw error;
+      }
 
-      await markTaskState(config, queuedTask!.id, "done", { result: output.result || {} });
-      await removeTask(config, queuedTask!.id);
-
-      const tasksDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "tasks.json"), "utf8")) as { tasks?: unknown[] };
-      expect(tasksDoc.tasks).toEqual([]);
+      expect(output).toEqual({
+        ok: true,
+        scheduled: true,
+        recipientId: -1003674455331,
+        recipientLabel: "锅巴之家",
+        sendAt: expect.any(String),
+        scheduler: "at",
+        handle: "job-123",
+      });
+      await expect(readFile(path.join(repoRoot, "system", "tasks.json"), "utf8")).rejects.toThrow();
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });
@@ -361,36 +322,6 @@ describe("message delivery flow", () => {
       const missingStdout = await new Response(missingProc.stdout).text();
       expect(await missingProc.exited).toBe(0);
       expect(JSON.parse(missingStdout)).toEqual({ ok: false, status: "not_found", error: "recipient-not-found", targetLabel: "不存在的对象" });
-    } finally {
-      process.chdir(originalCwd);
-      await rm(repoRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("waiting message candidates keep rotating after unused pool is exhausted without clearing used flags", async () => {
-    const { consumeWaitingMessageCandidate } = await import("../src/bot/runtime/assistant");
-    const { state } = await import("../src/bot/app/state");
-    const { config, repoRoot, originalCwd } = await createTempConfig();
-
-    try {
-      state.waitingMessageCandidates = [
-        { text: "A", used: false },
-        { text: "B", used: false },
-      ];
-
-      const first = await consumeWaitingMessageCandidate(config);
-      const second = await consumeWaitingMessageCandidate(config);
-      expect(["A", "B"]).toContain(first);
-      expect(["A", "B"]).toContain(second);
-      expect(state.waitingMessageCandidates.every((item) => item.used)).toBe(true);
-
-      const snapshot = JSON.stringify(state.waitingMessageCandidates);
-      const third = await consumeWaitingMessageCandidate(config);
-
-      expect(["A", "B"]).toContain(third);
-      expect(third).toBeTruthy();
-      expect(JSON.stringify(state.waitingMessageCandidates)).toBe(snapshot);
-      expect(state.waitingMessageCandidates.every((item) => item.used)).toBe(true);
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });

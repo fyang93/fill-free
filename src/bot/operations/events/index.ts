@@ -58,5 +58,4 @@ export {
 } from "./delivery";
 
 export { handleScheduleCallback } from "./ui";
-export { eventPreparationTaskHandler, eventsTaskHandler } from "bot/tasks/runtime/handlers/events";
 export { resolveEventsByMatch, eventMatchesFilters } from "./task-actions";

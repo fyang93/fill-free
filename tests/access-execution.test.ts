@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
 import { executeAssistantActions } from "../src/bot/runtime/assistant-actions";
+import { tForUser, userLocale } from "../src/bot/app/i18n";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { ensureAdminUserAccessLevel, setStoredUserAccessLevel } from "../src/bot/operations/access/roles";
 
@@ -33,9 +34,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       idleAfterMs: 0,
       tmpRetentionDays: 1,
     },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
-    },
   };
 }
 
@@ -44,7 +42,6 @@ async function createTempConfig(): Promise<{ config: AppConfig; repoRoot: string
   await mkdir(path.join(repoRoot, "system"), { recursive: true });
   await writeFile(path.join(repoRoot, "system", "users.json"), '{"users":{}}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "chats.json"), '{"chats":{}}\n', "utf8");
-  await writeFile(path.join(repoRoot, "system", "tasks.json"), '{"tasks":[]}\n', "utf8");
   await writeFile(path.join(repoRoot, "system", "state.json"), '{}\n', "utf8");
   await writeFile(path.join(repoRoot, "config.toml"), [
     "[telegram]",
@@ -60,8 +57,6 @@ async function createTempConfig(): Promise<{ config: AppConfig; repoRoot: string
     "enabled = false",
     'idle_after_minutes = 15',
     "",
-    "[opencode]",
-    'base_url = "http://127.0.0.1:4096"',
     "",
   ].join("\n"), "utf8");
   const originalCwd = process.cwd();
@@ -150,21 +145,35 @@ describe("access execution", () => {
       expect(usersDoc.users?.["8631425224"]?.accessLevel).toBe("trusted");
       expect(usersDoc.users?.["8631425224"]?.timezone).toBe("Asia/Tokyo");
 
-      const tasksDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "tasks.json"), "utf8")) as { tasks?: unknown[] };
-      expect(tasksDoc.tasks).toEqual([]);
+      await expect(readFile(path.join(repoRoot, "system", "tasks.json"), "utf8")).rejects.toThrow();
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });
     }
   });
 
-  test("rememberTelegramUser writes default timezone when recording a new user", async () => {
-    const { repoRoot, originalCwd } = await createTempConfig();
+  test("rememberTelegramUser writes default timezone and language code when recording a new user", async () => {
+    const { config, repoRoot, originalCwd } = await createTempConfig();
     try {
-      rememberTelegramUser({ id: 9182637451, username: "test_rain_new", first_name: "测试", last_name: "雨" });
+      rememberTelegramUser({ id: 9182637451, username: "test_rain_new", first_name: "测试", last_name: "雨", language_code: "en-US" });
       const usersDoc = JSON.parse(await readFile(path.join(repoRoot, "system", "users.json"), "utf8")) as { users?: Record<string, Record<string, unknown>> };
       expect(usersDoc.users?.["9182637451"]?.username).toBe("test_rain_new");
       expect(usersDoc.users?.["9182637451"]?.timezone).toBe("Asia/Tokyo");
+      expect(usersDoc.users?.["9182637451"]?.languageCode).toBe("en-US");
+      expect(userLocale(config, 9182637451)).toBe("en");
+      expect(tForUser(config, 9182637451, "command_help")).toBe("Get help");
+    } finally {
+      process.chdir(originalCwd);
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("Chinese Telegram UI language maps to zh-CN fixed UI text", async () => {
+    const { config, repoRoot, originalCwd } = await createTempConfig();
+    try {
+      rememberTelegramUser({ id: 7, username: "zh_user", first_name: "中", last_name: "文", language_code: "zh-Hans" });
+      expect(userLocale(config, 7)).toBe("zh-CN");
+      expect(tForUser(config, 7, "command_help")).toBe("查看帮助");
     } finally {
       process.chdir(originalCwd);
       await rm(repoRoot, { recursive: true, force: true });

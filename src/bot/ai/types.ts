@@ -6,12 +6,6 @@ export type ActionTargetReference = {
   displayName?: string;
 };
 
-export type MessageDeliveryDraft = {
-  content: string;
-  recipient: ActionTargetReference;
-  sendAt?: string;
-};
-
 export type ScheduleDraft = {
   title: string;
   note?: string;
@@ -31,36 +25,10 @@ export type PendingAuthorizationDraft = {
   expiresAt: string;
 };
 
-export type TaskDraft = {
-  domain: string;
-  operation: string;
-  subject?: {
-    kind?: string;
-    id?: string;
-    scope?: Record<string, string | number | boolean>;
-  };
-  payload?: Record<string, unknown>;
-  dependsOn?: string[];
-  dedupeKey?: string;
-  supersedesTaskIds?: string[];
-};
-
-export type FileWriteDraft = {
-  path: string;
-  content: string;
-  operation?: string;
-  action?: string;
-};
-
 export type AiTurnResult = {
   message: string;
   files: string[];
-  fileWrites: FileWriteDraft[];
   attachments: AiAttachment[];
-  schedules: ScheduleDraft[];
-  deliveries: MessageDeliveryDraft[];
-  pendingAuthorizations: PendingAuthorizationDraft[];
-  tasks: TaskDraft[];
 };
 
 export type AssistantPlanResult = {

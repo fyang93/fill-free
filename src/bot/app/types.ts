@@ -3,8 +3,6 @@ export type AppConfig = {
     botToken: string;
     adminUserId: number | null;
     waitingMessage: string;
-    waitingMessageCandidateCount?: number;
-    waitingMessageRotationSeconds?: number;
     inputMergeWindowSeconds: number;
     menuPageSize: number;
   };
@@ -24,9 +22,6 @@ export type AppConfig = {
     enabled: boolean;
     idleAfterMs: number;
     tmpRetentionDays: number;
-  };
-  opencode: {
-    baseUrl: string;
   };
 };
 
@@ -58,22 +53,16 @@ export type PendingAuthorization = {
   expiresAt: string;
 };
 
-export type WaitingMessageCandidate = {
-  text: string;
-  used: boolean;
-};
-
 export type SessionState = {
   model: string | null;
   lastActivityAt: string | null;
   lastMaintainedAt: string | null;
-  waitingMessageCandidates: WaitingMessageCandidate[];
   recentUploadsByScope: Record<string, { files: UploadedFile[]; recentUploadsAt: string | null }>;
   recentClarificationsByScope: Record<string, { requestText: string; clarificationMessage: string; updatedAt: string }>;
   // Runtime caches hydrated from canonical system registries and refreshed during execution.
   // These improve hot-path reads but are not the source of truth.
   userTimezoneCache: Record<string, { timezone: string; updatedAt: string }>;
-  telegramUserCache: Record<string, { username?: string; firstName?: string; lastName?: string; displayName: string; lastSeenAt: string }>;
+  telegramUserCache: Record<string, { username?: string; firstName?: string; lastName?: string; displayName: string; lastSeenAt: string; languageCode?: string }>;
   telegramChatCache: Record<string, { type: string; title?: string; lastSeenAt: string }>;
   pendingAuthorizations: PendingAuthorization[];
 };

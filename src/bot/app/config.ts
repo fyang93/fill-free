@@ -68,7 +68,6 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
   const telegram = asRecord(parsed.telegram);
   const bot = asRecord(parsed.bot);
   const maintenance = asRecord(parsed.maintenance);
-  const opencode = asRecord(parsed.opencode);
   const repoRoot = path.resolve(process.cwd());
   const tmpDir = path.resolve(repoRoot, "tmp");
   const uploadSubdir = "telegram";
@@ -86,8 +85,6 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       botToken: stringOr(telegram.bot_token, ""),
       adminUserId,
       waitingMessage: (optionalString(telegram.waiting_message) || "").trim(),
-      waitingMessageCandidateCount: Math.max(1, numberOr(telegram.waiting_message_candidate_count, 20)),
-      waitingMessageRotationSeconds: Math.max(1, numberOr(telegram.waiting_message_rotation_seconds, 5)),
       inputMergeWindowSeconds: Math.max(0, numberOr(telegram.input_merge_window_seconds, 3)),
       menuPageSize: numberOr(telegram.menu_page_size, 8),
     },
@@ -107,9 +104,6 @@ export function loadConfig(configPath = path.resolve(process.cwd(), "config.toml
       enabled: booleanOr(maintenance.enabled, true),
       idleAfterMs: Math.max(0, maintenanceIdleAfterMinutes) * 60 * 1000,
       tmpRetentionDays,
-    },
-    opencode: {
-      baseUrl: stringOr(opencode.base_url, "http://127.0.0.1:4096").trim() || "http://127.0.0.1:4096",
     },
   };
 

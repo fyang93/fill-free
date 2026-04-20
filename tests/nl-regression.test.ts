@@ -4,8 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
 import { buildEventRecord, createEventRecord, readEventRecords } from "../src/bot/operations/events/store";
-import { runEventTask } from "../src/bot/operations/events/task-actions";
-import type { TaskRecord } from "../src/bot/tasks/runtime/store";
+import { runEventTask, type TaskRecord } from "../src/bot/operations/events/task-actions";
 import { rememberTelegramUser } from "../src/bot/telegram/registry";
 import { resolveUser } from "../src/bot/operations/context/store";
 import { clearStoredUserAccessLevel, clearStoredUserAccessLevels, setStoredUserAccessLevel, setStoredUserAccessLevels } from "../src/bot/operations/access/roles";
@@ -41,9 +40,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       enabled: false,
       idleAfterMs: 0,
       tmpRetentionDays: 1,
-    },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
     },
   };
 }

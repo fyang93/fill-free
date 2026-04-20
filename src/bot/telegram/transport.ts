@@ -7,7 +7,7 @@ import { findTelegramFileByUniqueId, rememberTelegramFileRecord } from "bot/oper
 
 type AnyRecord = Record<string, unknown>;
 
-const INVALID_FILENAME_RE = /[^a-zA-Z0-9._-]+/g;
+const INVALID_FILENAME_RE = /[\u0000-\u001F\u007F]/g;
 const MARKDOWN_LOCAL_LINK_RE = /\]\(((?:\.\.\/|\.\/)*(?:memory|tmp)\/[^)\s]+|\/[^)\s]+)\)/gm;
 const TEXT_LOCAL_PATH_RE = /(?:^|[\s`"'(<\[])(((?:\.\.\/|\.\/)*(?:memory|tmp)\/[^\s`"')>\]]+)|\/[^\s`"')>\]]+)(?=$|[\s`"')>\]])/gm;
 const PROTECTED_SYSTEM_FILES = new Set([
@@ -16,13 +16,17 @@ const PROTECTED_SYSTEM_FILES = new Set([
   path.join("system", "runtime-state.json"),
   path.join("system", "users.json"),
   path.join("system", "chats.json"),
-  path.join("system", "tasks.json"),
 ]);
 
 function sanitizeFilename(name: string): string {
-  const base = path.basename(name || "file");
-  const normalized = base.replace(INVALID_FILENAME_RE, "-").replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
-  return normalized || "file";
+  const source = String(name || "file").replace(/\\/g, "/");
+  const base = path.basename(source).normalize("NFC");
+  const normalized = base
+    .replace(INVALID_FILENAME_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized || normalized === "." || normalized === "..") return "file";
+  return normalized;
 }
 
 function inferExtensionFromMime(mimeType: string): string {

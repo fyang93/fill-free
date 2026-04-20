@@ -91,6 +91,46 @@ export async function prepareScheduleDeliveryText(config: AppConfig, agentServic
   return true;
 }
 
+function schedulePreparationFingerprint(event: EventRecord): string {
+  return JSON.stringify({
+    title: event.title,
+    note: event.note,
+    category: event.category,
+    specialKind: event.specialKind,
+    timeSemantics: event.timeSemantics,
+    createdByUserId: event.createdByUserId,
+    schedule: event.schedule,
+    reminders: event.reminders,
+    targets: event.targets,
+    status: event.status,
+    currentOccurrenceScheduledAt: event.deliveryState?.currentOccurrence?.scheduledAt,
+    sentReminderIds: event.deliveryState?.currentOccurrence?.sentReminderIds || [],
+  });
+}
+
+export async function prepareScheduleDeliveryTextAndPersistIfUnchanged(config: AppConfig, agentService: AiService, event: EventRecord, now = new Date()): Promise<{ changed: boolean; skipped?: boolean; reason?: string }> {
+  const fingerprintBefore = schedulePreparationFingerprint(event);
+  const changed = await prepareScheduleDeliveryText(config, agentService, event, now);
+  if (!changed) return { changed: false };
+
+  const events = await readEventRecords(config);
+  const index = events.findIndex((item) => item.id === event.id);
+  if (index < 0) return { changed: false, skipped: true, reason: "missing-event-after-prepare" };
+  if (schedulePreparationFingerprint(events[index]!) !== fingerprintBefore) {
+    return { changed: false, skipped: true, reason: "event-changed-during-prepare" };
+  }
+
+  events[index] = {
+    ...events[index]!,
+    deliveryText: event.deliveryText,
+    deliveryTextGeneratedAt: event.deliveryTextGeneratedAt,
+    deliveryPreparedReminderId: event.deliveryPreparedReminderId,
+    deliveryPreparedNotifyAt: event.deliveryPreparedNotifyAt,
+  };
+  await writeEventRecords(config, events);
+  return { changed: true };
+}
+
 export async function prewarmScheduleDeliveryTexts(config: AppConfig, agentService: AiService): Promise<void> {
   const events = await readEventRecords(config);
   let changed = false;

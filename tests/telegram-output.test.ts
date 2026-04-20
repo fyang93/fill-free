@@ -14,7 +14,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       waitingMessage: "",
       inputMergeWindowSeconds: 3,
       menuPageSize: 8,
-      inputMergeWindowSeconds: 3,
     },
     bot: {
       personaStyle: "",
@@ -32,9 +31,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       enabled: false,
       idleAfterMs: 0,
       tmpRetentionDays: 1,
-    },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
     },
   };
 }
@@ -84,14 +80,8 @@ describe("telegram current-turn output", () => {
 
       await deliverAiOutputs(ctx, config, {
         message: "我已经更新好了，内容存放在 [memory/shared/households/yang-fan-family/guoba.jpg](../memory/shared/households/yang-fan-family/guoba.jpg)。",
-        answerMode: "needs-execution",
         files: [],
         attachments: [],
-        fileWrites: [],
-        schedules: [],
-        deliveries: [],
-        pendingAuthorizations: [],
-        tasks: [],
       });
 
       expect(calls).not.toContain("sendPhoto:42");
@@ -125,14 +115,8 @@ describe("telegram current-turn output", () => {
 
       await deliverAiOutputs(ctx, config, {
         message: "这是你要的文件。",
-        answerMode: "needs-execution",
         files: ["memory/shared/households/yang-fan-family/guoba.jpg"],
         attachments: [],
-        fileWrites: [],
-        schedules: [],
-        deliveries: [],
-        pendingAuthorizations: [],
-        tasks: [],
       });
 
       expect(calls).toContain("sendPhoto:42");

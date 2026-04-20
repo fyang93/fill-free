@@ -4,10 +4,28 @@ import { accessLevelForUser } from "bot/operations/access/roles";
 import { canManageAllSchedules, canManageOwnSchedules, canRequesterCreateEventTargets, canReadSchedules } from "bot/operations/access/control";
 import { buildEventScheduleFromExternal } from "./schedule_parser";
 import { buildScheduledTaskPrompt } from "./automation";
-import { createEventRecordWithDefaults, deleteEventRecord, getCurrentOccurrence, readEventRecords, resolveScheduleDisplayTimezone, resolveScheduleTimezone, shouldGenerateScheduledTaskOnDelivery, updateEventRecord } from ".";
+import { createEventRecordWithDefaults, deleteEventRecord, getCurrentOccurrence, readEventRecords, resolveScheduleDisplayTimezone, resolveScheduleTimezone, updateEventRecord } from ".";
 import type { EventRecord, Reminder, EventTarget } from ".";
-import type { TaskRecord } from "bot/tasks/runtime/store";
-import { enqueueTask } from "bot/tasks/runtime/store";
+
+export type TaskRecord = {
+  id: string;
+  state: "queued" | "running" | "blocked" | "done" | "failed" | "cancelled" | "superseded";
+  domain: string;
+  operation: string;
+  subject?: {
+    kind?: string;
+    id?: string;
+    scope?: Record<string, string | number | boolean>;
+  };
+  payload: Record<string, unknown>;
+  source?: {
+    requesterUserId?: number;
+    chatId?: number;
+    messageId?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+};
 
 function normalizeDateKey(date: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -41,14 +59,6 @@ function extractLocalScheduledAt(event: EventRecord, fallbackTimezone: string): 
     ? resolveScheduleDisplayTimezone({ bot: { defaultTimezone: fallbackTimezone } } as AppConfig, event)
     : fallbackTimezone;
   return formatIsoInTimezoneLocalString(event.schedule.scheduledAt, timezone);
-}
-
-function scheduleTargetSubject(targets: EventTarget[]): TaskRecord["subject"] {
-  if (targets.length !== 1) return { kind: "event" };
-  return {
-    kind: targets[0].targetKind,
-    id: String(targets[0].targetId),
-  };
 }
 
 function normalizeEventTargets(raw: unknown): EventTarget[] {
@@ -156,7 +166,9 @@ export async function resolveEventsByMatch(
     const byId = new Map(allEvents.map((event) => [event.id, event]));
     const resolved = batchIds.map((id) => byId.get(id)).filter((event): event is EventRecord => Boolean(event));
     if (resolved.length !== batchIds.length) return { mode: "batch", events: [], reason: "schedule-batch-not-resolved" };
-    return { mode: "batch", events: resolved };
+    const permitted = resolved.filter((event) => canManageAllSchedules(accessLevel) || (canManageOwnSchedules(accessLevel) && requesterUserId && event.createdByUserId === requesterUserId));
+    if (permitted.length !== resolved.length) return { mode: "batch", events: [], reason: "schedule-batch-not-resolved" };
+    return { mode: "batch", events: permitted };
   }
 
   if (matchedEvents.length === 1) return { mode: "single", events: [matchedEvents[0]] };
@@ -176,65 +188,6 @@ async function resolveEventsForMutation(
       : {},
     requesterUserId: task.source?.requesterUserId,
     allowedStatuses,
-  });
-}
-
-export async function enqueueScheduleCreateTask(
-  config: AppConfig,
-  input: {
-    title: string;
-    note?: string;
-    schedule: Record<string, unknown>;
-    category?: string;
-    specialKind?: string;
-    timeSemantics?: string;
-    timezone?: string;
-    createdByUserId?: number;
-    reminders?: Reminder[];
-    targets: EventTarget[];
-  },
-  source?: TaskRecord["source"],
-): Promise<TaskRecord> {
-  const dateKey = typeof input.schedule.scheduledAt === "string" && input.schedule.scheduledAt.trim()
-    ? input.schedule.scheduledAt.slice(0, 10)
-    : typeof input.schedule.date === "string" && input.schedule.date.trim()
-      ? input.schedule.date.trim()
-      : "floating";
-  return enqueueTask(config, {
-    domain: "events",
-    operation: "create",
-    subject: scheduleTargetSubject(input.targets),
-    payload: {
-      title: input.title,
-      note: input.note,
-      schedule: input.schedule,
-      category: input.category,
-      specialKind: input.specialKind,
-      timeSemantics: input.timeSemantics,
-      timezone: input.timezone,
-      createdByUserId: input.createdByUserId,
-      reminders: input.reminders,
-      targets: input.targets,
-    },
-    dedupeKey: `events:create:${input.targets.map((target) => `${target.targetKind}:${target.targetId}`).join(",")}:${input.title}:${dateKey}`,
-    source,
-  });
-}
-
-export async function enqueueEventPreparationTask(
-  config: AppConfig,
-  eventId: string,
-  source?: TaskRecord["source"],
-  supersedesTaskIds?: string[],
-): Promise<TaskRecord> {
-  return enqueueTask(config, {
-    domain: "events",
-    operation: "prepare-delivery-text",
-    subject: { kind: "event", id: eventId },
-    payload: { eventId },
-    dedupeKey: `events:prepare-delivery-text:${eventId}`,
-    supersedesTaskIds,
-    source,
   });
 }
 
@@ -276,9 +229,6 @@ export async function runEventTask(config: AppConfig, task: TaskRecord): Promise
       reminders: effectiveReminders,
       targets,
     });
-    if (!shouldGenerateScheduledTaskOnDelivery(event)) {
-      await enqueueEventPreparationTask(config, event.id, task.source, [task.id]);
-    }
     return { changed: true, eventId: event.id };
   }
 
@@ -334,7 +284,12 @@ export async function runEventTask(config: AppConfig, task: TaskRecord): Promise
       }
 
       const updatedTargets = scheduleTargetsFromUpdateChanges(changes);
-      if (updatedTargets && updatedTargets.length > 0) event.targets = updatedTargets;
+      if (updatedTargets && updatedTargets.length > 0) {
+        if (!canRequesterCreateEventTargets(config, task.source?.requesterUserId, updatedTargets)) {
+          return { skipped: true, reason: "schedule-create-not-allowed" };
+        }
+        event.targets = updatedTargets;
+      }
 
       const scheduleChanged = Boolean(changes.schedule && typeof changes.schedule === "object" && !Array.isArray(changes.schedule));
       if (scheduleChanged) {
@@ -366,9 +321,6 @@ export async function runEventTask(config: AppConfig, task: TaskRecord): Promise
       }
       event.updatedAt = new Date().toISOString();
       await updateEventRecord(config, event);
-      if (!shouldGenerateScheduledTaskOnDelivery(event)) {
-        await enqueueEventPreparationTask(config, event.id, task.source, [task.id]);
-      }
       changedIds.push(event.id);
     }
     return { changed: true, eventId: changedIds[0], eventIds: changedIds };
@@ -415,9 +367,6 @@ export async function runEventTask(config: AppConfig, task: TaskRecord): Promise
       event.deliveryPreparedNotifyAt = undefined;
       event.deliveryState = undefined;
       await updateEventRecord(config, event);
-      if (!shouldGenerateScheduledTaskOnDelivery(event)) {
-        await enqueueEventPreparationTask(config, event.id, task.source, [task.id]);
-      }
       changedIds.push(event.id);
     }
     return { changed: true, eventId: changedIds[0], eventIds: changedIds };

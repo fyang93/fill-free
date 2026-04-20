@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import os from "node:os";
+import path from "node:path";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import {
   accessLevelRank,
   canCreateSchedules,
+  canRequesterCreateEventTargets,
   canUseFiles,
   hasAccessLevel,
   isAddressedToBot,
@@ -9,17 +13,17 @@ import {
 } from "../src/bot/operations/access/control";
 
 describe("file access guard", () => {
-  test("admins and trusted users can use files, allowed users cannot", () => {
+  test("allowed, trusted, and admin users can use temporary file uploads", () => {
     expect(canUseFiles("admin")).toBe(true);
     expect(canUseFiles("trusted")).toBe(true);
-    expect(canUseFiles("allowed")).toBe(false);
+    expect(canUseFiles("allowed")).toBe(true);
     expect(canUseFiles("none")).toBe(false);
   });
 
-  test("admins and trusted users can create schedules, allowed users cannot", () => {
+  test("allowed, trusted, and admin users can create schedules", () => {
     expect(canCreateSchedules("admin")).toBe(true);
     expect(canCreateSchedules("trusted")).toBe(true);
-    expect(canCreateSchedules("allowed")).toBe(false);
+    expect(canCreateSchedules("allowed")).toBe(true);
     expect(canCreateSchedules("none")).toBe(false);
   });
 
@@ -31,6 +35,23 @@ describe("file access guard", () => {
     expect(hasAccessLevel("trusted", "allowed")).toBe(true);
     expect(hasAccessLevel("allowed", "trusted")).toBe(false);
     expect(hasAccessLevel("none", "allowed")).toBe(false);
+  });
+});
+
+describe("schedule target permissions", () => {
+  test("allowed user can target self or chats, but not other users", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-access-guard-"));
+    await mkdir(path.join(repoRoot, "system"), { recursive: true });
+    await writeFile(path.join(repoRoot, "system", "users.json"), JSON.stringify({
+      users: {
+        "2": { accessLevel: "allowed", timezone: "Asia/Tokyo" },
+      },
+    }, null, 2) + "\n", "utf8");
+
+    const config = { telegram: { adminUserId: 1 }, paths: { repoRoot } } as any;
+    expect(canRequesterCreateEventTargets(config, 2, [{ targetKind: "user", targetId: 2 }])).toBe(true);
+    expect(canRequesterCreateEventTargets(config, 2, [{ targetKind: "chat", targetId: -1001 }])).toBe(true);
+    expect(canRequesterCreateEventTargets(config, 2, [{ targetKind: "user", targetId: 1 }])).toBe(false);
   });
 });
 

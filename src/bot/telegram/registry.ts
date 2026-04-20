@@ -10,6 +10,7 @@ export type TelegramUserInput = {
   username?: string;
   first_name?: string;
   last_name?: string;
+  language_code?: string;
 };
 
 export type TelegramChatInput = {
@@ -58,7 +59,11 @@ function repoRoot(): string {
 }
 
 function defaultTimezone(): string {
-  return loadConfig().bot.defaultTimezone;
+  try {
+    return loadConfig().bot.defaultTimezone;
+  } catch {
+    return "UTC";
+  }
 }
 
 function upsertUserFile(userId: string, patch: Record<string, unknown>): void {
@@ -108,6 +113,7 @@ export function rememberTelegramUser(user: TelegramUserInput | null | undefined,
   const firstName = cleanOptionalText(user?.first_name);
   const lastName = cleanOptionalText(user?.last_name);
   const displayName = buildDisplayName(firstName, lastName, username);
+  const languageCode = cleanOptionalText(user?.language_code);
   const key = String(userId);
   const previous = state.telegramUserCache[key];
   const lastSeenAt = new Date().toISOString();
@@ -117,15 +123,17 @@ export function rememberTelegramUser(user: TelegramUserInput | null | undefined,
     lastName,
     displayName,
     lastSeenAt,
+    languageCode,
   };
   const changed = !previous
     || previous.username !== next.username
     || previous.firstName !== next.firstName
     || previous.lastName !== next.lastName
-    || previous.displayName !== next.displayName;
+    || previous.displayName !== next.displayName
+    || previous.languageCode !== next.languageCode;
   state.telegramUserCache[key] = changed ? next : { ...previous, lastSeenAt };
   if (changed || !previous) {
-    upsertUserFile(key, { username, displayName, lastSeenAt });
+    upsertUserFile(key, { username, displayName, lastSeenAt, languageCode });
   }
   enqueueSync({
     repoRoot: repoRoot(),

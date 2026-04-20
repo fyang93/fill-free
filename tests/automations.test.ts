@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../src/bot/app/types";
 import { buildEventRecord, createEventRecord, getEventRecord, readEventRecords, updateEventRecord } from "../src/bot/operations/events/store";
 import { deliverDueSchedules } from "../src/bot/operations/events/delivery";
-import { buildScheduledTaskPrompt, prepareScheduleDeliveryText, shouldGenerateScheduledTaskOnDelivery, shouldPrepareScheduleDeliveryText } from "../src/bot/operations/events/preparation";
-import { runEventTask } from "../src/bot/operations/events/task-actions";
-import { eventPreparationTaskHandler } from "../src/bot/tasks/runtime/handlers/events";
-import type { TaskRecord } from "../src/bot/tasks/runtime/store";
+import { buildScheduledTaskPrompt, prepareScheduleDeliveryText, prepareScheduleDeliveryTextAndPersistIfUnchanged, shouldGenerateScheduledTaskOnDelivery, shouldPrepareScheduleDeliveryText } from "../src/bot/operations/events/preparation";
+import { runEventTask, type TaskRecord } from "../src/bot/operations/events/task-actions";
 import type { EventRecord, ReminderInstance } from "../src/bot/operations/events/types";
 
 const tempDirs: string[] = [];
@@ -38,9 +36,6 @@ function createTestConfig(repoRoot: string): AppConfig {
       enabled: false,
       idleAfterMs: 0,
       tmpRetentionDays: 1,
-    },
-    opencode: {
-      baseUrl: "http://127.0.0.1:4096",
     },
   };
 }
@@ -245,31 +240,20 @@ describe("automation category", () => {
     await createEventRecord(event, config);
 
     let updated = false;
-    const result = await eventPreparationTaskHandler.run({
-      config,
-      agentService: {
-        generateReminderText: async () => {
-          if (!updated) {
-            updated = true;
-            const latest = await getEventRecord(config, event.id);
-            if (!latest) throw new Error("missing event during test");
-            latest.schedule = { kind: "once", scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() } as any;
-            await updateEventRecord(config, latest);
-          }
-          return "记得开站会";
-        },
-      } as any,
-    } as any, {
-      id: "tsk_prepare",
-      state: "queued",
-      domain: "events",
-      operation: "prepare-delivery-text",
-      payload: { eventId: event.id },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } as any);
+    const result = await prepareScheduleDeliveryTextAndPersistIfUnchanged(config, {
+      generateReminderText: async () => {
+        if (!updated) {
+          updated = true;
+          const latest = await getEventRecord(config, event.id);
+          if (!latest) throw new Error("missing event during test");
+          latest.schedule = { kind: "once", scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() } as any;
+          await updateEventRecord(config, latest);
+        }
+        return "记得开站会";
+      },
+    } as any, event);
 
-    expect(result.result?.reason).toBe("event-changed-during-prepare");
+    expect(result.reason).toBe("event-changed-during-prepare");
     const latest = await getEventRecord(config, event.id);
     expect((latest?.schedule as any)?.scheduledAt).not.toBe(scheduledAt);
     expect(latest?.deliveryText).toBeUndefined();
@@ -358,7 +342,31 @@ describe("automation category", () => {
     expect(events.find((item) => item.id === event.id)?.status).toBe("deleted");
   });
 
-  test("non-trusted requester cannot create automation", async () => {
+  test("allowed requester can create automation for self", async () => {
+    const config = await createTempConfig();
+    await writeFile(path.join(config.paths.repoRoot, "system", "users.json"), JSON.stringify({
+      users: {
+        "2": { username: "allowed_test", displayName: "Allowed", accessLevel: "allowed", timezone: "Asia/Tokyo" }
+      },
+    }, null, 2) + "\n", "utf8");
+    const allowedTask = makeTask({
+      title: "每日新闻摘要",
+      note: "自动生成新闻摘要",
+      category: "automation",
+      schedule: { kind: "weekly", every: 1, daysOfWeek: [1], time: { hour: 9, minute: 0 } },
+      targets: [{ targetKind: "user", targetId: 2 }],
+    }, 2);
+
+    const result = await runEventTask(config, allowedTask);
+    expect(result.changed).toBe(true);
+
+    const events = await readEventRecords(config);
+    const created = events.find((item) => item.title.includes("每日新闻摘要"));
+    expect(created?.category).toBe("automation");
+    expect(created?.createdByUserId).toBe(2);
+  });
+
+  test("requester without access cannot create automation", async () => {
     const config = await createTempConfig();
     const nonAdminTask = makeTask({
       title: "非法定时任务",
