@@ -32,14 +32,6 @@ Stores:
 - automation definitions
 - delivery state for event occurrences
 
-### `system/files.json`
-Canonical Telegram file registry.
-
-Stores:
-- Telegram file unique ids
-- saved file paths
-- file metadata and last seen timestamps
-
 ### `system/state.json`
 Canonical persisted runtime state.
 

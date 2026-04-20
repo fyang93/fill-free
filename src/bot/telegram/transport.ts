@@ -1,9 +1,8 @@
-import { access, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Context } from "grammy";
 import type { AppConfig, AiAttachment, UploadedFile } from "bot/app/types";
 import { sendTelegramLocalFile } from "bot/telegram/delivery";
-import { findTelegramFileByUniqueId, rememberTelegramFileRecord } from "bot/operations/files/store";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -40,22 +39,11 @@ function inferExtensionFromMime(mimeType: string): string {
   return "";
 }
 
-async function uniquePath(targetDir: string, filename: string): Promise<{ filename: string; filePath: string }> {
-  const parsed = path.parse(filename);
-  let counter = 0;
-  let nextName = filename;
-  let filePath = path.join(targetDir, nextName);
-
-  while (true) {
-    try {
-      await access(filePath);
-      counter += 1;
-      nextName = `${parsed.name}-${counter}${parsed.ext}`;
-      filePath = path.join(targetDir, nextName);
-    } catch {
-      return { filename: nextName, filePath };
-    }
-  }
+function targetPath(targetDir: string, filename: string): { filename: string; filePath: string } {
+  return {
+    filename,
+    filePath: path.join(targetDir, filename),
+  };
 }
 
 async function downloadTelegramFile(botToken: string, filePath: string): Promise<Uint8Array> {
@@ -109,7 +97,6 @@ function extractTelegramFileMetadata(message: unknown): Omit<UploadedFile, "save
       originalName: sanitizeFilename(typeof document.file_name === "string" ? document.file_name : "document"),
       mimeType: typeof document.mime_type === "string" && document.mime_type.trim() ? document.mime_type : "application/octet-stream",
       source: "document",
-      telegramFileUniqueId: typeof document.file_unique_id === "string" && document.file_unique_id.trim() ? document.file_unique_id : undefined,
     };
   }
   if (photos.length > 0) {
@@ -120,7 +107,6 @@ function extractTelegramFileMetadata(message: unknown): Omit<UploadedFile, "save
         originalName: `photo-${Date.now()}.jpg`,
         mimeType: "image/jpeg",
         source: "photo",
-        telegramFileUniqueId: typeof photo.file_unique_id === "string" && photo.file_unique_id.trim() ? photo.file_unique_id : undefined,
       };
     }
   }
@@ -131,7 +117,6 @@ function extractTelegramFileMetadata(message: unknown): Omit<UploadedFile, "save
       originalName: `voice-${Date.now()}${inferExtensionFromMime(mimeType) || ".ogg"}`,
       mimeType,
       source: "voice",
-      telegramFileUniqueId: typeof voice.file_unique_id === "string" && voice.file_unique_id.trim() ? voice.file_unique_id : undefined,
       durationSeconds: typeof voice.duration === "number" ? voice.duration : undefined,
     };
   }
@@ -142,7 +127,6 @@ function extractTelegramFileMetadata(message: unknown): Omit<UploadedFile, "save
       originalName: sanitizeFilename(typeof audio.file_name === "string" && audio.file_name.trim() ? audio.file_name : `audio-${Date.now()}${inferExtensionFromMime(mimeType) || ".audio"}`),
       mimeType,
       source: "audio",
-      telegramFileUniqueId: typeof audio.file_unique_id === "string" && audio.file_unique_id.trim() ? audio.file_unique_id : undefined,
       audioTitle: typeof audio.title === "string" && audio.title.trim() ? audio.title.trim() : undefined,
       audioPerformer: typeof audio.performer === "string" && audio.performer.trim() ? audio.performer.trim() : undefined,
       durationSeconds: typeof audio.duration === "number" ? audio.duration : undefined,
@@ -155,7 +139,6 @@ function extractTelegramFileMetadata(message: unknown): Omit<UploadedFile, "save
       originalName: sanitizeFilename(typeof video.file_name === "string" && video.file_name.trim() ? video.file_name : `video-${Date.now()}${inferExtensionFromMime(mimeType) || ".mp4"}`),
       mimeType,
       source: "video",
-      telegramFileUniqueId: typeof video.file_unique_id === "string" && video.file_unique_id.trim() ? video.file_unique_id : undefined,
       durationSeconds: typeof video.duration === "number" ? video.duration : undefined,
     };
   }
@@ -182,23 +165,21 @@ async function persistTelegramFile(ctx: Context, config: AppConfig, fileMeta: Om
   const dateDir = new Date().toISOString().slice(0, 10);
   const targetDir = path.join(config.paths.tmpDir, config.paths.uploadSubdir, dateDir);
   await mkdir(targetDir, { recursive: true });
-  const unique = await uniquePath(targetDir, fileMeta.originalName);
-  await writeFile(unique.filePath, bytes);
+  const target = targetPath(targetDir, fileMeta.originalName);
+  await writeFile(target.filePath, bytes);
 
   const uploaded = {
-    savedPath: path.relative(config.paths.repoRoot, unique.filePath),
-    absolutePath: unique.filePath,
+    savedPath: path.relative(config.paths.repoRoot, target.filePath),
+    absolutePath: target.filePath,
     originalName: fileMeta.originalName,
-    filename: unique.filename,
+    filename: target.filename,
     mimeType: fileMeta.mimeType,
     sizeBytes: bytes.byteLength,
     source: fileMeta.source,
-    telegramFileUniqueId: fileMeta.telegramFileUniqueId,
     audioTitle: fileMeta.audioTitle,
     audioPerformer: fileMeta.audioPerformer,
     durationSeconds: fileMeta.durationSeconds,
   } satisfies UploadedFile;
-  await rememberTelegramFileRecord(config, uploaded);
   return uploaded;
 }
 
@@ -209,8 +190,6 @@ export async function saveTelegramFileFromMessage(
 ): Promise<UploadedFile | null> {
   const fileMeta = extractTelegramFileMetadata(message);
   if (!fileMeta) return null;
-  const existing = await findTelegramFileByUniqueId(config, fileMeta.telegramFileUniqueId);
-  if (existing) return existing;
   return persistTelegramFile(ctx, config, fileMeta);
 }
 
@@ -283,13 +262,13 @@ export async function sendAiAttachments(ctx: Context, config: AppConfig, attachm
 
       const ext = path.extname(attachment.filename || "") || inferExtensionFromMime(mimeType);
       const base = sanitizeFilename(path.basename(attachment.filename || `attachment-${Date.now()}${ext}`));
-      const unique = await uniquePath(tempDir, base);
-      await writeFile(unique.filePath, bytes);
+      const target = targetPath(tempDir, base);
+      await writeFile(target.filePath, bytes);
       try {
-        await sendTelegramLocalFile(ctx.api as any, ctx.chat!.id, unique.filePath, { filename: attachment.filename || unique.filename });
+        await sendTelegramLocalFile(ctx.api as any, ctx.chat!.id, target.filePath, { filename: attachment.filename || target.filename });
         sent += 1;
       } finally {
-        await unlink(unique.filePath).catch(() => {});
+        await unlink(target.filePath).catch(() => {});
       }
     } catch {
       // ignore invalid attachments

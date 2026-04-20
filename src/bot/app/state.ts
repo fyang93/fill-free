@@ -253,9 +253,8 @@ export function rememberUploads(scopeKey: string | undefined, files: UploadedFil
   const merged = [...existing, ...files];
   const seen = new Set<string>();
   const unique = merged.filter((file) => {
-    const id = `${file.absolutePath}:${file.telegramFileUniqueId || ""}`;
-    if (seen.has(id)) return false;
-    seen.add(id);
+    if (seen.has(file.absolutePath)) return false;
+    seen.add(file.absolutePath);
     return true;
   });
   state.recentUploadsByScope[key] = { files: unique, recentUploadsAt: new Date().toISOString() };

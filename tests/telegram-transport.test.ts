@@ -66,9 +66,6 @@ describe("telegram file persistence", () => {
       expect(uploaded?.filename).toBe("研究業務日誌（2026.4）.xlsx");
       expect(uploaded?.savedPath).toContain("研究業務日誌（2026.4）.xlsx");
       await access(uploaded!.absolutePath);
-
-      const filesStoreRaw = await readFile(path.join(repoRoot, "system", "files.json"), "utf8");
-      expect(filesStoreRaw).toContain("研究業務日誌（2026.4）.xlsx");
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
     }
@@ -98,6 +95,51 @@ describe("telegram file persistence", () => {
       expect(uploaded?.originalName).toBe("2026年4月.xlsx");
       expect(uploaded?.filename).toBe("2026年4月.xlsx");
       expect(uploaded?.savedPath).toContain("2026年4月.xlsx");
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("same-name uploads overwrite the previous saved file instead of creating suffixed copies", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "defect-bot-transport-"));
+    try {
+      await mkdir(path.join(repoRoot, "tmp"), { recursive: true });
+      const config = createTestConfig(repoRoot);
+      let downloadCount = 0;
+      globalThis.fetch = (async () => new Response(new Uint8Array(downloadCount++ === 0 ? [1, 2, 3] : [9, 8, 7]), { status: 200 })) as typeof fetch;
+
+      const first = await saveTelegramFileFromMessage({
+        api: {
+          getFile: async () => ({ file_path: "docs/file.xlsx" }),
+        },
+      } as any, config, {
+        document: {
+          file_id: "f3",
+          file_unique_id: "u3",
+          file_name: "周报.xlsx",
+          mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+      });
+
+      const second = await saveTelegramFileFromMessage({
+        api: {
+          getFile: async () => ({ file_path: "docs/file.xlsx" }),
+        },
+      } as any, config, {
+        document: {
+          file_id: "f4",
+          file_unique_id: "u4",
+          file_name: "周报.xlsx",
+          mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+      });
+
+      expect(first?.filename).toBe("周报.xlsx");
+      expect(second?.filename).toBe("周报.xlsx");
+      expect(first?.absolutePath).toBe(second?.absolutePath);
+      expect(second?.savedPath.endsWith("周报.xlsx")).toBe(true);
+      expect(second?.savedPath.includes("-1")).toBe(false);
+      expect(Array.from(new Uint8Array(await readFile(second!.absolutePath)))).toEqual([9, 8, 7]);
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
     }

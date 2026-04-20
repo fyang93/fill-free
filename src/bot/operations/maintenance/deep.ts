@@ -7,7 +7,6 @@ import type { AppConfig } from "bot/app/types";
 import { logger } from "bot/app/logger";
 import { persistState, state } from "bot/app/state";
 import { loadChats, loadUsers } from "bot/operations/context/store";
-import { pruneMissingTelegramFileRecords } from "bot/operations/files/store";
 
 type MemorySnapshot = Map<string, { size: number; mtimeMs: number }>;
 
@@ -346,16 +345,6 @@ async function runMaintainerCycle(
     await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "tmp cleanup"), {
       summary: `cleared ${removedTmpEntries.length} tmp entries older than ${config.maintenance.tmpRetentionDays} day(s)`,
       deleted: removedTmpPaths.join(", "),
-    });
-  }
-
-  const removedFileRecords = await pruneMissingTelegramFileRecords(config);
-  if (removedFileRecords.removed > 0) {
-    await logger.info(`maintainer loop pruned ${removedFileRecords.removed} missing telegram file records`);
-    preChanges.push(`Pruned ${removedFileRecords.removed} stale file index records: ${detailPreview(removedFileRecords.removedPaths)}.`);
-    await appendMaintenanceLogSection(config, new Date().toISOString(), maintenanceTrigger(force, idleMs, "file registry cleanup"), {
-      summary: `pruned ${removedFileRecords.removed} missing telegram file records`,
-      deleted: removedFileRecords.removedPaths.join(", "),
     });
   }
 

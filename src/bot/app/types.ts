@@ -33,7 +33,6 @@ export type UploadedFile = {
   mimeType: string;
   sizeBytes: number;
   source: "document" | "photo" | "voice" | "audio" | "video";
-  telegramFileUniqueId?: string;
   audioTitle?: string;
   audioPerformer?: string;
   durationSeconds?: number;
