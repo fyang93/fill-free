@@ -12,6 +12,7 @@
 - 整理上传的文件和资料
 - 创建和管理日程
 - 向已授权用户或已知群聊发送消息或定时投递内容
+- 把 Telegram 上传的文件保存到 `tmp/` 里供处理；同名的新上传会直接覆盖旧的本地副本
 - 让 admin 通过 bot 管理持久用户角色
 
 ## 架构
@@ -64,7 +65,7 @@
 - `system/state.json`
 - `system/events.json`
 
-这些状态现在优先通过确定性代码路径和 repository CLI 管理，而不是继续依赖 prompt 里定义的大型持久化协议。各文件职责见 `docs/system-stores.md`。
+这些状态现在优先通过确定性代码路径和 repository CLI 管理，而不是继续依赖 prompt 里定义的大型持久化协议。项目级工程原则现在统一写在 `docs/principles.md`。
 
 ## Skill map
 
@@ -129,13 +130,15 @@ idle_after_minutes = 15
 
 ## 权限级别
 
-- `allowed user`：可以和 bot 对话，但只能在自身 / 当前已关联对话上下文范围内使用低风险基础能力；不能访问超出该范围的隐私信息
+- `allowed user`：可以和 bot 对话，但只能在自身 / 当前已关联对话上下文范围内使用低风险基础能力；可以上传 / 处理 `tmp/` 里的临时文件，但不能访问超出该范围的隐私信息，也不能写入持久 memory
 - `trusted user`：可以读取和修改记忆、上传 / 处理文件、创建日程，以及使用其他持久化工作流
 - `admin user`：在 trusted 的基础上拥有管理权限，例如管理持久角色和发放临时授权
 
 当前代码已经在 assistant 主通道里落实了 allowed user 的隐私边界：allowed user 会被限制在 allowed-user scope 内，不能获取超出 linked conversation context 的隐私信息。
 
 admin 也可以对某个 `@username` 做临时授权，并指定任意有效期。之后，对方只要在临时授权过期前和 bot 发生一次可识别交互，系统就能关联该账号并授予访问权限。这可以是私聊，也可以是在群里 `@bot`，或者在群里回复 bot 的消息。
+
+Telegram 的延迟投递现在通过 repository CLI 委托给外部 `at` 调度器，而不是项目内部的持久任务队列。
 
 ## 使用示例
 

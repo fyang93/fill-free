@@ -197,9 +197,9 @@ export class AiService {
   }
 
   // Built-in providers already know their model catalogs.
-  // Per docs/providers.md, API-key providers such as OpenAI are enabled
-  // through environment variables or auth.json; no custom provider
-  // registration is needed unless we are overriding endpoints/models.
+  // API-key providers such as OpenAI are enabled through environment
+  // variables or auth.json; no custom provider registration is needed
+  // unless we are overriding endpoints/models.
 
   private selectedModel(runtime: SdkRuntime): Model<any> | undefined {
     const configured = state.model?.trim();

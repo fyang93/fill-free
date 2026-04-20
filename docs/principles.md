@@ -1,166 +1,111 @@
-# Development Principles
+# 开发原则
 
-CRITICAL: Whenever you find code that violates the current principles, adjust it accordingly.
+发现代码违反这些原则时，应直接按这些原则调整，而不是继续迁就旧结构。
 
-This project now prefers a **CLI + skills** execution model.
-The goal is to stay close to pi-mono's philosophy: a small backbone, composable workflows, and minimal project-specific abstractions.
+这个项目当前采用 **CLI + skills** 作为默认执行模型，目标是尽量贴近 pi-mono 的思路：骨架小、模块可组合、项目特化抽象尽量少。
 
-This document is ordered by decision strength:
-- **Hard constraints**: should normally be treated as mandatory system invariants.
-- **Strong defaults**: follow by default; deviate only with a clear reason.
-- **Tradeoffs and preferences**: useful heuristics, but not rules to apply mechanically.
+## 一、硬约束
 
-## Hard constraints
+### 1. 真相边界
 
-### Truth boundaries
+- 运行时依赖的规范事实必须放在结构化持久化里，而不是 prompt、会话历史、CLI 文本输出或人类可读笔记里。
+- `system/` 下的文件是运行时拥有的规范状态，必须通过明确的仓库 CLI 或对应的确定性代码路径修改。
+- 不要用通用文件编辑、随手 patch、自由工具调用去直接改 `system/` 下的规范状态，除非你正在实现那个被允许的确定性修改接口本身。
+- 读 `system/` 可以，写 `system/` 必须走受控边界。
+- 代码里已经确定的成功结果，才是“动作真的发生了”的真相来源；不要再在 prompt、会话文案或事后文本解释里复制一份规则。
+- 在当前回合的可见回复发布边界明确之前，不要提前修改会影响用户认知的规范状态。
 
-- Keep canonical runtime truth in structured system-managed persistence.
-- Keep canonical truth in local state and persistence, not in prompts, session history, CLI transcripts, or human-readable notes.
-- Keep canonical truth in structured stores such as schedules, users, tasks, chats, and registries when runtime behavior depends on it.
-- Treat files under `system/` as runtime-owned canonical stores with a closed mutation boundary.
-- Do not create, update, delete, or patch `system/` files through generic file-editing flows, ad-hoc repository patches, or free-form assistant tool use.
-- Canonical `system/` mutations must go through explicit repository CLI commands or narrowly-scoped deterministic mutation interfaces that back those CLI commands.
-- Reading `system/` files for inspection is fine; mutating them is not, unless the code being changed is itself implementing the approved deterministic mutation surface.
-- Treat successful runtime state mutation and deterministic code paths as the truth source for whether an action happened.
-- Do not duplicate that truth in prompt rules, session prose, or post-hoc text interpretation when code can decide it directly.
-- Do not let execution mutate canonical state before the runtime has a clear ownership boundary for the current turn's visible reply publication.
+### 2. runtime 拥有的职责
 
-### Runtime-owned boundaries
+- runtime 负责当前回合回复发布、等待态 UI、中断、取消、去重和防止重复发送。
+- 这不意味着要保留一条 bot 私有的 Telegram 发送链路；消息和文件发送应尽量复用共享的、确定性的 CLI/代码路径。
+- 权限、参数校验、日志、结果判断必须在代码里做，不要依赖 prompt 或 skill 自觉遵守。
+- 仓库 CLI 的返回必须是机器可判定的：成功用 `ok: true`，失败/拒绝/跳过/未解析/歧义都用 `ok: false` 加稳定的 `error` 或 `reason`。
+- 会修改规范状态的 CLI 命令必须走受控、确定性的 mutation surface；允许显式单目标和显式批量，但不要让模糊匹配静默改掉多个规范记录。
+- 权限模型优先保持单调等级结构，例如 `none < allowed < trusted < admin`，不要把权限判断散成一堆角色对角色特例。
+- 人类可读 memory 不能和结构化状态竞争同一类“规范真相”。
 
-- The runtime owns current-turn reply publication orchestration, waiting-state UI, interruption, cancellation, and duplicate-publication guards.
-- Publication orchestration ownership does not justify a separate bot-only Telegram transport path. Message/file delivery should use one shared deterministic delivery implementation exposed through the repository CLI surface and reused by runtime code when needed.
-- Permissions, argument validation, logging, and result checks must be enforced in code, not delegated to prompt instructions or skills.
-- Repository CLI commands must return an explicit machine-readable success signal. Successful outcomes should set `ok: true`; rejected, skipped, ambiguous, unresolved, or failed outcomes should set `ok: false` with a stable error/reason so the model and runtime do not mistake non-effects for success.
-- CLI mutation commands that change canonical state must use controlled deterministic mutation surfaces. Support explicit single-target mutation and explicit batch mutation, but do not let broad implicit matches silently mutate multiple canonical records.
-- Prefer one monotonic permission lattice in code (for example `none < allowed < trusted < admin`) and compare against the minimum required level instead of scattering role-pair special cases across the codebase.
-- Use runtime guards and tests to protect truth boundaries.
-- Human-readable memory must not become a competing source of truth.
+### 3. 当前回合响应速度
 
-### Current-turn responsiveness
+- 只要工作可能明显变慢，就应尽早给出一个简短确认。
+- 优先缩短 TTFR；先快回一句，通常比憋一个完整长答更好。
+- 进度提示要窄、低噪声、只服务当前回合，不要演变成聊天式流水账。
 
-- When work may take noticeable time, the runtime should publish a brief acknowledgment as early as practical.
-- Minimize time-to-first-reply (TTFR). A fast brief acknowledgment is better than a delayed comprehensive response.
-- Prefer explicit progress boundaries over subjective "long enough" heuristics: if the assistant is about to perform tool-based or multi-step work and the final user-visible answer will not be immediate, it should emit a short current-turn progress update early.
-- Keep progress signaling narrow, current-turn-scoped, and low-chatter.
+### 4. 用户可见输出边界
 
-### Canonical structured context vs human-readable memory
+- 用户可见措辞优先交给模型；代码负责提供事实、状态和约束。
+- 所有用户可见回复都必须符合配置中的 persona。
+- persona 应在最终生成用户文本时生效，不要把 persona 做成第二阶段重写、润色或后处理层。
+- 固定 UI 文案、按钮、确定性单位/标签可以放在 i18n，但不应承担自然对话表达。
+- 用户可见回复应该描述“已经确认的、和用户有关的结果”，而不是内部实现细节。
+- 除非用户明确要求技术细节，否则不要主动暴露内部命令、CLI 入口、prompt 规则、文件路径或实现步骤。
+- 修正内部细节泄漏时，优先修 prompt、架构或回复边界，不要靠内容黑名单打补丁。
 
-- Use markdown memory for durable notes, reference material, and user preferences.
-- Keep canonical operational state in structured persistence, and keep human-readable memory as reference context rather than operational truth.
-- If the product intentionally keeps a narrow structured standing-rules path, keep its scope explicit and do not let it expand into a second general-purpose memory system.
-- Do not let human-readable memory and structured rules compete to own the same long-term guidance category.
+## 二、强默认
 
-### User-visible output boundaries
+### 1. 总体取向
 
-- Prefer model-generated wording over hard-coded conversational prose.
-- Code should provide facts, state, and constraints; the model should phrase the reply.
-- All user-facing replies must follow the configured persona.
-- Inject persona at message generation time for every user-visible bot-authored path, including assistant replies, greeter output, and maintainer summaries.
-- Do not implement persona as a second-stage rewrite, polishing pass, or post-processing layer over already-generated user text.
-- Deterministic UI labels/buttons may remain in i18n, but they should still be authored to stay consistent with the configured persona where applicable.
-- Persona belongs only in final user-visible text, not in hidden reasoning or internal planning.
-- User-visible replies should describe confirmed user-relevant outcomes, not internal execution mechanics.
-- Do not expose internal commands, shell snippets, CLI entrypoints, file paths, prompt rules, or implementation steps unless the user explicitly asks for technical detail.
-- Exception: when the assistant has just saved, moved, or linked user-requested material in repository-local memory, it may briefly tell the user where it was stored if that location is user-relevant confirmation rather than implementation detail.
-- Fix user-visible leakage at the prompt, architecture, or reply-boundary level; do not rely on content-specific string blacklists as the primary solution.
-- Do not add or keep content-specific reply policing heuristics that try to infer correctness from particular words or phrases in free-form model text.
-- Reserve fixed copy for UI text, safety fallbacks, and deterministic labels.
-- Keep UI strings and deterministic schedule or unit text in i18n.
+- 向 pi 学：核心保持小、清楚、易改造。
+- 让系统适配工作流，而不是让工作流屈从历史结构。
+- 信任模型能力，但把正确性边界放在代码里。
+- 优先做完整、干净的方案，而不是补丁式修修补补。
+- 对确定性执行，优先使用仓库本地 CLI、小脚本和清晰的边界。
+- skill 更适合作为认知脚手架：文档地图、约定、研究路径、常见多步流程，而不是替代代码做正确性判断。
 
-## Strong defaults
+### 2. 架构与执行模型
 
-### Core stance
+- 骨架要小、边界要清楚。
+- orchestration、领域逻辑、持久化、平台适配应分层清晰。
+- orchestrator 保持薄；业务逻辑尽量落在领域服务里；平台细节留在 adapter。
+- 仓库 CLI 是规范状态修改的默认入口，尤其是 `system/` 下的数据。
+- bot 侧代码和 repo CLI 侧代码应保持显式分离，让执行边界在代码里一眼能看出来。
+- 若更简单的结构能保持相同真相边界，就优先少概念、少层次、少文件。
 
-- Learn from pi: keep the core minimal, composable, and easy to reshape.
-- Adapt the system to the workflow, not the other way around.
-- Trust the model's capability.
-- Prefer complete, clean solutions over patches.
-- Prefer repository-local CLI entrypoints and small scripts for deterministic execution.
-- Use skills as cognitive scaffolding: documentation maps, repository conventions, research patterns, and recurring multi-step guidance.
-- Name required structured fields explicitly; otherwise do not over-constrain the model.
-- Prefer platform-agnostic prompts unless channel details are strictly required.
+### 3. 结构化状态与模型输出
 
-### Architecture and execution model
+- 优先让模型输出较小的意图层结果，再由代码编译成规范持久化。
+- 不要把大而重的最终 JSON/YAML 持久化结构直接压给模型。
+- schema 应保持通用和柔性；除非代码确实需要，否则避免过度 enum 化。
+- 一个结构化 item 尽量只表示一个动作、一个目标、一个收件人、一个日程或一次 mutation。
+- 批量语义优先表达为多个原子项，而不是一个塞很多目标的大对象，除非领域本身真的要求成组语义。
+- 日程里，一个现实事件应对应一条 event record；多个提醒时间应作为同一事件的多个 reminder，而不是复制事件。
+- 只有在工作确实需要跨当前回合存活或异步执行时，才引入 durable queue 或额外持久层。
 
-- Keep the backbone small and understandable.
-- Keep orchestration, domain logic, and persistence clearly separated.
-- Keep orchestrators thin.
-- Keep business logic in domain services.
-- Keep platform-specific logic in adapters.
-- Prefer a CLI + skills execution surface.
-- Treat repository CLI as the default mutation surface for canonical repository state, especially everything under `system/`.
-- Keep the bot-side code and the repo-CLI code in separate modules/directories so execution boundaries stay obvious in code as well as in prompts.
-- Prefer repository-local CLI commands for general repository work.
-- Use skills to teach stable repository workflows.
-- Avoid baking workflow-specific behavior into the core when a clearer module, extension point, CLI contract, or model judgment will do.
-- Prefer fewer concepts, fewer layers, and fewer files when the simpler structure preserves the same truth boundaries.
+### 4. 路由、prompt 与模型使用
 
-### Structured context and persistence shape
+- 路由优先依赖结构化状态、skill 目录和模型判断，而不是手写 trigger phrase 或脆弱子串匹配。
+- 可确定的边界和持久化规则放在代码里；prompt 只保留最小必要任务上下文。
+- 优先使用单一 assistant lane，除非额外 lane 真能在不复制真相边界的前提下明显提升延迟或控制力。
+- prompt 要短、克制，不要重复 runtime 已经在代码里保证的规则。
+- 只有当前权限级别确实会影响模型判断时，才把权限约束注入 prompt。
+- 权限提示应窄而具体：allowed 只注入 allowed 的限制，trusted 注入它真正需要知道的限制，admin 默认不额外灌权限说明。
+- 文件相关场景优先给模型“仓库内路径 + 原生读文件工具”，而不是默认把原始文件内容一股脑塞进主 prompt。
 
-- Prefer canonical ids, registries, and scoped applicability over prose summaries.
-- Prefer narrow applicability and update existing rules instead of accumulating near-duplicates.
-- Keep schemas general and flexible; avoid enum-heavy ontologies unless code truly needs them.
-- Prefer atomic structured items: one item should describe one action, target, recipient, schedule, or mutation.
-- Represent batch work as multiple atomic items rather than one item with embedded target arrays, unless grouped semantics are truly required by the domain.
-- For schedules, one real-world event should map to one event record record; multiple schedule times for that event should be represented as multiple notification offsets on the same event, not as duplicate event records.
-- Prefer model output at the intent layer over asking the model to emit final persistence-heavy schemas directly.
-- Let code compile narrow model intents into canonical structured persistence when structured persistence is still required.
-- Do not push large final JSON or YAML persistence shapes onto the model when a smaller intent contract plus deterministic code mapping will do.
-- Use durable task queues only for work that truly must outlive the current turn or execute asynchronously.
+### 5. memory 组织
 
-### Routing and model use
+- markdown memory 用于长期笔记、偏好、参考材料，不用于替代规范运行状态。
+- 记忆按主题组织，内容保持短、单用途、易扫描。
+- 优先一件事一个文件，优先 bullet facts，避免大杂烩笔记。
 
-- Prefer structured state, skill catalogs, and model judgment over manual routing heuristics.
-- Avoid brittle trigger phrases, substring guessing, and ad-hoc templates for core behavior.
-- Deterministic retrieval infrastructure is fine when it supports lookup rather than replaces judgment.
-- Use code for deterministic boundaries and persistence rules; use prompts for minimal task context.
-- Prefer the simplest lane structure that preserves clear truth boundaries.
-- Prefer a single assistant lane unless a split materially improves latency or control without duplicating routing truth.
-- Keep any fast-lane context narrowly scoped and latency-oriented.
-- Prefer small Top-N relevant fact slices over broad context dumps.
-- Do not keep prompt instructions that merely restate code behavior the runtime already enforces.
-- Inject permission guidance into prompts only when the current access level materially changes model judgment for the turn; avoid blanket role prose on every prompt.
-- Prefer narrow role-specific prompt constraints over broad permission dumps: e.g. allowed-user limits only for allowed users, admin-only management limits only for trusted users, and no extra permission prose for admin unless the turn truly needs it.
-- Prefer repository-local file paths plus native file-reading tools over directly inlining or force-attaching raw files to the main assistant prompt by default. This keeps the assistant lane model-agnostic and lets capable models inspect files through tools when needed.
+## 三、权衡偏好
 
-### User-facing language
+### 1. 简化优先
 
-- Keep persona consistent.
-- Avoid dedicated extra rendering passes for ordinary replies when the primary lane can generate the final visible text directly.
-- A lightweight post-execution wording pass is acceptable when it only rephrases an execution-confirmed result into the configured persona without changing the underlying confirmed facts or side effects.
+- 在保持正确性的前提下，优先最少的活动部件。
+- 更少的状态通道、更少的持久层、更少的抽象，通常更稳。
+- 不要额外引入索引层、缓存层、队列层，除非它们真的在保护正确性、调度或恢复边界。
+- 同一条规则不要同时散落在代码、prompt、skill、docs 里；发现重复就删掉重复层。
+- 如果“去掉一层中间抽象”与“再包一层 helper”都能解决问题，优先前者。
 
-### Memory organization
+### 2. 演化与迁移
 
-- Organize memory by topic.
-- Keep notes concise, single-purpose, and easy to scan.
-- Prefer one thing per file.
-- Prefer bullet facts over long prose.
-- Split large notes before they become catch-all dumps.
+- 干净的新结构优先于保留偶然形成的旧结构。
+- 默认不要为了兼容历史而保留 shim、双读逻辑、遗留适配层。
+- 架构一旦改变，就把代码和文档一起更新到新的真相版本。
 
-## Tradeoffs and preferences
+### 3. 面向未来模型
 
-### Simplicity bias
-
-- Prefer the fewest moving parts that preserve correctness.
-- Simpler structures, fewer state channels, and fewer persistence layers are usually more robust.
-- Keep prompts concise and restrained.
-- Do not introduce extra persistence layers, queues, or schemas unless they protect a real correctness, scheduling, or recovery boundary.
-- Do not maintain derived index layers when the same work can already be expressed cleanly through CLI or direct repository access.
-- Delete policy duplication instead of letting the same rule spread across code, prompts, skills, and docs.
-- Prefer removing indirection over adding a new abstraction layer when both preserve clarity and correctness.
-
-### Evolution and migration
-
-- Prefer cleaner design over preserving accidental structure.
-- Do not optimize for backward compatibility by default.
-- Avoid shims, dual-read logic, and legacy adapters unless migration requirements demand them.
-- When architecture changes, update code and docs to the new source of truth.
-
-### Model evolution
-
-- Treat models as replaceable. Do not bake core correctness into workarounds for the quirks of one weaker model.
-- If a weaker model ignores prompt constraints and produces bad output, prefer rejecting, retrying, or failing safely over patching the output into correctness.
-- Do not add long-lived workaround logic just to compensate for model weakness when that logic is likely to become obsolete as models improve.
-- Avoid carving correctness out of malformed model output with content-specific repair rules; that is usually a brittle, future-hostile workaround.
-- Do not paper over user-visible internal-detail leakage with narrow string matches for specific commands, brands, or tokens; prefer stronger prompting, cleaner execution boundaries, or generic structural validation.
-- When removing brittle output heuristics, delete them rather than relocating them under a new helper name.
+- 把模型视为可替换组件，不要把核心正确性建立在某个弱模型的怪癖修补上。
+- 如果模型输出不合格，优先拒绝、重试或安全失败，而不是靠脆弱修补把错误结果“修成看起来能用”。
+- 不要为了迁就弱模型长期保留内容特定的输出修补逻辑；模型升级后这些逻辑通常只会变成包袱。
+- 修结构化输出问题时，优先用更强的边界、更干净的协议和更通用的校验，而不是词汇级、品牌级、命令级的字符串黑名单。

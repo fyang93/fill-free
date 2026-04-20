@@ -12,6 +12,7 @@ It runs directly through the pi-mono SDK, keeps canonical state in the repositor
 - organize uploaded files and materials
 - create and manage events and automations
 - send messages or scheduled deliveries to authorized users or known group chats
+- save Telegram-uploaded files into `tmp/` for processing; the latest same-name upload replaces the earlier local copy
 - let the admin manage durable user roles through the bot
 
 ## Architecture
@@ -57,7 +58,7 @@ Short-term conversational context is kept in pi SDK sessions by scope:
 - **private chat** -> one session per user
 - **group / supergroup** -> one session per chat
 
-Long-term facts, access roles, events, automations, and structured state do **not** rely on model session history. They live in repository state such as `system/users.json`, `system/chats.json`, `system/state.json`, and `system/events.json`. These stores are intended to be managed through deterministic code paths and the repository CLI instead of prompt-defined persistence protocols. See `docs/system-stores.md` for role boundaries.
+Long-term facts, access roles, events, automations, and structured state do **not** rely on model session history. They live in repository state such as `system/users.json`, `system/chats.json`, `system/state.json`, and `system/events.json`. These stores should be managed through deterministic code paths and the repository CLI instead of prompt-defined persistence protocols. The project-wide engineering rules now live in `docs/principles.md`.
 
 ## Skill map
 
@@ -122,13 +123,15 @@ Useful optional settings:
 
 ## Access levels
 
-- `allowed user`: may chat with the bot and use only basic low-risk features within their own / linked conversation context; they must not access private information outside that scoped context
+- `allowed user`: may chat with the bot and use only basic low-risk features within their own / linked conversation context; they may upload/process temporary files in `tmp/`, but must not access private information outside that scoped context or write durable memory
 - `trusted user`: may read and modify memory, upload/process files, create events/automations, and use other persistent workflows
 - `admin user`: trusted user plus admin-only operations such as durable role management and temporary authorization grants
 
 The code currently enforces the allowed-user privacy boundary in the assistant lane: allowed users are constrained to allowed-user scope and must not be given private information outside the linked conversation context.
 
 The admin may also temporarily allow a `@username` and choose any expiry window. After that, the user only needs to interact with the bot before the temporary authorization expires so the system can link the account and grant access. This can be a private chat, an `@bot` mention in a group, or a reply to the bot in a group.
+
+Delayed Telegram delivery is delegated to the external `at` scheduler through the repository CLI rather than an internal durable queue.
 
 ## Example usage
 
