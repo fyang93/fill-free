@@ -51,12 +51,14 @@ function updateUserDoc(context: RepoCliContext, effectiveUserId: number, mutate:
 
 export async function handleUsersList(context: RepoCliContext): Promise<void> {
   context.requireAdminRequester();
+  context.logInfo("users:list: loading users");
   context.output({ ok: true, users: loadUsers(context.config.paths.repoRoot, { defaultTimezone: context.config.bot.defaultTimezone }) });
 }
 
 export async function handleUsersGet(context: RepoCliContext): Promise<void> {
   context.requireAdminRequester();
   const { resolvedUserId } = context.resolveUserLookup();
+  context.logInfo(`users:get: resolving user ${resolvedUserId ?? "unknown"}`);
   context.output({ ok: true, userId: resolvedUserId, user: resolvedUserId ? resolveUser(context.config.paths.repoRoot, resolvedUserId, { defaultTimezone: context.config.bot.defaultTimezone }) || null : null });
 }
 
@@ -65,6 +67,7 @@ export async function handleUsersSetAccess(context: RepoCliContext): Promise<voi
   context.requireAdminRequester();
   const { username, displayName, resolvedUserId } = context.resolveUserLookup();
   const accessLevel = cleanText(args.accessLevel);
+  context.logInfo(`users:set-access: updating user ${resolvedUserId ?? username ?? displayName ?? "unknown"}`);
   if (!resolvedUserId) {
     output({ ok: false, error: "user-not-resolved" });
     return;
@@ -81,6 +84,7 @@ export async function handleUsersSetAccess(context: RepoCliContext): Promise<voi
 export async function handleUsersSetTimezone(context: RepoCliContext): Promise<void> {
   const value = context.cleanText(context.args.timezone);
   if (!value) context.output({ ok: false, error: "missing-timezone" });
+  context.logInfo(`users:set-timezone: setting timezone to ${value}`);
   const result = updateUserField(context, "timezone", value as string);
   context.output({ ok: true, userId: result.effectiveUserId, changed: result.changed, user: result.user });
 }
@@ -89,6 +93,7 @@ export async function handleUsersSetPersonPath(context: RepoCliContext): Promise
   const { args, cleanText, output, nowIso } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
+  context.logInfo(`users:set-person-path: updating user ${effectiveUserId ?? "unknown"}`);
   if (!effectiveUserId) {
     output({ ok: false, error: "userId-required-for-personPath" });
     return;
@@ -137,6 +142,7 @@ export async function handleUsersAddRule(context: RepoCliContext): Promise<void>
   const { args, cleanText, nowIso, output } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
+  context.logInfo(`users:add-rule: updating user ${effectiveUserId ?? "unknown"}`);
   if (!effectiveUserId) {
     output({ ok: false, error: "userId-required-for-rule" });
     return;
@@ -156,6 +162,7 @@ export async function handleUsersSetRules(context: RepoCliContext): Promise<void
   const { args, nowIso, output } = context;
   context.requireAdminRequester();
   const { effectiveUserId } = resolveEffectiveUser(context);
+  context.logInfo(`users:set-rules: replacing rules for user ${effectiveUserId ?? "unknown"}`);
   if (!effectiveUserId) {
     output({ ok: false, error: "userId-required-for-rules" });
     return;

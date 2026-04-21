@@ -34,6 +34,9 @@ export type RepoCliContext = {
   };
   usersDoc: () => { users: Record<string, Record<string, unknown>> };
   logTextContent: (text: string) => string;
+  logInfo: (message: string) => void;
+  logWarn: (message: string) => void;
+  logError: (message: string) => void;
 };
 
 export function nowIso(): string {
@@ -81,7 +84,7 @@ export function summarizeArgsForLog(value: unknown): string {
   }
 }
 
-export function appendCliLogLine(config: AppConfig, level: "INFO" | "ERROR", message: string): void {
+export function appendCliLogLine(config: AppConfig, level: "INFO" | "WARN" | "ERROR", message: string): void {
   const line = `[${new Date().toISOString()}] [${level}] ${message}\n`;
   try {
     mkdirSync(path.dirname(config.paths.logFile), { recursive: true });
@@ -89,6 +92,16 @@ export function appendCliLogLine(config: AppConfig, level: "INFO" | "ERROR", mes
   } catch {
     // ignore file logging failures
   }
+}
+
+export function emitCliTerminalLine(config: AppConfig, level: "INFO" | "WARN" | "ERROR", message: string): void {
+  const line = `[repo-cli] ${message}`;
+  try {
+    process.stderr.write(`${line}\n`);
+  } catch {
+    // ignore terminal logging failures
+  }
+  appendCliLogLine(config, level, `repo cli terminal ${message}`);
 }
 
 export async function initializeRepoCli(args: CliArgs): Promise<RepoCliContext> {
@@ -149,6 +162,9 @@ export async function initializeRepoCli(args: CliArgs): Promise<RepoCliContext> 
     resolveUserLookup,
     usersDoc,
     logTextContent,
+    logInfo: (message: string) => emitCliTerminalLine(config, "INFO", message),
+    logWarn: (message: string) => emitCliTerminalLine(config, "WARN", message),
+    logError: (message: string) => emitCliTerminalLine(config, "ERROR", message),
   };
 }
 
@@ -170,6 +186,7 @@ export async function addPendingAuthorization(context: RepoCliContext): Promise<
   const { args, output, requireAdminRequester, cleanText, asInt, nowIso, config } = context;
   requireAdminRequester();
   const username = cleanText(args.username);
+  context.logInfo(`auth:add-pending: creating pending authorization for ${username || "unknown"}`);
   const createdBy = asInt(args.createdBy);
   const expiresAt = resolvePendingAuthorizationExpiresAt(args);
   if (!username || !createdBy) output({ ok: false, error: "missing-username-or-createdBy" });

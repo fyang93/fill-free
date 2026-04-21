@@ -89,6 +89,7 @@ export async function handleTelegramResolveRecipient(context: RepoCliContext): P
   const displayName = context.cleanText(context.args.displayName);
   const title = context.cleanText(context.args.title);
   const targetLabel = username ? `@${username}` : displayName || title || (typeof directId === "number" ? String(directId) : "?");
+  context.logInfo(`telegram:resolve-recipient: looking up ${targetLabel}`);
   const matchedChats = findTelegramChats({ id: directId, username, title, displayName }).filter((chat) => chat.type !== "private");
   const matchedUsers = findTelegramUsers({ id: directId, username, displayName }, listAuthorizedUserIds(context.config));
   const candidates = [
@@ -99,8 +100,10 @@ export async function handleTelegramResolveRecipient(context: RepoCliContext): P
     context.output({ ok: true, status: "resolved", ...candidates[0] });
   }
   if (candidates.length > 1) {
+    context.logWarn(`telegram:resolve-recipient: ambiguous match for ${targetLabel}`);
     context.output({ ok: false, status: "ambiguous", error: "ambiguous-recipient", targetLabel, candidates: candidates.slice(0, 10) });
   }
+  context.logWarn(`telegram:resolve-recipient: no match for ${targetLabel}`);
   context.output({ ok: false, status: "not_found", error: "recipient-not-found", targetLabel });
 }
 
@@ -108,6 +111,7 @@ export async function handleTelegramSendMessage(context: RepoCliContext): Promis
   const content = context.cleanText(context.args.content);
   if (!content) context.output({ ok: false, error: "missing-content" });
   const { recipientId, recipientLabel, mode } = resolveImmediateMessageRecipient(context);
+  context.logInfo(`telegram:send-message: sending to ${recipientLabel}`);
   await logger.info(`telegram tool send_message mode=${mode} recipient=${recipientLabel} chars=${content.length} content=${context.logTextContent(content)}`);
   const result = await deliverTelegramMessage(context, recipientId, content, recipientLabel);
   await logger.info(`telegram tool send_message delivered mode=${mode} recipient=${recipientLabel} messageId=${result.messageId ?? "unknown"}`);
@@ -120,6 +124,7 @@ export async function handleTelegramScheduleMessage(context: RepoCliContext): Pr
   const content = context.cleanText(context.args.content);
   const sendAt = context.cleanText(context.args.sendAt);
   if (!content || !sendAt) context.output({ ok: false, error: "missing-content-or-sendAt" });
+  context.logInfo(`telegram:schedule-message: scheduling for ${recipientLabel} at ${sendAt}`);
   return await scheduleTelegramMessage(context, recipientId, content, sendAt, recipientLabel, requesterUserId);
 }
 
@@ -128,5 +133,6 @@ export async function handleTelegramSendFile(context: RepoCliContext): Promise<n
   const { recipientId, recipientLabel } = resolveTelegramRecipient(context);
   const filePath = context.cleanText(context.args.filePath);
   if (!filePath) context.output({ ok: false, error: "missing-filePath" });
+  context.logInfo(`telegram:send-file: sending ${filePath} to ${recipientLabel}`);
   context.output(await deliverTelegramFile(context, recipientId, filePath, context.cleanText(context.args.caption), recipientLabel));
 }

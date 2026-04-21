@@ -89,6 +89,7 @@ function serializeEventForCli(context: RepoCliContext, event: EventRecord): Reco
 export async function handleEventsList(context: RepoCliContext): Promise<void> {
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const accessLevel = accessLevelForUser(context.config, requesterUserId);
+  context.logInfo(`events:list: loading visible events for requester ${requesterUserId ?? "unknown"}`);
   if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
   const events = (await readEventRecords(context.config)).filter((event) => event.status !== "deleted");
   const visible = canManageAllSchedules(accessLevel)
@@ -105,6 +106,7 @@ export async function handleEventsGet(context: RepoCliContext): Promise<void> {
   const eventId = context.cleanText(context.args.eventId);
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const accessLevel = accessLevelForUser(context.config, requesterUserId);
+  context.logInfo(`events:get: resolving event${eventId ? ` ${eventId}` : " by match"}`);
   if (!canReadSchedules(accessLevel)) context.output({ ok: false, error: "schedule-read-not-allowed" });
   if (eventId) {
     const events = await readEventRecords(context.config);
@@ -142,6 +144,7 @@ export async function handleEventsCreate(context: RepoCliContext): Promise<void>
   const targetUserId = asInt(args.targetUserId) || requesterUserId;
   const targetChatId = asInt(args.targetChatId);
   const schedule = parseObjectArg(args.schedule);
+  context.logInfo(`events:create: creating ${title || "untitled event"}`);
   await logger.info(`system tool schedules_create request hasTitle=${title ? "yes" : "no"} hasSchedule=${schedule ? "yes" : "no"} scheduleKind=${typeof schedule?.kind === "string" ? schedule.kind : typeof schedule?.datetime === "string" ? "datetime" : "unknown"} targetUserId=${targetUserId ?? "unknown"} targetChatId=${targetChatId ?? "unknown"} note=${note ? logTextContent(note) : '""'}`);
   if (!title || !schedule || (!targetUserId && targetChatId == null)) output({ ok: false, error: "missing-title-schedule-or-target", details: { hasTitle: Boolean(title), hasSchedule: Boolean(schedule), hasTarget: Boolean(targetUserId || targetChatId != null) } });
 
@@ -186,6 +189,7 @@ export async function handleEventMutation(context: RepoCliContext, operation: "u
   const requesterUserId = context.asInt(context.args.requesterUserId);
   const match = context.parseObjectArg(context.args.match) || {};
   const changes = context.parseObjectArg(context.args.changes) || {};
+  context.logInfo(`events:${operation}: applying request`);
   if (operation === "update") {
     const title = context.cleanText(context.args.title);
     const note = context.cleanText(context.args.note);
@@ -224,6 +228,7 @@ export async function handleEventMutation(context: RepoCliContext, operation: "u
     updatedAt: context.nowIso(),
   });
   if (result.skipped) {
+    context.logWarn(`events:${operation}: skipped`);
     context.output({ ok: false, error: typeof result.reason === "string" && result.reason ? result.reason : `schedule-${operation}-failed`, ...result });
   }
   const events = result.eventIds && result.eventIds.length > 0

@@ -16,7 +16,10 @@ export function buildPersonaStyleLines(personaStyle?: string, options?: { label?
 function assistantSystemGuidance(): string[] {
   return [
     "Use repo CLI + skills for deterministic work.",
-    "Treat deterministic success signals such as ok: true as the source of truth for completed actions.",
+    "Base your understanding on the command's actual outcome, not on guesses.",
+    "You may use concise terminal logs to understand progress or where something failed.",
+    "Never quote machine-readable receipts, status fields, or terminal logs in the user-visible reply.",
+    "Describe the confirmed user-relevant result in natural language instead of internal execution details.",
     "Never write under system/ except approved deterministic interfaces.",
     "Do not mention internal tools, commands, or paths unless the user asked.",
   ];

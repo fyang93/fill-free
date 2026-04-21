@@ -126,7 +126,7 @@ describe("message delivery flow", () => {
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
       expect(exitCode).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain("[repo-cli]");
       expect(JSON.parse(stdout)).toEqual({ ok: false, error: "missing-recipientId-for-message" });
     } finally {
       process.chdir(originalCwd);
@@ -146,7 +146,7 @@ describe("message delivery flow", () => {
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
       expect(exitCode).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain("[repo-cli]");
       expect(JSON.parse(stdout)).toEqual({ ok: false, error: "outbound-delivery-not-allowed" });
     } finally {
       process.chdir(originalCwd);
@@ -185,7 +185,7 @@ describe("message delivery flow", () => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       expect(await proc.exited).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain("[repo-cli]");
       const jsonStart = stdout.lastIndexOf("\n{") >= 0 ? stdout.lastIndexOf("\n{") + 1 : stdout.indexOf("{");
       const parsed = JSON.parse(stdout.slice(jsonStart));
       expect(parsed.ok).toBe(true);
@@ -208,7 +208,7 @@ describe("message delivery flow", () => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       expect(await proc.exited).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain("[repo-cli]");
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(typeof parsed.expiresAt).toBe("string");
@@ -233,7 +233,7 @@ describe("message delivery flow", () => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       expect(await proc.exited).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain("[repo-cli]");
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       const expiresAtMs = Date.parse(parsed.expiresAt);
@@ -255,7 +255,7 @@ describe("message delivery flow", () => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       expect(await proc.exited).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain("[repo-cli]");
       expect(JSON.parse(stdout)).toEqual({ ok: false, error: "invalid-expiresAt" });
     } finally {
       process.chdir(originalCwd);
@@ -277,7 +277,7 @@ describe("message delivery flow", () => {
       const chatStdout = await new Response(chatProc.stdout).text();
       const chatStderr = await new Response(chatProc.stderr).text();
       expect(await chatProc.exited).toBe(0);
-      expect(chatStderr).toBe("");
+      expect(chatStderr).toContain("[repo-cli]");
       expect(JSON.parse(chatStdout)).toEqual({ ok: true, status: "resolved", recipientKind: "chat", recipientId: -1003674455331, recipientLabel: "锅巴之家" });
 
       const userProc = Bun.spawn(["bun", cliPath, "telegram:resolve-recipient", JSON.stringify({ displayName: "Admin Test" })], {
@@ -288,7 +288,7 @@ describe("message delivery flow", () => {
       const userStdout = await new Response(userProc.stdout).text();
       const userStderr = await new Response(userProc.stderr).text();
       expect(await userProc.exited).toBe(0);
-      expect(userStderr).toBe("");
+      expect(userStderr).toContain("[repo-cli]");
       expect(JSON.parse(userStdout)).toEqual({ ok: true, status: "resolved", recipientKind: "user", recipientId: 1, recipientLabel: "Admin Test (@admin_test)" });
     } finally {
       process.chdir(originalCwd);
