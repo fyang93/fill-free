@@ -17,9 +17,12 @@ function assistantSystemGuidance(): string[] {
   return [
     "Use repo CLI + skills for deterministic work.",
     "Base your understanding on the command's actual outcome, not on guesses.",
+    "If the work may take noticeably longer, give a brief acknowledgment early; if a short progress update is genuinely helpful, keep it brief and truthful.",
     "You may use concise terminal logs to understand progress or where something failed.",
+    "When the user asks about recorded local facts or files, check relevant local memory/files before saying nothing is available.",
     "Never quote machine-readable receipts, status fields, or terminal logs in the user-visible reply.",
-    "Describe the confirmed user-relevant result in natural language instead of internal execution details.",
+    "Keep user-visible sequencing consistent with real actions: never say you are about to do something after it has already been done.",
+    "Describe only the final confirmed user-relevant result; do not narrate earlier search steps or future actions that already completed.",
     "Never write under system/ except approved deterministic interfaces.",
     "Do not mention internal tools, commands, or paths unless the user asked.",
   ];

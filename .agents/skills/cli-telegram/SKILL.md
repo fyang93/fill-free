@@ -24,11 +24,15 @@ Commands:
 - Resolve the recipient first when the target is ambiguous.
 - Use `telegram:send-message` for immediate Telegram delivery when the target is known.
 - Use `telegram:send-file` only when a real repository file path exists.
+- If the user asks for a file that may already be stored locally, inspect the relevant local memory entry point and linked paths first before saying it is unavailable.
 - Use `telegram:schedule-message` for future delivery.
 - Principle: default Telegram publication to the current conversation. If the user is talking to the bot here, replies and returned files should default here unless the user explicitly asked for a different recipient.
 - The runtime already owns ordinary current-turn final reply publication. Do not use `telegram:send-message` merely to duplicate the same final reply text to the same current chat/user.
+- If the work is slow or complex, a brief early acknowledgment or occasional short progress update in the current conversation is acceptable when it genuinely improves the workflow; keep it sparse and truthful.
 - Message/file delivery is still not outbound-only: use this shared Telegram delivery capability when the task truly requires an actual Telegram send event beyond the runtime's ordinary final reply publication.
 - Same-chat current-turn file return may still need this skill when the user expects the file to be actually sent in Telegram rather than only referenced in text.
+- When this skill sends files or messages to the current conversation during the same turn, keep later user-visible text temporally consistent with what already happened. Do not say you are about to send something after it has already been sent.
+- For slow same-turn file delivery in the current conversation, prefer: brief acknowledgment first if needed, then the actual send, then a concise post-delivery confirmation.
 - For same-turn file return or extra delivery, the current chat is the default recipient unless the user explicitly asked for some other target.
 - In groups/supergroups, do not silently switch a same-turn returned file or extra delivery to the requester's private chat unless the user explicitly asked for a private delivery.
 - Extra same-chat messages are acceptable when the workflow genuinely benefits from them, but avoid duplicate chatter and do not fight the runtime's waiting/progress behavior.

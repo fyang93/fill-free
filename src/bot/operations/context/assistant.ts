@@ -65,6 +65,7 @@ export async function buildAssistantContextBlock(config: AppConfig, input: Assis
 
   const lines = [
     requesterUser?.personPath ? `Requester person path: ${requesterUser.personPath}` : "",
+    requesterUser?.personPath ? "For requester-specific recorded facts or files, start from that path before saying nothing is recorded." : "",
     "Assistant context JSON:",
     "```json",
     JSON.stringify(payload, null, 2),
